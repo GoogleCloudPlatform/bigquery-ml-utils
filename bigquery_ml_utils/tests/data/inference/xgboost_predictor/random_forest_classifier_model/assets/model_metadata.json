@@ -1,0 +1,15 @@
+{
+   "class_names" : [ "3", "2", "1" ],
+   "feature_names" : [ "f1", "f2", "f3" ],
+   "features" : {
+      "f1" : {
+         "encode_type" : "ohe"
+      },
+      "f2" : {
+         "encode_type" : "ohe"
+      },
+      "f3" : {}
+   },
+   "label_col" : "label",
+   "model_type" : "random_forest_classifier"
+}

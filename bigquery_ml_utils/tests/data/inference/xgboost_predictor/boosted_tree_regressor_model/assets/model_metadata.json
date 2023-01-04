@@ -1,0 +1,10 @@
+{
+  "model_type":"boosted_tree_regressor",
+  "label_col":"label",
+  "feature_names":["f1", "f2", "f3"],
+  "features":{
+    "f1":{"encode_type":"ohe"},
+    "f2":{"encode_type":"mhe"},
+    "f3":{}
+  }
+}

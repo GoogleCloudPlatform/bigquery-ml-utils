@@ -1,0 +1,16 @@
+{
+   "class_names" : [ "eee", "ddd", "ccc", "bbb", "aaa" ],
+   "feature_names" : [ "f1", "f2", "string_col", "array_col" ],
+   "features" : {
+      "array_col" : {
+         "encode_type" : "mhe"
+      },
+      "f1" : {},
+      "f2" : {},
+      "string_col" : {
+         "encode_type" : "ohe"
+      }
+   },
+   "label_col" : "label_cls",
+   "model_type" : "boosted_tree_classifier"
+}

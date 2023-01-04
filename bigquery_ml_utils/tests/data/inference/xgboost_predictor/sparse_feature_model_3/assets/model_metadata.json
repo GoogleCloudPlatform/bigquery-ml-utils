@@ -1,0 +1,18 @@
+{
+   "class_names" : [ "2", "1" ],
+   "feature_names" : [ "f1", "f2", "f3", "f4" ],
+   "features" : {
+      "f1" : {},
+      "f2" : {
+         "encode_type" : "ohe"
+      },
+      "f3" : {
+         "encode_type" : "mhe"
+      },
+      "f4" : {
+         "encode_type" : "array_struct"
+      }
+   },
+   "label_col" : "label",
+   "model_type" : "boosted_tree_classifier"
+}
