@@ -22,7 +22,7 @@ import sys
 
 from absl import flags
 from absl.testing import absltest
-from bigquery_ml_utils.inference.xgboost_predictor import predictor
+from bigquery_ml_utils import xgboost_predictor
 import mock
 import numpy as np
 import xgboost as xgb
@@ -44,7 +44,7 @@ class PredictorTest(absltest.TestCase):
             'tests/data/inference/xgboost_predictor/boosted_tree_regressor_model'
         )
     )
-    test_predictor = predictor.Predictor.from_path(model_path)
+    test_predictor = xgboost_predictor.Predictor.from_path(model_path)
     predict_output = test_predictor.predict([{
         'f1': 'b',
         'f3': 3,
@@ -63,7 +63,7 @@ class PredictorTest(absltest.TestCase):
             'tests/data/inference/xgboost_predictor/boosted_tree_classifier_model'
         )
     )
-    test_predictor = predictor.Predictor.from_path(model_path)
+    test_predictor = xgboost_predictor.Predictor.from_path(model_path)
     predict_output = test_predictor.predict([{
         'f1': 'b',
         'f3': 3,
@@ -96,7 +96,7 @@ class PredictorTest(absltest.TestCase):
             'tests/data/inference/xgboost_predictor/random_forest_regressor_model'
         )
     )
-    test_predictor = predictor.Predictor.from_path(model_path)
+    test_predictor = xgboost_predictor.Predictor.from_path(model_path)
     predict_output = test_predictor.predict([{
         'f1': 'a',
         'f3': 6,
@@ -115,7 +115,7 @@ class PredictorTest(absltest.TestCase):
             'tests/data/inference/xgboost_predictor/random_forest_classifier_model'
         )
     )
-    test_predictor = predictor.Predictor.from_path(model_path)
+    test_predictor = xgboost_predictor.Predictor.from_path(model_path)
     predict_output = test_predictor.predict([{
         'f1': 'a',
         'f3': 6,
@@ -141,7 +141,7 @@ class PredictorTest(absltest.TestCase):
             'tests/data/inference/xgboost_predictor/target_encode_model'
         )
     )
-    test_predictor = predictor.Predictor.from_path(model_path)
+    test_predictor = xgboost_predictor.Predictor.from_path(model_path)
     predict_output = test_predictor.predict([{
         'f1': 'b',
         'f3': 'c',
@@ -170,7 +170,7 @@ class PredictorTest(absltest.TestCase):
             'tests/data/inference/xgboost_predictor/target_encode_model'
         )
     )
-    test_predictor = predictor.Predictor.from_path(model_path)
+    test_predictor = xgboost_predictor.Predictor.from_path(model_path)
     _ = test_predictor.predict([{
         'f1': 'b',
         'f3': 'c',
@@ -199,7 +199,7 @@ class PredictorTest(absltest.TestCase):
             'tests/data/inference/xgboost_predictor/sparse_feature_model'
         )
     )
-    test_predictor = predictor.Predictor.from_path(model_path)
+    test_predictor = xgboost_predictor.Predictor.from_path(model_path)
     predict_output = test_predictor.predict([{
         'f1': 'b',
         'f3': 3,
@@ -218,7 +218,7 @@ class PredictorTest(absltest.TestCase):
             'tests/data/inference/xgboost_predictor/sparse_feature_model_2'
         )
     )
-    test_predictor = predictor.Predictor.from_path(model_path)
+    test_predictor = xgboost_predictor.Predictor.from_path(model_path)
     predict_output = test_predictor.predict([{
         'f1': 'b',
         'f2': [(1, 1.0), (4, 3.0)]
@@ -235,7 +235,7 @@ class PredictorTest(absltest.TestCase):
             'tests/data/inference/xgboost_predictor/sparse_feature_model_3'
         )
     )
-    test_predictor = predictor.Predictor.from_path(model_path)
+    test_predictor = xgboost_predictor.Predictor.from_path(model_path)
     predict_output = test_predictor.predict([{
         'f1': 1.0,
         'f2': 'a',
@@ -263,7 +263,7 @@ class PredictorTest(absltest.TestCase):
             'tests/data/inference/xgboost_predictor/sparse_feature_model_3'
         )
     )
-    test_predictor = predictor.Predictor.from_path(model_path)
+    test_predictor = xgboost_predictor.Predictor.from_path(model_path)
     _ = test_predictor.predict([{
         'f1': 1.0,
         'f2': 'a',

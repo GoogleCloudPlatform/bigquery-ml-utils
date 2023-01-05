@@ -22,7 +22,7 @@ with open('README.md') as fp:
 
 setuptools.setup(
     name='bigquery_ml_utils',
-    version='0.0.1',
+    version='0.0.2',
     description='BigQuery ML Utils',
     long_description=_LONG_DESCRIPTION,
     long_description_content_type='text/markdown',

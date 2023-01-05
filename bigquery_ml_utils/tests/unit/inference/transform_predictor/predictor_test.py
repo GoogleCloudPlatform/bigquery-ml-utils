@@ -18,7 +18,7 @@ from typing import Any
 
 from absl import flags
 from absl.testing import absltest
-from bigquery_ml_utils.inference.transform_predictor import predictor
+from bigquery_ml_utils import transform_predictor
 import tensorflow as tf
 
 # pylint: disable=g-import-not-at-top
@@ -68,7 +68,7 @@ class PredictorTest(absltest.TestCase):
             'tests/data/inference/transform_predictor/linear_reg_model'
         )
     )
-    test_predictor = predictor.Predictor.from_path(model_path)
+    test_predictor = transform_predictor.Predictor.from_path(model_path)
     self._validate_prediction_results(
         test_predictor.predict([{
             'f1': 1,
@@ -86,7 +86,7 @@ class PredictorTest(absltest.TestCase):
             'tests/data/inference/transform_predictor/boosted_tree_classifier_model'
         )
     )
-    test_predictor = predictor.Predictor.from_path(model_path)
+    test_predictor = transform_predictor.Predictor.from_path(model_path)
     self._validate_prediction_results(
         test_predictor.predict([{
             'f1': 1,
@@ -118,7 +118,7 @@ class PredictorTest(absltest.TestCase):
             'tests/data/inference/transform_predictor/dnn_classifier_model'
         )
     )
-    test_predictor = predictor.Predictor.from_path(model_path)
+    test_predictor = transform_predictor.Predictor.from_path(model_path)
     self._validate_prediction_results(
         test_predictor.predict([{
             'f1': 1,
@@ -152,7 +152,7 @@ class PredictorTest(absltest.TestCase):
             'tests/data/inference/transform_predictor/linear_reg_model'
         )
     )
-    test_predictor = predictor.Predictor.from_path(model_path)
+    test_predictor = transform_predictor.Predictor.from_path(model_path)
     with self.assertRaisesRegex(TypeError, 'missing required arguments: f1'):
       test_predictor.predict([{
           'f2': 2.5,
@@ -165,7 +165,7 @@ class PredictorTest(absltest.TestCase):
             'tests/data/inference/transform_predictor/linear_reg_model'
         )
     )
-    test_predictor = predictor.Predictor.from_path(model_path)
+    test_predictor = transform_predictor.Predictor.from_path(model_path)
     with self.assertRaisesRegex(
         ValueError, '"extra_feature" in not an input of the TRANSFORM.'):
       test_predictor.predict([{'extra_feature': 1}])
@@ -176,7 +176,7 @@ class PredictorTest(absltest.TestCase):
             'tests/data/inference/transform_predictor/linear_reg_model'
         )
     )
-    test_predictor = predictor.Predictor.from_path(model_path)
+    test_predictor = transform_predictor.Predictor.from_path(model_path)
     with self.assertRaises(TypeError):
       test_predictor.predict([{'f1': 1.5}])
 
@@ -186,7 +186,7 @@ class PredictorTest(absltest.TestCase):
             'tests/data/inference/transform_predictor/linear_reg_model'
         )
     )
-    test_predictor = predictor.Predictor.from_path(model_path)
+    test_predictor = transform_predictor.Predictor.from_path(model_path)
     with self.assertRaisesRegex(tf.errors.InvalidArgumentError,
                                 'Ranks of all input tensors should match'):
       test_predictor.predict([{
