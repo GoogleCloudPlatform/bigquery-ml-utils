@@ -14,15 +14,16 @@
 
 """Install BigQuery ML Utils."""
 
-import setuptools
+from setuptools import find_packages
+from setuptools import setup
 
 # Get the long description from the README file.
 with open('README.md') as fp:
   _LONG_DESCRIPTION = fp.read()
 
-setuptools.setup(
+setup(
     name='bigquery_ml_utils',
-    version='0.0.2',
+    version='0.0.4',
     description='BigQuery ML Utils',
     long_description=_LONG_DESCRIPTION,
     long_description_content_type='text/markdown',
@@ -30,7 +31,7 @@ setuptools.setup(
     author_email='no-reply@google.com',
     url='https://github.com/GoogleCloudPlatform/bigquery-ml-utils',
     license='Apache 2.0',
-    packages=['bigquery_ml_utils'],
+    packages=find_packages(exclude=['tests']),
     install_requires=['absl-py', 'xgboost', 'numpy', 'tensorflow'],
     keywords='bqml utils',
 )
