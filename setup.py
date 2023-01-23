@@ -31,7 +31,7 @@ setup(
     author_email='no-reply@google.com',
     url='https://github.com/GoogleCloudPlatform/bigquery-ml-utils',
     license='Apache 2.0',
-    packages=find_packages(exclude=['tests']),
+    packages=find_packages(exclude=['tests', 'notebooks']),
     install_requires=['absl-py', 'xgboost', 'numpy', 'tensorflow'],
     keywords='bqml utils',
 )
