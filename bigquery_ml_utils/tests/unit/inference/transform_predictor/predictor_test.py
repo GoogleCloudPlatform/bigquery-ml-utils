@@ -153,7 +153,7 @@ class PredictorTest(absltest.TestCase):
         )
     )
     test_predictor = transform_predictor.Predictor.from_path(model_path)
-    with self.assertRaisesRegex(TypeError, 'missing required arguments: f1'):
+    with self.assertRaisesRegex(TypeError, 'missing.*required argument.*f1'):
       test_predictor.predict([{
           'f2': 2.5,
           'f3': 'a',
