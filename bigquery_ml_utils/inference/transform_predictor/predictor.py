@@ -29,10 +29,8 @@ class Predictor:
   """
 
   def __init__(
-      self,
-      transform_savedmodel: tf.Module,
-      model_tensorflow: Optional[tf.Module] = None,
-      model_xgboost: Optional[bqml_xgboost_predictor.Predictor] = None):
+      self, transform_savedmodel, model_tensorflow=None, model_xgboost=None
+  ):
     """Initializes a Predictor to serve BQML models trained with TRANSFORM.
 
     Args:
@@ -49,8 +47,7 @@ class Predictor:
     # Number of input in the Predict call.
     self._num_input = 0
 
-  def _get_transform_result(
-      self, raw_input: list[dict[str, Any]]) -> dict[str, tf.Tensor]:
+  def _get_transform_result(self, raw_input):
     """Gets the TRANSFORM result from the raw input data.
 
     Args:
@@ -73,8 +70,7 @@ class Predictor:
       transform_input[key] = tf.constant(value, input_signature[key].dtype)
     return infer(**transform_input)
 
-  def _get_tf_model_result(self,
-                           transform_result: dict[str, tf.Tensor]) -> list[Any]:
+  def _get_tf_model_result(self, transform_result):
     """Gets the model result from the TRANSFORM result for tensorflow models.
 
     Args:
@@ -124,8 +120,7 @@ class Predictor:
           output[i][key] = value
     return output
 
-  def _get_xgboost_model_result(
-      self, transform_result: dict[str, tf.Tensor]) -> list[Any]:
+  def _get_xgboost_model_result(self, transform_result):
     """Gets the model result from the TRANSFORM result for xgboost models.
 
     Args:
@@ -156,8 +151,7 @@ class Predictor:
           xgb_model_input[i][key] = value
     return self._model_xgboost.predict(xgb_model_input)
 
-  def _get_model_result(self, transform_result: dict[str,
-                                                     tf.Tensor]) -> list[Any]:
+  def _get_model_result(self, transform_result):
     """Gets the model result from the TRANSFORM result.
 
     Args:
@@ -172,7 +166,7 @@ class Predictor:
 
     return self._get_xgboost_model_result(transform_result)
 
-  def predict(self, raw_input: list[dict[str, Any]], **kwargs) -> list[Any]:
+  def predict(self, raw_input, **kwargs):
     """Performs prediction.
 
     Args:
@@ -188,7 +182,7 @@ class Predictor:
     return self._get_model_result(self._get_transform_result(raw_input))
 
   @classmethod
-  def from_path(cls, model_dir: str) -> 'Predictor':
+  def from_path(cls, model_dir):
     """Creates an instance of Predictor using the given path.
 
     Args:
