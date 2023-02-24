@@ -146,6 +146,49 @@ class PredictorTest(absltest.TestCase):
             'classes': ['bbb']
         }])
 
+  def test_dnn_classifier_different_signature(self):
+    model_path = str(
+        importlib_resources.files('bigquery_ml_utils').joinpath(
+            'tests/data/inference/transform_predictor/'
+            'dnn_classifier_model_predict_signature'
+        )
+    )
+    test_predictor = transform_predictor.Predictor.from_path(model_path)
+    self._validate_prediction_results(
+        test_predictor.predict([
+            {
+                'f1': -4.581,
+                'f2': 30.11,
+                'f3': 'eee',
+            },
+            {
+                'f1': -0.402,
+                'f2': 5.87,
+                'f3': 'aaa',
+            },
+        ]),
+        [
+            {
+                'classes': ['eee'],
+                'all_class_ids': [0, 1],
+                'probabilities': [0.5004999041557312, 0.499500036239624],
+                'logistic': [0.4995000660419464],
+                'class_ids': [0],
+                'all_classes': ['eee', 'aaa'],
+                'logits': [-0.001999711152166128],
+            },
+            {
+                'logistic': [0.7926387786865234],
+                'classes': ['aaa'],
+                'logits': [1.3409056663513184],
+                'all_classes': ['eee', 'aaa'],
+                'probabilities': [0.2073611617088318, 0.7926388382911682],
+                'class_ids': [1],
+                'all_class_ids': [0, 1],
+            },
+        ],
+    )
+
   def test_missing_input_feature(self):
     model_path = str(
         importlib_resources.files('bigquery_ml_utils').joinpath(

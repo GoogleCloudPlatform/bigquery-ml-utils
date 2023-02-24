@@ -88,7 +88,12 @@ class Predictor:
       if value.dtype == tf.int64:
         model_input[key] = tf.cast(value, tf.float64)
 
-    infer = self._model_tensorflow.signatures['serving_default']
+    infer = None
+    if 'predict' in self._model_tensorflow.signatures:
+      # By default, BQML DNN model is exported with 'predict' signature.
+      infer = self._model_tensorflow.signatures['predict']
+    else:
+      infer = self._model_tensorflow.signatures['serving_default']
     inference_result = infer(**model_input)
 
     # If the inference_result of the model contains only one named tensor, we
