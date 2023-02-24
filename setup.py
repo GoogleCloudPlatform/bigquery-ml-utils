@@ -23,7 +23,7 @@ with open('README.md') as fp:
 
 setup(
     name='bigquery_ml_utils',
-    version='0.0.4',
+    version='0.0.7',
     description='BigQuery ML Utils',
     long_description=_LONG_DESCRIPTION,
     long_description_content_type='text/markdown',

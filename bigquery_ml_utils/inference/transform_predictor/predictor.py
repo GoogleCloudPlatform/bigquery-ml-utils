@@ -41,6 +41,7 @@ class Predictor:
     Returns:
       A 'Predictor' instance.
     """
+    tf.compat.v1.enable_eager_execution()
     self._transform_savedmodel = transform_savedmodel
     self._model_tensorflow = model_tensorflow
     self._model_xgboost = model_xgboost
@@ -182,7 +183,6 @@ class Predictor:
     Returns:
       A dict containing the prediction results.
     """
-    tf.config.run_functions_eagerly(True)
     del kwargs
     self._num_input = len(raw_input)
     return self._get_model_result(self._get_transform_result(raw_input))
