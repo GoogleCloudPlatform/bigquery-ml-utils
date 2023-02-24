@@ -182,6 +182,7 @@ class Predictor:
     Returns:
       A dict containing the prediction results.
     """
+    tf.config.run_functions_eagerly(True)
     del kwargs
     self._num_input = len(raw_input)
     return self._get_model_result(self._get_transform_result(raw_input))
