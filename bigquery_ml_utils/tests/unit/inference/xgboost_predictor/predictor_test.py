@@ -281,6 +281,66 @@ class PredictorTest(absltest.TestCase):
     np.testing.assert_array_equal(
         np.array(encoded, dtype=float), mock_xgb.DMatrix.call_args[0][0])
 
+  def test_boosted_tree_regressor_mixed_features(self):
+    model_path = str(
+        importlib_resources.files('bigquery_ml_utils').joinpath(
+            'tests/data/inference/xgboost_predictor/'
+            'boosted_tree_mixed_feature_model'
+        )
+    )
+    test_predictor = xgboost_predictor.Predictor.from_path(model_path)
+    predict_output = test_predictor.predict([
+        {
+            'f1': 'a',
+            'f2_foo': 'k',
+            'f2_bar': 'v',
+            'f3': [(1, 1.0), (3, 1.0)],
+            'f4': [1.0, 2.0, 3.0],
+        },
+        {
+            'f1': 'b',
+            'f2_foo': 'p',
+            'f2_bar': 'q',
+            'f3': [(2, 3.0), (4, 6.0)],
+            'f4': [3.0, 4.0, 5.0],
+        },
+    ])
+    self.assertEqual(0.9626126885414124, predict_output[0])
+    self.assertEqual(1.872970700263977, predict_output[1])
+
+  @mock.patch('bigquery_ml_utils.inference.xgboost_predictor.predictor.xgb')
+  def test_boosted_tree_regressor_mixed_features_encoded_input(self, mock_xgb):
+    model_path = str(
+        importlib_resources.files('bigquery_ml_utils').joinpath(
+            'tests/data/inference/xgboost_predictor/'
+            'boosted_tree_mixed_feature_model'
+        )
+    )
+    test_predictor = xgboost_predictor.Predictor.from_path(model_path)
+    _ = test_predictor.predict([
+        {
+            'f1': 'a',
+            'f2_foo': 'k',
+            'f2_bar': 'v',
+            'f3': [(0, 11.0), (3, 12.0)],
+            'f4': [10, 20, 30],
+        },
+        {
+            'f1': 'b',
+            'f2_foo': 'p',
+            'f2_bar': 'q',
+            'f3': [(1, 13.0), (4, 13.0)],
+            'f4': [15, 25, 35],
+        },
+    ])
+    encoded = [
+        [1.0, 1.0, 2.0, 11.0, None, None, 12.0, None, 10.0, 20.0, 30.0],
+        [2.0, 2.0, 1.0, None, 13.0, None, None, 13.0, 15.0, 25.0, 35.0],
+    ]
+    np.testing.assert_array_equal(
+        np.array(encoded, dtype=float), mock_xgb.DMatrix.call_args[0][0]
+    )
+
 
 if __name__ == '__main__':
   absltest.main()

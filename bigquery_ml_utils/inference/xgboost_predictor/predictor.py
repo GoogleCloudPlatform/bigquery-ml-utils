@@ -28,10 +28,18 @@ class Predictor(object):
   It performs both preprocessing and postprocessing on the input and output.
   """
 
-  def __init__(self, model, model_metadata, categorical_one_hot_vocab,
-               categorical_target_vocab, categorical_label_vocab,
-               array_one_hot_vocab, array_target_vocab,
-               array_struct_dimension_dict):
+  def __init__(
+      self,
+      model,
+      model_metadata,
+      categorical_one_hot_vocab,
+      categorical_target_vocab,
+      categorical_label_vocab,
+      array_one_hot_vocab,
+      array_target_vocab,
+      array_struct_dimension_dict,
+      array_numerical_length_dict,
+  ):
     """Initializes a Predictor for XGBoost model serving.
 
     Args:
@@ -43,6 +51,7 @@ class Predictor(object):
       array_one_hot_vocab: dict for one-hot encode array features.
       array_target_vocab: dict for target encode array features.
       array_struct_dimension_dict: dict for array struct dimensions.
+      array_numerical_length_dict: dict for array numerical lengths.
 
     Returns:
       A 'Predictor' instance.
@@ -55,6 +64,7 @@ class Predictor(object):
     self._array_one_hot_vocab = array_one_hot_vocab
     self._array_target_vocab = array_target_vocab
     self._array_struct_dimension_dict = array_struct_dimension_dict
+    self._array_numerical_length_dict = array_numerical_length_dict
     self._model_type = None
     self._label_col = None
     self._feature_name_to_index_map = {}
@@ -134,6 +144,15 @@ class Predictor(object):
           raise ValueError(
               'feature_index %d missing in _array_struct_dimension_dict' %
               feature_index)
+      elif feature_metadata['encode_type'] == 'array_numerical':
+        if (
+            self._array_numerical_length_dict
+            and feature_index not in self._array_numerical_length_dict
+        ):
+          raise ValueError(
+              'feature_index %d missing in _array_numerical_length_dict'
+              % feature_index
+          )
       else:
         raise ValueError('Invalid encode_type %s for feature %s' %
                          (feature_metadata['encode_type'], feature_name))
@@ -239,6 +258,18 @@ class Predictor(object):
                                (feature_name, row_index, dimension))
             array_struct_dense_vector[item[0]] = item[1]
           encoded_row.extend(array_struct_dense_vector)
+        elif (
+            self._array_numerical_length_dict
+            and feature_index in self._array_numerical_length_dict
+        ):
+          length = self._array_numerical_length_dict[feature_index]
+          if len(col) != length:
+            raise ValueError(
+                'The length of the array numerical feature %s '
+                'in row %d does not match '
+                'array_numerical_length.txt.' % (feature_name, row_index)
+            )
+          encoded_row.extend(np.array(col).astype(np.float64))
         else:
           # Numerical feature.
           # Treat empty string as 0 as XAI use empty string as baseline.
@@ -315,6 +346,7 @@ class Predictor(object):
     array_one_hot_vocab = {}
     array_target_vocab = {}
     array_struct_dimension_dict = {}
+    array_numerical_length_dict = {}
     for txt_file in txt_list:
       categorical_one_hot_found = re.search(r'(\d+)_categorical_one_hot.txt',
                                             txt_file)
@@ -328,6 +360,9 @@ class Predictor(object):
       array_target_found = re.search(r'(\d+)_array_target.txt', txt_file)
       array_struct_found = re.search(r'(\d+)_array_struct_dimension.txt',
                                      txt_file)
+      array_numerical_found = re.search(
+          r'(\d+)_array_numerical_length.txt', txt_file
+      )
       if categorical_one_hot_found:
         feature_index = int(categorical_one_hot_found.group(1))
         with open(txt_file) as f:
@@ -386,8 +421,26 @@ class Predictor(object):
             raise ValueError(
                 '%s does not have the right format for array struct dimension' %
                 (txt_file))
+      elif array_numerical_found:
+        feature_index = int(array_numerical_found.group(1))
+        with open(txt_file) as f:
+          try:
+            length = int(f.read().strip())
+            array_numerical_length_dict[feature_index] = length
+          except ValueError:
+            raise ValueError(
+                '%s does not have the right format for array numerical length'
+                % (txt_file)
+            )
 
-    return cls(model, model_metadata, categorical_one_hot_vocab,
-               categorical_target_vocab, categorical_label_vocab,
-               array_one_hot_vocab, array_target_vocab,
-               array_struct_dimension_dict)
+    return cls(
+        model,
+        model_metadata,
+        categorical_one_hot_vocab,
+        categorical_target_vocab,
+        categorical_label_vocab,
+        array_one_hot_vocab,
+        array_target_vocab,
+        array_struct_dimension_dict,
+        array_numerical_length_dict,
+    )

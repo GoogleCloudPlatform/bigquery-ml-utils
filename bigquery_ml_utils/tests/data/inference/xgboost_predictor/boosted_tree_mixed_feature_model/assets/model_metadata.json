@@ -1,0 +1,35 @@
+{
+	"feature_names" : 
+	[
+		"f1",
+		"f2_foo",
+		"f2_bar",
+		"f3",
+		"f4"
+	],
+	"features" : 
+	{
+		"f1" : 
+		{
+			"encode_type" : "ohe"
+		},
+		"f2_bar" : 
+		{
+			"encode_type" : "ohe"
+		},
+		"f2_foo" : 
+		{
+			"encode_type" : "ohe"
+		},
+		"f3" : 
+		{
+			"encode_type" : "array_struct"
+		},
+		"f4" : 
+		{
+			"encode_type" : "array_numerical"
+		}
+	},
+	"label_col" : "label",
+	"model_type" : "boosted_tree_regressor"
+}
