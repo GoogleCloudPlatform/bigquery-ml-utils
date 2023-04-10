@@ -1,0 +1,1099 @@
+//
+// Copyright 2023 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+
+syntax = "proto2";
+
+package bigquery_ml_utils;
+
+import "google/protobuf/descriptor.proto";
+
+// SQL language versions.
+// See (broken link) for more detail.
+//
+// A language version defines a stable set of features and required semantics.
+// LanguageVersion VERSION_x_y implicitly includes the LanguageFeatures below
+// named FEATURE_V_x_y_*.
+//
+// The features and behavior supported by an engine can be expressed as a
+// LanguageVersion plus a set of LanguageFeatures added on top of that version.
+//
+// New version numbers will be introduced periodically, and will normally
+// include the new features that have been specified up to that point.
+// Engines should move their version number forwards over time rather than
+// accumulating large sets of LanguageFeatures.
+//
+// LINT: LEGACY_NAMES
+enum LanguageVersion {
+  // All current features, including features that are not part of a frozen
+  // version.  For example, when v1.0 is the maximum released version number,
+  // this includes features that have been developed for v1.1.
+  // This does not include cross-version or experimental features.
+  // WARNING: Using this version means query behavior will change under you.
+  VERSION_CURRENT = 1;
+
+  VERSION_1_0 = 10000;  // Version 1.0, frozen January 2015.
+
+  VERSION_1_1 = 11000;  // Version 1.1, frozen February 2017.
+
+  VERSION_1_2 = 12000;  // Version 1.2, frozen January 2018.
+
+  VERSION_1_3 = 13000;  // Version 1.3, frozen May 2022.
+
+  VERSION_1_4 = 14000;  // Version 1.4. Freeze May 2023 (12 mo)
+
+  // User code that switches on this enum must have a default case so
+  // builds won't break if new enums get added.
+  __LanguageVersion__switch_must_have_a_default__ = -1;
+}
+
+extend google.protobuf.EnumValueOptions {
+  // Only for use on LanguageFeature enum values.
+  optional LanguageFeatureOptions language_feature_options = 520370539;
+
+  // Only for use on ResolvedASTRewrite enum values.
+  optional ResolvedASTRewriteOptions rewrite_options = 452829176;
+}
+
+// Annotations for LanguageFeature enum values. Only for consumption by
+// SQL code.
+//
+// LanguageOptions::EnableMaximumLanguageFeatures() enables all features with
+// 'ideally_enabled == true' and 'in_development == false'.
+//
+// LanguageOptions::EnableMaximumLanguageFeaturesForDevelopment() enables all
+// features with 'ideally_enabled == true'.
+message LanguageFeatureOptions {
+  // Indicates whether a feature is enabled in the idealized SQL. (One
+  // reason to disable a feature is if it exists only to support backwards
+  // compatibility with older SQL behavior.)
+  optional bool ideally_enabled = 1 [default = true];
+
+  // Indicates whether a feature is still undergoing development. Users should
+  // not enable features that are still in development, but internal SQL
+  // tests may do so.
+  optional bool in_development = 2 [default = false];
+}
+
+// The list of optional features that engines may or may not support.
+// Features can be opted into in AnalyzerOptions.
+//
+// There are three types of LanguageFeatures.
+// * Cross-version - Optional features that can be enabled orthogonally to
+//                   versioning.  Some engines will never implement these
+//                   features, and SQL code will always support this
+//                   switch.
+// * Versioned - Features that describe behavior changes adopted as of some
+//               language version.  Eventually, all engines should support these
+//               features, and switches in the SQL code (and tests)
+//               should eventually be removed.
+//               All of these, and only these, show up in VERSION_CURRENT.
+// * Experimental - Features not currently part of any language version.
+//
+// All optional features are off by default.  Some features have a negative
+// meaning, so turning them on will remove a feature or enable an error.
+enum LanguageFeature {
+  reserved 36 to 39, 44 to 46, 48, 74, 13046, 14001, 999003;
+  // CROSS-VERSION FEATURES
+  //
+  // These are features that can be opted into independently from versioning.
+  // Some features may disable operations that are normally allowed by default.
+  //
+  // These features should not change semantics, other than whether a feature
+  // is allowed or not.  Versioned options may further the behavior of these
+  // features, if they are enabled.  For example, an engine may choose to
+  // support DML, orthogonally to versioning.  If it supports DML, and
+  // specified semantics for DML may change over time, and the engine may use
+  // versioned options to choose DML behavior as of v1.0 or v1.1.
+
+  // Enable analytic functions.
+  // See (broken link).
+  FEATURE_ANALYTIC_FUNCTIONS = 1;
+
+  // Enable the TABLESAMPLE clause on scans.
+  // See (broken link).
+  FEATURE_TABLESAMPLE = 2;
+
+  // If enabled, give an error on GROUP BY, DISTINCT or set operations (other
+  // than UNION ALL) on floating point types. This feature is disabled in the
+  // idealized SQL (i.e. LanguageOptions::EnableMaximumLanguageFeatures)
+  // because enabling it turns off support for a feature that is normally on by
+  // default.
+  FEATURE_DISALLOW_GROUP_BY_FLOAT = 3
+      [(language_feature_options).ideally_enabled = false];
+
+  // If enabled, treats TIMESTAMP literal as 9 digits (nanos) precision.
+  // Otherwise TIMESTAMP has 6 digits (micros) precision.
+  // In general, a TIMESTAMP value has only 6 digits precision. This feature
+  // will only affect how a timestamp literal string is interpreted into a
+  // TIMESTAMP value. If enabled, a timestamp literal string can have up to 9
+  // digits of subseconds(nanos). Otherwise, it can only have up to 6 digits of
+  // subseconds (micros). 9 digits subsecond literal is not a valid timestamp
+  // string in the later case.
+  FEATURE_TIMESTAMP_NANOS = 5;
+
+  // Enable support for JOINs in UPDATE statements, see
+  // (broken link).
+  FEATURE_DML_UPDATE_WITH_JOIN = 6;
+
+  // Enable table-valued functions. For more information, see
+  // table_valued_functions.h.
+  FEATURE_TABLE_VALUED_FUNCTIONS = 8;
+
+  // This enables support for CREATE AGGREGATE FUNCTION.
+  FEATURE_CREATE_AGGREGATE_FUNCTION = 9;
+
+  // This enables support for CREATE TABLE FUNCTION.
+  // For more information, see (broken link).
+  FEATURE_CREATE_TABLE_FUNCTION = 10;
+
+  // This enables support for GROUP BY ROLLUP.
+  FEATURE_GROUP_BY_ROLLUP = 12;
+
+  // This enables support for creating and calling functions with templated
+  // argument types, using CREATE FUNCTION, CREATE AGGREGATE FUNCTION, or CREATE
+  // TABLE FUNCTION statements. For example, a function argument may be written
+  // as "argument ANY TYPE" to match against any scalar value. For more
+  // information, see (broken link).
+  FEATURE_TEMPLATE_FUNCTIONS = 13;
+
+  // Enables support for PARTITION BY with CREATE TABLE and CREATE TABLE AS.
+  // See (broken link).
+  FEATURE_CREATE_TABLE_PARTITION_BY = 14;
+
+  // Enables support for CLUSTER BY with CREATE TABLE and CREATE TABLE AS.
+  // See (broken link).
+  FEATURE_CREATE_TABLE_CLUSTER_BY = 15;
+
+  // NUMERIC type support, see (broken link).
+  FEATURE_NUMERIC_TYPE = 16;
+
+  // Enables support for NOT NULL annotation in CREATE TABLE.
+  // See comment on FEATURE_CREATE_TABLE_FIELD_ANNOTATIONS and
+  // (broken link) for details.
+  FEATURE_CREATE_TABLE_NOT_NULL = 17;
+
+  // Enables support for annotations (e.g., NOT NULL and OPTIONS()) for struct
+  // fields and array elements in CREATE TABLE.
+  // Does not affect table options or table column annotations.
+  //
+  // Example: Among the following queries
+  // Q1: CREATE TABLE t (c STRUCT<a INT64> NOT NULL)
+  // Q2: CREATE TABLE t (c STRUCT<a INT64 NOT NULL>)
+  // Q3: CREATE TABLE t (c STRUCT<a INT64> OPTIONS(foo=1))
+  // Q4: CREATE TABLE t (c STRUCT<a INT64 OPTIONS(foo=1)>)
+  // Q5: CREATE TABLE t (c STRUCT<a INT64 NOT NULL OPTIONS(foo=1)>)
+  //
+  // Allowed queries                  FEATURE_CREATE_TABLE_FIELD_ANNOTATIONS
+  //                                         =0               =1
+  // FEATURE_CREATE_TABLE_NOT_NULL=0        {Q3}           {Q3, Q4}
+  // FEATURE_CREATE_TABLE_NOT_NULL=1      {Q1, Q3}    {Q1, Q2, Q3, Q4, Q5}
+  //
+  // See (broken link).
+  FEATURE_CREATE_TABLE_FIELD_ANNOTATIONS = 18;
+
+  // Enables support for column definition list in CREATE TABLE AS SELECT.
+  // Example: CREATE TABLE t (x FLOAT64) AS SELECT 1 x
+  // The features in the column definition list are controlled by
+  // FEATURE_CREATE_TABLE_NOT_NULL and FEATURE_CREATE_TABLE_FIELD_ANNOTATIONS.
+  FEATURE_CREATE_TABLE_AS_SELECT_COLUMN_LIST = 19;
+
+  // Indicates that an engine that supports primary keys does not allow any
+  // primary key column to be NULL. Similarly, non-NULL primary key columns
+  // cannot have any NULL array elements or struct/proto fields anywhere inside
+  // them.
+  //
+  // Only interpreted by the compliance tests and the reference implementation
+  // (not the analyzer). It exists so that engines can disable tests for this
+  // atypical behavior without impacting their compliance ratios. It can never
+  // be totally enforced in the analyzer because the analyzer cannot evaluate
+  // expressions.
+  FEATURE_DISALLOW_NULL_PRIMARY_KEYS = 20
+      [(language_feature_options).ideally_enabled = false];
+
+  // Indicates that an engine that supports primary keys does not allow any
+  // primary key column to be modified with UPDATE.
+  //
+  // Only interpreted by the compliance tests and the reference implementation
+  // (not the analyzer) for now. It exists so that engines can disable tests for
+  // this atypical behavior without impacting their compliance ratios.
+  FEATURE_DISALLOW_PRIMARY_KEY_UPDATES = 21
+      [(language_feature_options).ideally_enabled = false];
+
+  // Enables support for the TABLESAMPLE clause applied to table-valued function
+  // calls. For more information about table-valued functions, please see
+  // table_valued_functions.h and (broken link).
+  FEATURE_TABLESAMPLE_FROM_TABLE_VALUED_FUNCTIONS = 22;
+
+  // Enable encryption- and decryption-related functions.
+  // See (broken link).
+  FEATURE_ENCRYPTION = 23;
+
+  // Differentially private anonymization functions, syntax, and semantics.
+  // ((broken link)).
+  FEATURE_ANONYMIZATION = 24 [(language_feature_options).in_development = true];
+
+  // Geography type support per (broken link)
+  FEATURE_GEOGRAPHY = 25;
+
+  // Enables support for stratified TABLESAMPLE. For more information about
+  // stratified sampling, please see: (broken link).
+  FEATURE_STRATIFIED_RESERVOIR_TABLESAMPLE = 26;
+
+  // Enables foreign keys (see (broken link)).
+  FEATURE_FOREIGN_KEYS = 27;
+
+  // Enables BETWEEN function signatures for UINT64/INT64 comparisons.
+  FEATURE_BETWEEN_UINT64_INT64 = 28
+      [(language_feature_options).in_development = true];
+
+  // Enables check constraint (see (broken link)).
+  FEATURE_CHECK_CONSTRAINT = 29;
+
+  // Enables statement parameters and system variables in the GRANTEE list of
+  // GRANT, REVOKE, CREATE ROW POLICY, and ALTER ROW POLICY statements.
+  FEATURE_PARAMETERS_IN_GRANTEE_LIST = 30;
+
+  // Enables support for named arguments in function calls using a syntax like
+  // this: 'SELECT function(argname => 'value', otherarg => 42)'. Function
+  // arguments with associated names in the signature options may specify values
+  // by providing the argument name followed by an equals sign and greater than
+  // sign (=>) followed by a value for the argument. Function calls may include
+  // a mix of positional arguments and named arguments. The resolver will
+  // compare provided arguments against function signatures and handle signature
+  // matching appropriately. For more information, please refer to
+  // (broken link).
+  FEATURE_NAMED_ARGUMENTS = 31;
+
+  // Enables support for the old syntax for the DDL for ROW ACCESS POLICY,
+  // previously called ROW POLICY.
+  //
+  // When this feature is enabled, either the legacy or new syntax can be used
+  // for CREATE/DROP ROW [ACCESS] POLICY.  Note, however, that when using the
+  // new syntax the GRANT TO clause is required (the GRANT TO clause is optional
+  // when the feature is off).
+  //
+  // When it is not enabled, the new syntax must be used for CREATE ROW ACCESS
+  // POLICY and DROP ALL ROW ACCESS POLICIES. The new syntax is always required
+  // for ALTER ROW ACCESS POLICY and DROP ROW ACCESS POLICY: at the time of this
+  // writing, these statements are new/not in use.
+  //
+  // This is a temporary feature that preserves legacy engine behavior that will
+  // be deprecated, and the new syntax will become mandatory. For
+  // more details on syntax changes, see (broken link).
+  FEATURE_ALLOW_LEGACY_ROW_ACCESS_POLICY_SYNTAX = 32;
+
+  // Enables support for PARTITION BY with CREATE MATERIALIZED VIEW.
+  // See (broken link).
+  FEATURE_CREATE_MATERIALIZED_VIEW_PARTITION_BY = 33;
+
+  // Enables support for CLUSTER BY with CREATE MATERIALIZED VIEW.
+  // See (broken link).
+  FEATURE_CREATE_MATERIALIZED_VIEW_CLUSTER_BY = 34;
+
+  // Enables support for column definition list in CREATE EXTERNAL TABLE.
+  // Example: CREATE EXTERNAL TABLE t (x FLOAT64)
+  FEATURE_CREATE_EXTERNAL_TABLE_WITH_TABLE_ELEMENT_LIST = 35;
+
+  // Enables using NOT ENFORCED in primary keys.
+  // See (broken link).
+  FEATURE_UNENFORCED_PRIMARY_KEYS = 40;
+
+  // BIGNUMERIC data type. (broken link)
+  FEATURE_BIGNUMERIC_TYPE = 41;
+
+  // Extended types (TYPE_EXTENDED): (broken link).
+  FEATURE_EXTENDED_TYPES = 42
+      [(language_feature_options).in_development = true];
+
+  // JSON data type. (broken link)
+  FEATURE_JSON_TYPE = 43 [(language_feature_options).in_development = true];
+
+  // Enables support for WITH PARTITION COLUMNS in CREATE EXTERNAL TABLE.
+  // Example:
+  // CREATE EXTERNAL TABLE t WITH PARTITION COLUMNS (x int64)
+  // More details: (broken link)
+  FEATURE_CREATE_EXTERNAL_TABLE_WITH_PARTITION_COLUMNS = 47
+      [(language_feature_options).in_development = true];
+
+  // INTERVAL data type. (broken link)
+  FEATURE_INTERVAL_TYPE = 49 [(language_feature_options).in_development = true];
+
+  // If enabled, JSON parsing fails for JSON documents containing number values
+  // that cannot fit into the range of numbers supported by uint64, int64 or
+  // double.
+  // For unsigned integers, the valid range is [0, 2^64-1]
+  // For signed integers, the valid range is [-2^63, 2^63-1].
+  // For floating point values, the valid range contains all numbers that can
+  // round-trip from string -> double -> string. The round-tripped string
+  // doesn't need to match the input string exactly, but must hold the same
+  // number value (i.e. "1e+3" -> double -> "1000" is a valid round-trip).
+  // If precision loss occurs as a result of the round-trip, the number is not
+  // considered valid (i.e. 0.142857142857142857142857142857142857 -> double ->
+  // 14285714285714285 is not valid).
+  FEATURE_JSON_STRICT_NUMBER_PARSING = 52
+      [(language_feature_options).ideally_enabled = false];
+  // When enabled, (table) function argument names will hide column names in
+  // expression resolution and relational table function argument names will
+  // hide table names from the catalog. This changes name resolution and is
+  // a backward compatibility breaking change.
+  FEATURE_FUNCTION_ARGUMENT_NAMES_HIDE_LOCAL_NAMES = 55;
+
+  // Enables support for the following parameterized types.
+  // - STRING(L) / BYTES(L)
+  // - NUMERIC(P) / NUMERIC(P, S)
+  // - BIGNUMERIC(P) / BIGNUMERIC(P, S)
+  // See (broken link) for details.
+  FEATURE_PARAMETERIZED_TYPES = 56;
+
+  // Enables support for CREATE TABLE LIKE
+  // Example:
+  // CREATE TABLE t1 LIKE t2
+  FEATURE_CREATE_TABLE_LIKE = 57;
+
+  // Enable support for JSON_EXTRACT_STRING_ARRAY, JSON_VALUE_ARRAY and
+  // JSON_QUERY_ARRAY. (broken link)
+  FEATURE_JSON_ARRAY_FUNCTIONS = 58;
+
+  // Enables explicit column list for CREATE VIEW.
+  // Example:
+  // CREATE VIEW v(a, b) AS SELECT ...
+  FEATURE_CREATE_VIEW_WITH_COLUMN_LIST = 59;
+
+  // Enables support for CREATE TABLE CLONE
+  // Example:
+  // CREATE TABLE t1 CLONE t2
+  FEATURE_CREATE_TABLE_CLONE = 60
+      [(language_feature_options).in_development = true];
+
+  // Enables support for CLONE DATA INTO
+  // Example: CLONE DATA INTO ds.tbl;
+  FEATURE_CLONE_DATA = 61 [(language_feature_options).in_development = true];
+
+  // Enables support for ALTER COLUMN SET DATA TYPE.
+  // See (broken link) for details.
+  FEATURE_ALTER_COLUMN_SET_DATA_TYPE = 62
+      [(language_feature_options).in_development = true];
+
+  // Enables support for CREATE SNAPSHOT TABLE
+  // (broken link)
+  FEATURE_CREATE_SNAPSHOT_TABLE = 63;
+
+  // Enables support for defining argument defaults in function calls using
+  // syntax like:
+  //   CREATE FUNCTION foo (a INT64 DEFAULT 5) AS (a);
+  // In effect, the argument with a default becomes optional when the function
+  // is called, like:
+  //   SELECT foo();
+  // For more information, please refer to (broken link).
+  FEATURE_FUNCTION_ARGUMENTS_WITH_DEFAULTS = 64;
+
+  // Enables support for WITH CONNECTION in CREATE EXTERNAL TABLE.
+  // Example:
+  // CREATE EXTERNAL TABLE t WITH CONNECTION `project.region.connection_1`
+  // More details: (broken link)
+  FEATURE_CREATE_EXTERNAL_TABLE_WITH_CONNECTION = 65;
+
+  // Enables support for CREATE TABLE COPY
+  // Example:
+  // CREATE TABLE t1 COPY t2
+  FEATURE_CREATE_TABLE_COPY = 66;
+
+  // Enables support for ALTER TABLE RENAME COLUMN.
+  // See (broken link) for details.
+  FEATURE_ALTER_TABLE_RENAME_COLUMN = 67;
+
+  // Enables STRING(JSON), INT64(JSON), BOOL(JSON), DOUBLE(JSON),
+  // JSON_TYPE(JSON) functions.
+  // See (broken link) for details.
+  FEATURE_JSON_VALUE_EXTRACTION_FUNCTIONS = 68
+      [(language_feature_options).in_development = true];
+
+  // Disallows "unicode", "unicode:ci", "unicode:cs" in ORDER BY ... COLLATE and
+  // other collation features. "unicode" is a legacy feature, and the desired
+  // behavior is to allow only "binary" and valid icu language tags.
+  // Enabling this feature must produce an error if 'unicode' is specified as
+  // a collation name.
+  FEATURE_DISALLOW_LEGACY_UNICODE_COLLATION = 69 [
+    (language_feature_options).in_development = true,
+    (language_feature_options).ideally_enabled = false
+  ];
+
+  FEATURE_ALLOW_MISSING_PATH_EXPRESSION_IN_ALTER_DDL = 70;
+
+  // Enables TIMESTAMP_BUCKET, DATE_BUCKET and DATETIME_BUCKET functions.
+  // See (broken link) for details.
+  FEATURE_TIME_BUCKET_FUNCTIONS = 71
+      [(language_feature_options).in_development = true];
+
+  // Enables the new trigonometric math functions CSC, SEC, COT, CSCH, SECH,
+  // and COTH
+  // DEPRECATED
+  FEATURE_INVERSE_TRIG_FUNCTIONS = 72
+      [(language_feature_options).in_development = true];
+
+  // RANGE data type. (broken link)
+  FEATURE_RANGE_TYPE = 73 [(language_feature_options).in_development = true];
+
+  // Enable support for non SQL procedure.
+  FEATURE_NON_SQL_PROCEDURE = 75
+      [(language_feature_options).in_development = true];
+
+  FEATURE_ROUND_WITH_ROUNDING_MODE = 76
+      [(language_feature_options).in_development = true];
+
+  // Enables the CBRT function
+  FEATURE_CBRT_FUNCTIONS = 77
+      [(language_feature_options).in_development = true];
+
+  // Enable support for Spanner-specific DDL syntax.
+  // This is an extended syntax mode allowing compatibility with legacy
+  // Spanner DDL syntax and is meant to allow Cloud Spanner Emulator to use
+  // SQL for all processing needs.
+  // It is implemented only in the parser and analysis is disallowed in this
+  // mode, with resolver failing immediately.
+  // Spanner-specific syntax is not supported outside of this mode and will
+  // cause parsing errors.
+  FEATURE_SPANNER_LEGACY_DDL = 78 [(language_feature_options) = {
+    ideally_enabled: false,
+    in_development: true
+  }];
+
+  // This feature can be enabled to disable the new SQL functions ARRAY_MIN and
+  // ARRAY_MAX. It is here to ensure there is a way to turn these functions off
+  // in case they cause trouble.
+  FEATURE_DISABLE_ARRAY_MIN_AND_MAX = 79
+      [(language_feature_options) = { ideally_enabled: false }];
+
+  // When FEATURE_FUNCTION_ARGUMENTS_WITH_DEFAULTS is also enabled, apply a
+  // strict (and correct) type coercion from the given default argument value to
+  // the specified argument type.
+  // This feature is disabled by default, to avoid breaking existing production
+  // queries that rely on FEATURE_FUNCTION_ARGUMENTS_WITH_DEFAULTS.
+  FEATURE_STRICT_FUNCTION_DEFAULT_ARG_TYPE_COERCION = 80
+      [(language_feature_options) = { ideally_enabled: false }];
+
+  // -> Add more cross-version features here.
+  // -> DO NOT add more versioned features into versions that are frozen.
+  //    New features should be added for the *next* version number.
+
+  // VERSIONED FEATURES
+  // These are features or changes as of some version.
+  // Each should start with a prefix FEATURE_V_x_y_.  The feature will be
+  // included in the default set enabled for LanguageVersion VERSION_x_y.
+  //
+  // Features that will remain optional for compliance, and are not expected to
+  // be implemented in all engines, should be added as cross-version features
+  // (above) instead.
+  //
+  // Some versioned features may have dependencies and only make sense if
+  // other features are also enabled.  Dependencies should be commented here.
+
+  // Version 1.1 features
+  // * Frozen in February 2017.
+  // * Do not add new features here.
+
+  // Enable ORDER BY COLLATE.  See (broken link).
+  FEATURE_V_1_1_ORDER_BY_COLLATE = 11001;
+
+  // Enable WITH clause on subqueries.  Without this, WITH is allowed
+  // only at the top level.  The WITH subqueries still cannot be
+  // correlated subqueries.
+  FEATURE_V_1_1_WITH_ON_SUBQUERY = 11002;
+
+  // Enable the SELECT * EXCEPT and SELECT * REPLACE features.
+  // See (broken link).
+  FEATURE_V_1_1_SELECT_STAR_EXCEPT_REPLACE = 11003;
+
+  // Enable the ORDER BY in aggregate functions.
+  // See (broken link)
+  FEATURE_V_1_1_ORDER_BY_IN_AGGREGATE = 11004;
+
+  // Enable casting between different array types.
+  FEATURE_V_1_1_CAST_DIFFERENT_ARRAY_TYPES = 11005;
+
+  // Enable comparing array equality.
+  FEATURE_V_1_1_ARRAY_EQUALITY = 11006;
+
+  // Enable LIMIT in aggregate functions.
+  FEATURE_V_1_1_LIMIT_IN_AGGREGATE = 11007;
+
+  // Enable HAVING modifier in aggregate functions.
+  FEATURE_V_1_1_HAVING_IN_AGGREGATE = 11008;
+
+  // Enable IGNORE/RESPECT NULLS modifier in analytic functions.
+  FEATURE_V_1_1_NULL_HANDLING_MODIFIER_IN_ANALYTIC = 11009;
+
+  // Enable IGNORE/RESPECT NULLS modifier in aggregate functions.
+  FEATURE_V_1_1_NULL_HANDLING_MODIFIER_IN_AGGREGATE = 11010;
+
+  // Enable FOR SYSTEM_TIME AS OF (time travel).
+  // See (broken link).
+  FEATURE_V_1_1_FOR_SYSTEM_TIME_AS_OF = 11011;
+
+  // Version 1.2 features
+  // * Frozen in January 2018.
+  // * Do not add new features here.
+
+  // Enable TIME and DATETIME types and related functions.
+  FEATURE_V_1_2_CIVIL_TIME = 12001;
+
+  // Enable SAFE mode function calls.  e.g. SAFE.FUNC(...) for FUNC(...).
+  // (broken link).
+  FEATURE_V_1_2_SAFE_FUNCTION_CALL = 12002;
+
+  // Enable support for GROUP BY STRUCT.
+  FEATURE_V_1_2_GROUP_BY_STRUCT = 12003;
+
+  // Enable use of proto extensions with NEW.
+  FEATURE_V_1_2_PROTO_EXTENSIONS_WITH_NEW = 12004;
+
+  // Enable support for GROUP BY ARRAY.
+  FEATURE_V_1_2_GROUP_BY_ARRAY = 12005;
+
+  // Enable use of proto extensions with UPDATE ... SET.
+  FEATURE_V_1_2_PROTO_EXTENSIONS_WITH_SET = 12006;
+
+  // Allows nested DML statements to refer to names defined in the parent
+  // scopes. Without this, a nested DML statement can only refer to names
+  // created in the local statement - i.e. the array element.
+  // Examples that are allowed only with this option:
+  //   UPDATE Table t SET (UPDATE t.ArrayColumn elem SET elem = t.OtherColumn)
+  //   UPDATE Table t SET (DELETE t.ArrayColumn elem WHERE elem = t.OtherColumn)
+  //   UPDATE Table t SET (INSERT t.ArrayColumn VALUES (t.OtherColumn))
+  //   UPDATE Table t SET (INSERT t.ArrayColumn SELECT t.OtherColumn)
+  FEATURE_V_1_2_CORRELATED_REFS_IN_NESTED_DML = 12007;
+
+  // Enable use of WEEK(<Weekday>) with the functions that support it.
+  FEATURE_V_1_2_WEEK_WITH_WEEKDAY = 12008;
+
+  // Enable use of array element [] syntax in targets with UPDATE ... SET.
+  // For example, allow UPDATE T SET a.b[OFFSET(0)].c = 5.
+  FEATURE_V_1_2_ARRAY_ELEMENTS_WITH_SET = 12009;
+
+  // Enable nested updates/deletes of the form
+  // UPDATE/DELETE ... WITH OFFSET AS ... .
+  FEATURE_V_1_2_NESTED_UPDATE_DELETE_WITH_OFFSET = 12010;
+
+  // Enable Generated Columns on CREATE and ALTER TABLE statements.
+  // See (broken link).
+  FEATURE_V_1_2_GENERATED_COLUMNS = 12011;
+
+  // Version 1.3 features
+
+  // Enables support for the PROTO_DEFAULT_IF_NULL() function, see
+  // (broken link)
+  FEATURE_V_1_3_PROTO_DEFAULT_IF_NULL = 13001;
+
+  // Enables support for proto field pseudo-accessors in the EXTRACT function.
+  // For example, EXTRACT(FIELD(x) from foo) will extract the value of the field
+  // x defined in message foo. EXTRACT(HAS(x) from foo) will return a boolean
+  // denoting if x is set in foo or NULL if foo is NULL. EXTRACT(RAW(x) from
+  // foo) will get the value of x on the wire (i.e., without applying any
+  // FieldFormat.Format annotations or automatic conversions). If the field is
+  // missing, the default is always returned, which is NULL for message fields
+  // and the field default (either the explicit default or the default default)
+  // for primitive fields. If the containing message is NULL, NULL is returned.
+  // (broken link)
+  FEATURE_V_1_3_EXTRACT_FROM_PROTO = 13002;
+
+  // If enabled, the analyzer will return an error when attempting to check
+  // if a proto3 scalar field has been explicitly set (e.g.,
+  // proto3.has_scalar_field and EXTRACT(HAS(scalar_field) from proto3)).
+  // This feature is deprecated and should not be used, since proto3 now
+  // supports scalar field presence testing. Eventually we will remove this
+  // feature and the underlying code.
+  FEATURE_V_1_3_DEPRECATED_DISALLOW_PROTO3_HAS_SCALAR_FIELD = 13003
+      [(language_feature_options).ideally_enabled = false];
+
+  // Enable array ordering (and non-equality comparisons).  This enables
+  // arrays in the ORDER BY of a query, as well as in aggregate and analytic
+  // function arguments.  Also enables inequality comparisons between arrays
+  // (<, <=, >, >=).  This flag enables arrays for MIN/MAX,
+  // although semantics over array inputs are surprising sometimes.
+  //
+  // Note: there is a separate flag for GREATEST/LEAST, as not all engines are
+  //       ready to implement them for arrays.
+  // Spec:  (broken link)
+  FEATURE_V_1_3_ARRAY_ORDERING = 13004;
+
+  // Allow omitting column and value lists in INSERT statement and INSERT clause
+  // of MERGE statement.
+  // Spec: (broken link)
+  FEATURE_V_1_3_OMIT_INSERT_COLUMN_LIST = 13005;
+
+  // If enabled, the 'use_defaults' and 'use_field_defaults' annotations are
+  // ignored for proto3 scalar fields. This results in the default value always
+  // being returned for proto3 scalar fields that are not explicitly set,
+  // including when they are annotated with 'use_defaults=false' or their parent
+  // message is annotated with 'use_field_defaults=false'. This aligns with
+  // proto3 semantics as proto3 does not expose whether scalar fields are set or
+  // not.
+  FEATURE_V_1_3_IGNORE_PROTO3_USE_DEFAULTS = 13006;
+
+  // Enables support for the REPLACE_FIELDS() function. REPLACE_FIELDS(p,
+  // <value> AS <field_path>) returns the proto obtained by setting p.field_path
+  // = value. If value is NULL, this unsets field_path or returns an error if
+  // the last component of field_path is a required field. Multiple fields can
+  // be modified: REPLACE_FIELDS(p, <value_1> AS <field_path_1>, ..., <value_n>
+  // AS <field_path_n>). REPLACE_FIELDS() can also be used to modify structs
+  // using the similar syntax: REPLACE_FIELDS(s, <value> AS
+  // <struct_field_path>).
+  // (broken link)
+  FEATURE_V_1_3_REPLACE_FIELDS = 13007;
+
+  // Enable NULLS FIRST/NULLS LAST in ORDER BY expressions.
+  FEATURE_V_1_3_NULLS_FIRST_LAST_IN_ORDER_BY = 13008;
+
+  // Allows dashes in the first part of multi-part table name. This is to
+  // accommodate GCP project names which use dashes instead of underscores, e.g.
+  // crafty-tractor-287. So fully qualified table name which includes project
+  // name normally has to be quoted in the query, i.e. SELECT * FROM
+  // `crafty-tractor-287`.dataset.table This feature allows it to be used
+  // unquoted, i.e. SELECT * FROM crafty-tractor-287.dataset.table
+  FEATURE_V_1_3_ALLOW_DASHES_IN_TABLE_NAME = 13009;
+
+  // CONCAT allows arguments of different types, automatically coerced to
+  // STRING for FN_CONCAT_STRING signature. Only types which have CAST to
+  // STRING defined are allowed, and BYTES is explicitly excluded (since BYTES
+  // should match FN_CONCAT_BYTES signature).
+  FEATURE_V_1_3_CONCAT_MIXED_TYPES = 13010;
+
+  // Enable WITH RECURSIVE ((broken link))
+  FEATURE_V_1_3_WITH_RECURSIVE = 13011;
+
+  // Support maps in protocol buffers. ((broken link))
+  FEATURE_V_1_3_PROTO_MAPS = 13012;
+
+  // Enables support for the ENUM_VALUE_DESCRIPTOR_PROTO() function, see
+  // (broken link)
+  FEATURE_V_1_3_ENUM_VALUE_DESCRIPTOR_PROTO = 13013;
+
+  // Allows DECIMAL as an alias of NUMERIC type, and BIGDECIMAL as an alias
+  // of BIGNUMERIC type. By itself, this feature does not enable NUMERIC type
+  // or BIGNUMERIC, which are controlled by FEATURE_NUMERIC_TYPE and
+  // FEATURE_BIGNUMERIC_TYPE.
+  FEATURE_V_1_3_DECIMAL_ALIAS = 13014;
+
+  // Support UNNEST and FLATTEN on paths through arrays.
+  // ((broken link))
+  FEATURE_V_1_3_UNNEST_AND_FLATTEN_ARRAYS = 13015;
+
+  // Allows consecutive ON/USING clauses for JOINs, such as
+  //    t1 JOIN t2 JOIN t3 ON cond1 USING (col2)
+  FEATURE_V_1_3_ALLOW_CONSECUTIVE_ON = 13016;
+
+  // Enables support for optional parameters position and occurrence in
+  // REGEXP_EXTRACT. In addition, allows alias REGEXP_SUBSTR.
+  // ((broken link))
+  FEATURE_V_1_3_ALLOW_REGEXP_EXTRACT_OPTIONALS = 13017;
+
+  // Additional signatures for DATE, TIMESTAMP, TIME, DATETIME and STRING
+  // constructor functions.
+  FEATURE_V_1_3_DATE_TIME_CONSTRUCTORS = 13018;
+
+  // Enables DATE +/- INT64 arithmetics.
+  // ((broken link))
+  FEATURE_V_1_3_DATE_ARITHMETICS = 13019;
+
+  // Enable support for additional string functions.
+  FEATURE_V_1_3_ADDITIONAL_STRING_FUNCTIONS = 13020;
+
+  // Enable support for aggregate functions with WITH GROUP_ROWS syntax.
+  FEATURE_V_1_3_WITH_GROUP_ROWS = 13021;
+
+  // Additional signatures for [DATE|DATETIME|TIMESTAMP]_[ADD|SUB|DIFF|TRUNC]
+  // functions. ((broken link)).
+  FEATURE_V_1_3_EXTENDED_DATE_TIME_SIGNATURES = 13022;
+
+  // Additional signatures for ST_GeogFromText/FromGeoJson/From* functions.
+  // ((broken link)).
+  FEATURE_V_1_3_EXTENDED_GEOGRAPHY_PARSERS = 13023;
+
+  // Inline lambda function argument. (broken link)
+  FEATURE_V_1_3_INLINE_LAMBDA_ARGUMENT = 13024;
+
+  // PIVOT clause ((broken link)).
+  FEATURE_V_1_3_PIVOT = 13025;
+
+  // This flag enables propagation of annotation during query analysis. See
+  // public/types/annotation.h for the introduction of annotation framework.
+  // Engines must turn on this flag before turning on any built-in annotation
+  // feature or passing in engine defined AnnotationSpec.
+  FEATURE_V_1_3_ANNOTATION_FRAMEWORK = 13026;
+
+  // Enables collation annotation support.
+  FEATURE_V_1_3_COLLATION_SUPPORT = 13027
+      [(language_feature_options).in_development = true];
+
+  // IS [NOT] DISTINCT FROM ((broken link)).
+  FEATURE_V_1_3_IS_DISTINCT = 13028;
+
+  // If true, FORMAT clause is supported in CAST().
+  // Fully implemented:
+  //   BYTES <=> STRING
+  //   DATE/DATETIME/TIME/TIMESTAMP => STRING
+  //
+  // Under development:
+  //   STRING => DATE/DATETIME/TIME/TIMESTAMP
+  //   NUMBER => STRING
+  FEATURE_V_1_3_FORMAT_IN_CAST = 13029;
+
+  // UNPIVOT clause ((broken link)).
+  FEATURE_V_1_3_UNPIVOT = 13030;
+
+  // If true, dml returning is supported ((broken link))
+  FEATURE_V_1_3_DML_RETURNING = 13031;
+
+  // Enables support for the FILTER_FIELDS() function.
+  //    FILTER_FIELDS(p, <-|+><field_path>, ...)
+  // returns the proto obtained by keeping p.field_path whose
+  // sign is '+' and remove p.field_path whose sign is '-'.
+  // (broken link)
+  FEATURE_V_1_3_FILTER_FIELDS = 13032;
+
+  // QUALIFY clause ((broken link)).
+  FEATURE_V_1_3_QUALIFY = 13033;
+
+  // Enable support for REPEAT...UNTIL...END REPEAT statement.
+  // (broken link)
+  FEATURE_V_1_3_REPEAT = 13034;
+
+  // Enables column DEFAULT clause in CREATE and ALTER TABLE statements.
+  // See (broken link)
+  FEATURE_V_1_3_COLUMN_DEFAULT_VALUE = 13035;
+
+  // Enable support for FOR...IN...DO...END FOR statement.  // NOTYPO
+  // (broken link)
+  FEATURE_V_1_3_FOR_IN = 13036;
+
+  // Enables support for initializing KLLs with weights as an additional
+  // parameter. Support for this feature in addition to the weighting
+  // functionality also requires support for named arguments as the weight
+  // argument must be named. (broken link).
+  FEATURE_V_1_3_KLL_WEIGHTS = 13037;
+
+  // LIKE ANY/SOME/ALL support.
+  // (broken link)
+  FEATURE_V_1_3_LIKE_ANY_SOME_ALL = 13038
+      [(language_feature_options).in_development = true];
+
+  // Enable support for CASE...WHEN...THEN...END CASE statement.
+  // (broken link)
+  FEATURE_V_1_3_CASE_STMT = 13039;
+
+  // Support for table names that start with slash and contain slashes, dashes,
+  // and colons before the first dot: /span/test/my-grp:db.Table.
+  // (broken link)
+  FEATURE_V_1_3_ALLOW_SLASH_PATHS = 13040;
+
+  // Enable the TYPEOF(expr) debugging and exploration function.
+  FEATURE_V_1_3_TYPEOF_FUNCTION = 13041;
+
+  // Enable support for SCRIPT LABELS (e.g. L1: BEGIN...END)
+  // (broken link)
+  FEATURE_V_1_3_SCRIPT_LABEL = 13042;
+
+  // Enable support for remote function (e.g. CREATE FUNCTION ... REMOTE ...)
+  // (broken link)
+  FEATURE_V_1_3_REMOTE_FUNCTION = 13043;
+
+  // If Array ordering is enabled, this flag enables arrays for GREATEST/LEAST.
+  FEATURE_V_1_3_ARRAY_GREATEST_LEAST = 13044;
+
+  // Enables braced constructors for protocol buffers.
+  // See (broken link)
+  FEATURE_V_1_3_BRACED_PROTO_CONSTRUCTORS = 13045;
+
+  // Version 1.4 features
+
+  // -> Add more versioned features here.
+  // -> Update AnalyzerOptions::GetLanguageFeaturesForVersion in
+  //    language_options.cc when the new feature is passed "in_development"
+  //    stage.
+
+  // Allow WITH-expressions. See (broken link).
+  FEATURE_V_1_4_WITH_EXPRESSION = 14000;
+
+  // Allow ordered elements in primary key definition.
+  // See (broken link).
+  FEATURE_V_1_4_ORDERED_PRIMARY_KEYS = 14002
+      [(language_feature_options).in_development = true];
+
+  // Allow TTL clauses (ROW DELETION POLICY). See (broken link).
+  FEATURE_V_1_4_TTL = 14003 [(language_feature_options).in_development = true];
+
+  // Allow bare array access like a[0]. See (broken link)
+  FEATURE_V_1_4_BARE_ARRAY_ACCESS = 14004;
+
+  // Enable builtin functions ARRAY_MIN, ARRAY_MAX, ARRAY_SUM and ARRAY_AVG.
+  FEATURE_V_1_4_ARRAY_AGGREGATION_FUNCTIONS = 14005
+      [(language_feature_options).in_development = true];
+
+  // Using string type argument as a placeholder for enum type argument.
+  // Related functions include ARRAY_OFFSET(S), ARRAY_FIND, and ARRAY_FIND_ALL.
+  // This language feature guard is added temporarily to unblock related
+  // functions development from enum development. This feature will be removed.
+  FEATURE_V_1_4_STRING_AS_ENUM_ARGUMENT = 14006
+      [(language_feature_options).in_development = true];
+
+  // Enable SAFE mode for function calls with lambda arguments,
+  // e.g. SAFE.ARRAY_TRANSFORM(array_input, e -> 1 /e )
+  // (broken link).
+  FEATURE_V_1_4_SAFE_FUNCTION_CALL_WITH_LAMBDA_ARGS = 14007;
+
+  // Enable support for remote models (e.g. CREATE MODEL ... REMOTE ...)
+  // (broken link)
+  FEATURE_V_1_4_REMOTE_MODEL = 14009
+      [(language_feature_options).in_development = true];
+
+  // Allow struct field access like s[OFFSET(0)].
+  // See (broken link)
+  FEATURE_V_1_4_STRUCT_POSITIONAL_ACCESSOR = 14010;
+
+  // EXPERIMENTAL FEATURES
+  // These are features supported in the code that are not currently part of
+  // officially supported SQL as of any version.
+  //
+  // An example:
+  // FEATURE_EXPERIMENTAL_DECIMAL_DATA_TYPES = 999001;
+  //
+  // -> Add more experimental features here.
+
+  // Enable SQL MODULES.  For an engine to fully opt into this feature,
+  // they must enable this feature flag and add support for the related
+  // StatementKinds: RESOLVED_IMPORT_STMT and RESOLVED_MODULE_STMT.
+  // See (broken link)
+  FEATURE_EXPERIMENTAL_MODULES = 999002
+      [(language_feature_options).in_development = true];
+
+  // These are not real features. They are just for unit testing the handling of
+  // various LanguageFeatureOptions.
+  FEATURE_TEST_IDEALLY_ENABLED_BUT_IN_DEVELOPMENT = 999991
+      [(language_feature_options).in_development = true];
+  FEATURE_TEST_IDEALLY_DISABLED = 999992
+      [(language_feature_options).ideally_enabled = false];
+  FEATURE_TEST_IDEALLY_DISABLED_AND_IN_DEVELOPMENT = 999993
+      [(language_feature_options) = {
+        ideally_enabled: false,
+        in_development: true
+      }];
+
+  // User code that switches on this enum must have a default case so
+  // builds won't break if new enums get added.
+  __LanguageFeature__switch_must_have_a_default__ = -1;
+}
+
+message ResolvedASTRewriteOptions {
+  // Whether the rewrite is enabled by default or not.
+  optional bool default_enabled = 1;
+  // Indicates whether a rewrite is still undergoing development. Users should
+  // not enable rewrites that are still in development for production code,
+  // and should check with SQL-team@ before using in experimental code.
+  optional bool in_development = 2 [default = false];
+}
+
+// Supported SQL resolved AST rewrites.
+//
+// We support these rewrites to allow syntactic improvements which generate new
+// node types to be quickly and easily available to engines without needing each
+// engine to implement support for the new node types.
+enum ResolvedASTRewrite {
+  // Make sure default value of 0 is not an resolved AST rewrite.
+  REWRITE_INVALID_DO_NOT_USE = 0;
+
+  // Rewrites ResolvedFlatten nodes into equivalent array scans / subqueries.
+  REWRITE_FLATTEN = 1 [(rewrite_options).default_enabled = true];
+
+  // Supports rewriting ResolvedAnonymizedAggregateScan and related.
+  // See (broken link).
+  REWRITE_ANONYMIZATION = 2 [(rewrite_options).default_enabled = false];
+
+  // Rewrites proto map functions (e.g. map[KEY(key)]) with equivalent
+  // unnest/subquery expressions. This rewrite will only occur when such
+  // functions are present in a resolved AST, which requires the
+  // V_1_3_PROTO_MAPS language feature.
+  REWRITE_PROTO_MAP_FNS = 3 [(rewrite_options).default_enabled = true];
+
+  // Rewrites array function calls into equivalent SubqueryExpr.
+  REWRITE_ARRAY_FILTER_TRANSFORM = 4 [(rewrite_options).default_enabled = true];
+
+  // Rewrites unpivot ast to equivalent scan.
+  REWRITE_UNPIVOT = 5 [(rewrite_options).default_enabled = true];
+
+  // Rewrites PIVOT scans. See (broken link).
+  REWRITE_PIVOT = 6 [(rewrite_options).default_enabled = true];
+
+  // Rewrites ARRAY_INCLUDES function calls into equivalent SubqueryExpr.
+  REWRITE_ARRAY_INCLUDES = 7 [(rewrite_options).default_enabled = true];
+
+  // Rewrite typeof function. See (broken link)
+  REWRITE_TYPEOF_FUNCTION = 8 [(rewrite_options).default_enabled = true];
+
+  // Rewrite WithExpr into subquery.
+  REWRITE_WITH_EXPR = 9 [(rewrite_options).default_enabled = true];
+
+  // Inline SQL Functions.
+  // Experimental, functionality may change before generally available.
+  // Functions that are added to the Catalog that are subtypes of
+  // SQLFunctionBase will be inlined. That removes the ResolvedFunctionCall and
+  // replaces it with an expression that evaluates the function body.
+  // Currently, not all shapes of functions are supported:
+  // * Argument references inside WITH subqueries will result in an
+  //   kUnimplemented error.
+  REWRITE_INLINE_SQL_FUNCTIONS = 10 [
+    (rewrite_options).default_enabled = false,
+    (rewrite_options).in_development = true
+  ];
+
+  // Inline SQL TVFs (Table Valued Functions).
+  // Experimental, functionality may change before generally available.
+  // Functions that are added to the Catalog that are subtypes of
+  // SQLFunctionBase will be inlined. That removes the ResolvedFunctionCall and
+  // replaces it with an expression that evaluates the function body.
+  // Currently, not all shapes of functions and function calls are supported:
+  // * Argument references inside WITH subqueries will result in an
+  //   kUnimplemented error.
+  // * Correlated subqueries cannot be used as arguments to TABLE parameters.
+  REWRITE_INLINE_SQL_TVFS = 11 [
+    (rewrite_options).default_enabled = false,
+    (rewrite_options).in_development = true
+  ];
+
+  // Rewrite NULLIFERROR(expr) into IFERROR(expr, NULL)
+  // See (broken link)
+  REWRITE_NULLIFERROR_FUNCTION = 12 [(rewrite_options).default_enabled = true];
+
+  // Rewrite unary functions into subqueries.
+  // The functions that use unary rewriter have single input.
+  REWRITE_UNARY_FUNCTIONS = 13 [(rewrite_options).default_enabled = true];
+
+  // Rewrite LIKE ANY/SOME/ALL functions with pattern lists represented as
+  // (pattern1, ...), UNNEST(<array-expression>), or a subquery
+  // See (broken link)
+  REWRITE_LIKE_ANY_ALL = 14 [(rewrite_options).default_enabled = true];
+
+  // Rewrite ternary functions into subqueries.
+  // The functions that use ternary rewriter have three inputs.
+  REWRITE_TERNARY_FUNCTIONS = 15 [(rewrite_options).default_enabled = true];
+
+  // Rewrite binary functions into subqueries.
+  // The functions that use binary rewriter have two inputs.
+  REWRITE_BINARY_FUNCTIONS = 16 [(rewrite_options).default_enabled = true];
+
+  // Inline SQL Views.
+  // Experimental. Functionality may change before generally available.
+  // Views that are added to the Catalog that are subtypes of
+  // SQLView will be inlined if SQLView::enable_view_inline returns true.
+  // That removes the ResolvedTableScan and replaces it with an expression that
+  // evaluates the view body, much as if the view was written inline.
+  REWRITE_INLINE_SQL_VIEWS = 17 [
+    (rewrite_options).default_enabled = true,
+    (rewrite_options).in_development = true
+  ];
+}
+
+// This can be used to select strict name resolution mode.
+//
+// In strict mode, implicit column names cannot be used unqualified.
+// This ensures that existing queries will not be broken if additional
+// elements are added to the schema in the future.
+//
+// For example,
+//   SELECT c1, c2 FROM table1, table2;
+// is not legal in strict mode because another column could be added to one of
+// these tables, making the query ambiguous.  The query must be written
+// with aliases in strict mode:
+//   SELECT t1.c1, t2.c2 FROM table1 t1, table t2;
+//
+// SELECT * is also not allowed in strict mode because the number of output
+// columns may change.
+//
+// See (broken link) for full details.
+enum NameResolutionMode {
+  NAME_RESOLUTION_DEFAULT = 0;
+  NAME_RESOLUTION_STRICT = 1;
+}
+
+// This identifies whether SQL works in INTERNAL (inside Google) mode,
+// or in EXTERNAL (exposed to non-Googlers in the products such as Cloud).
+// See (broken link) for details.
+enum ProductMode {
+  PRODUCT_INTERNAL = 0;
+  PRODUCT_EXTERNAL = 1;
+}
+
+// This identifies whether statements are resolved in module context (i.e.,
+// as a statement contained in a module), or in normal/default context
+// (outside of a module).
+// See (broken link) for details about module context.
+enum StatementContext {
+  CONTEXT_DEFAULT = 0;
+  CONTEXT_MODULE = 1;
+}
+
+// Mode describing how errors should be constructed in the returned
+// absl::Status.
+enum ErrorMessageMode {
+  // The error string does not contain a location.
+  // An ErrorLocation proto will be attached to the absl::Status with
+  // a location, when applicable.
+  // See error_helpers.h for working with these payloads.
+  // See error_location.proto for how line and column are defined.
+  ERROR_MESSAGE_WITH_PAYLOAD = 0;
+
+  // The error string contains a suffix " [at <line>:<column>]" when an
+  // error location is available.
+  ERROR_MESSAGE_ONE_LINE = 1;
+
+  // The error string matches ERROR_MESSAGE_ONE_LINE, and also contains
+  // a second line with a substring of the input query, and a third line
+  // with a caret ("^") pointing at the error location above.
+  ERROR_MESSAGE_MULTI_LINE_WITH_CARET = 2;
+}
+
+// Mode describing how parameters are defined and referenced.
+enum ParameterMode {
+  // Parameters are defined by name (the default) and referenced using the
+  // syntax @param_name.
+  PARAMETER_NAMED = 0;
+
+  // Parameters are defined positionally and referenced with ?. For example, if
+  // two parameters are bound, the first occurrence of ? in the query string
+  // refers to the first parameter and the second occurrence to the second
+  // parameter.
+  PARAMETER_POSITIONAL = 1;
+
+  // No parameters are allowed in the query.
+  PARAMETER_NONE = 2;
+}
+
+// The option controlling what kind of parse location is recorded in a resolved
+// AST node.
+enum ParseLocationRecordType {
+  // Parse locations are not recorded.
+  PARSE_LOCATION_RECORD_NONE = 0;
+
+  // Parse locations cover the entire range of the related node, e.g., the full
+  // function call text associated with a ResolvedFunctionCall, or the full
+  // expression text associated with a ResolvedCast.
+  PARSE_LOCATION_RECORD_FULL_NODE_SCOPE = 1;
+
+  // Parse locations of nodes cover a related object name in the text, as
+  // convenient for code search, e.g., just the function name associated with a
+  // ResolvedFunctionCall, or the target Type text associated with a
+  // ResolvedCast.
+  PARSE_LOCATION_RECORD_CODE_SEARCH = 2;
+}
