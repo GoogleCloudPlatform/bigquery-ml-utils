@@ -17,14 +17,9 @@
 from bigquery_ml_utils.tensorflow_ops import timestamp_ops
 import tensorflow as tf
 
-from google3.third_party.tensorflow.python.framework import test_util
-from google3.third_party.tensorflow.python.framework import errors_impl
 
-
-@test_util.with_eager_op_as_function
 class TimestampOpsTest(tf.test.TestCase):
 
-  @test_util.run_in_graph_and_eager_modes
   def test_extract_from_timestamp(self):
     timestamp = tf.constant(
         ['2023-01-10 12:34:56.7 +1234', '2023-03-14 23:45:12.3 +1234']
@@ -96,39 +91,36 @@ class TimestampOpsTest(tf.test.TestCase):
     result = timestamp_ops.extract_from_timestamp('ISOYEAR', timestamp, 'UTC')
     self.assertAllEqual(result, expect)
 
-  @test_util.run_in_graph_and_eager_modes
   def test_extract_from_timestamp_invalid_timezone(self):
     timestamp = tf.constant(
         ['2023-01-10 12:34:56.7 +1234', '2023-03-14 23:45:12.3 +1234']
     )
     with self.assertRaisesRegex(
-        (errors_impl.InvalidArgumentError, ValueError),
+        (tf.errors.InvalidArgumentError, ValueError),
         'Invalid timezone in ExtractFromTimestamp: UtC',
     ):
       self.evaluate(
           timestamp_ops.extract_from_timestamp('MICROSECOND', timestamp, 'UtC')
       )
 
-  @test_util.run_in_graph_and_eager_modes
   def test_extract_from_timestamp_invalid_timestamp(self):
     timestamp = tf.constant(
         ['2023-01-10 12:34:56.7', '2023-03-14 23:45:12.3 +1234']
     )
     with self.assertRaisesRegex(
-        (errors_impl.InvalidArgumentError, ValueError),
+        (tf.errors.InvalidArgumentError, ValueError),
         'Invalid timestamp in ExtractFromTimestamp: 2023-01-10 12:34:56.7',
     ):
       self.evaluate(
           timestamp_ops.extract_from_timestamp('MICROSECOND', timestamp, 'UTC')
       )
 
-  @test_util.run_in_graph_and_eager_modes
   def test_extract_from_timestamp_invalid_part(self):
     timestamp = tf.constant(
         ['2023-01-10 12:34:56.7 +1234', '2023-03-14 23:45:12.3 +1234']
     )
     with self.assertRaisesRegex(
-        (errors_impl.InvalidArgumentError, ValueError),
+        (tf.errors.InvalidArgumentError, ValueError),
         'Invalid part in ExtractFromTimestamp: micro',
     ):
       self.evaluate(
