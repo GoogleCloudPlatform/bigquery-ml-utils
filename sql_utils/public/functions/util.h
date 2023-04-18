@@ -23,7 +23,7 @@
 #include "absl/base/attributes.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
-#include "util/task/status.h"
+#include "sql_utils/base/status.h"
 
 namespace bigquery_ml_utils {
 namespace functions {

@@ -21,21 +21,21 @@
 #include <algorithm>
 #include <string>
 
-#include "sql_utils/base/logging.h"
-#include "sql_utils/common/status_payload_utils.h"
-#include "sql_utils/common/utf_util.h"
-#include "sql_utils/proto/internal_error_location.pb.h"
-#include "sql_utils/public/error_location.pb.h"
-#include "sql_utils/public/parse_location.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/cord.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/substitute.h"
+#include "sql_utils/base/logging.h"
 #include "sql_utils/base/ret_check.h"
-#include "util/task/status.h"
-#include "util/task/status_builder.h"
+#include "sql_utils/base/status.h"
+#include "sql_utils/base/status_builder.h"
+#include "sql_utils/common/status_payload_utils.h"
+#include "sql_utils/common/utf_util.h"
+#include "sql_utils/proto/internal_error_location.pb.h"
+#include "sql_utils/public/error_location.pb.h"
+#include "sql_utils/public/parse_location.h"
 
 namespace bigquery_ml_utils {
 

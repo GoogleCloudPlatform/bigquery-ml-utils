@@ -28,13 +28,10 @@
 #include "sql_utils/public/interval_value.h"
 #include "sql_utils/public/proto/type_annotation.pb.h"
 #include "absl/base/attributes.h"
-#include "absl/base/integral_types.h"
-#include "absl/base/macros.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "absl/time/civil_time.h"
 #include "absl/time/time.h"
-#include "sql_utils/base/status.h"
 
 // SQL dates are represented as an int32_t value, indicating the offset
 // in days from the epoch 1970-01-01.  SQL dates are not timezone aware,

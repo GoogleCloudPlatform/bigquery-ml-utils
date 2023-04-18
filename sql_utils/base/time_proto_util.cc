@@ -17,7 +17,6 @@
 #include "sql_utils/base/time_proto_util.h"
 
 #include "google/protobuf/timestamp.pb.h"
-#include "absl/base/integral_types.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
