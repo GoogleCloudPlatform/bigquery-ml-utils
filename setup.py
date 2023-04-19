@@ -16,14 +16,34 @@
 
 from setuptools import find_packages
 from setuptools import setup
+from setuptools.command.install import install
+from setuptools.dist import Distribution
 
 # Get the long description from the README file.
 with open('README.md') as fp:
   _LONG_DESCRIPTION = fp.read()
 
+
+class InstallPlatlib(install):
+
+  def finalize_options(self):
+    install.finalize_options(self)
+    self.install_lib = self.install_platlib
+
+
+class BinaryDistribution(Distribution):
+  """This class is needed in order to create OS specific wheels."""
+
+  def has_ext_modules(self):
+    return True
+
+  def is_pure(self):
+    return False
+
+
 setup(
     name='bigquery_ml_utils',
-    version='0.1.0',
+    version='0.1.2',
     description='BigQuery ML Utils',
     long_description=_LONG_DESCRIPTION,
     long_description_content_type='text/markdown',
@@ -32,6 +52,10 @@ setup(
     url='https://github.com/GoogleCloudPlatform/bigquery-ml-utils',
     license='Apache 2.0',
     packages=find_packages(exclude=['tests', 'notebooks']),
-    install_requires=['absl-py', 'xgboost', 'numpy', 'tensorflow'],
+    install_requires=['absl-py', 'xgboost', 'numpy', 'tensorflow >= 2.1.0'],
+    include_package_data=True,
+    zip_safe=False,
+    distclass=BinaryDistribution,
+    cmdclass={'install': InstallPlatlib},
     keywords='bqml utils',
 )

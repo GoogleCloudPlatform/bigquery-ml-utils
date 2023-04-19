@@ -1,4 +1,4 @@
-# Copyright 2022 Google LLC
+# Copyright 2023 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,27 +12,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-package(
-    default_visibility = ["//visibility:public"],
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "tf_header_lib",
+    hdrs = [":tf_header_include"],
+    includes = ["include"],
+    visibility = ["//visibility:public"],
 )
 
-licenses(["notice"])
-
-exports_files(
-    [
-        "LICENSE",
-    ],
+cc_library(
+    name = "libtensorflow_framework",
+    srcs = [":libtensorflow_framework.so"],
+    #data = ["lib/libtensorflow_framework.so"],
+    visibility = ["//visibility:public"],
 )
 
-sh_binary(
-    name = "build_pip_pkg",
-    srcs = ["build_pip_pkg.sh"],
-    data = [
-        "LICENSE",
-        "MANIFEST.in",
-        "README.md",
-        "setup.py",
-        "//inference",
-        "//tensorflow_ops",
-    ],
-)
+%{TF_HEADER_GENRULE}
+%{TF_SHARED_LIBRARY_GENRULE}
