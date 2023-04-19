@@ -1,0 +1,179 @@
+# Copyright 2022 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+package(
+    default_visibility = ["//visibility:public"],
+)
+
+licenses(["notice"])
+
+proto_library(
+    name = "error_location_proto",
+    srcs = ["public/error_location.proto"],
+)
+
+cc_proto_library(
+    name = "error_location_cc_proto",
+    deps = [":error_location_proto"],
+)
+
+proto_library(
+    name = "internal_error_location_proto",
+    srcs = ["proto/internal_error_location.proto"],
+    deps = [
+        ":error_location_proto",
+    ],
+)
+
+cc_proto_library(
+    name = "internal_error_location_cc_proto",
+    deps = [":internal_error_location_proto"],
+)
+
+proto_library(
+    name = "deprecation_warning_proto",
+    srcs = ["public/deprecation_warning.proto"],
+    deps = [
+        ":error_location_proto",
+    ],
+)
+
+cc_proto_library(
+    name = "deprecation_warning_cc_proto",
+    deps = [":deprecation_warning_proto"],
+)
+
+proto_library(
+    name = "options_proto",
+    srcs = ["public/options.proto"],
+    deps = ["@com_google_protobuf//:descriptor_proto"],
+)
+
+cc_proto_library(
+    name = "options_cc_proto",
+    deps = [":options_proto"],
+)
+
+proto_library(
+    name = "parse_location_range_proto",
+    srcs = ["public/parse_location_range.proto"],
+)
+
+cc_proto_library(
+    name = "parse_location_range_cc_proto",
+    deps = [":parse_location_range_proto"],
+)
+
+proto_library(
+    name = "type_proto",
+    srcs = ["public/type.proto"],
+    deps = ["@com_google_protobuf//:descriptor_proto"],
+)
+
+cc_proto_library(
+    name = "type_cc_proto",
+    deps = [":type_proto"],
+)
+
+proto_library(
+    name = "datetime_proto",
+    srcs = ["public/functions/datetime.proto"],
+)
+
+cc_proto_library(
+    name = "datetime_cc_proto",
+    deps = ["datetime_proto"],
+)
+
+proto_library(
+    name = "type_annotation_proto",
+    srcs = [
+        "public/proto/type_annotation.proto",
+    ],
+    features = ["-proto_dynamic_mode_static_link"],
+    deps = ["@com_google_protobuf//:descriptor_proto"],
+)
+
+cc_proto_library(
+    name = "type_annotation_cc_proto",
+    deps = [":type_annotation_proto"],
+)
+
+proto_library(
+    name = "simple_value_proto",
+    srcs = ["public/simple_value.proto"],
+)
+
+cc_proto_library(
+    name = "simple_value_cc_proto",
+    deps = [":simple_value_proto"],
+)
+
+proto_library(
+    name = "annotation_proto",
+    srcs = ["public/annotation.proto"],
+    deps = [":simple_value_proto"],
+)
+
+cc_proto_library(
+    name = "annotation_cc_proto",
+    deps = [":annotation_proto"],
+)
+
+cc_library(
+    name = "sql_utils",
+    srcs = glob(
+        include = ["**/*.cc"],
+    ),
+    hdrs = glob(
+        include = ["**/*.h"],
+    ),
+    deps = [
+        ":annotation_cc_proto",
+        ":datetime_cc_proto",
+        ":deprecation_warning_cc_proto",
+        ":error_location_cc_proto",
+        ":internal_error_location_cc_proto",
+        ":options_cc_proto",
+        ":parse_location_range_cc_proto",
+        ":simple_value_cc_proto",
+        ":type_annotation_cc_proto",
+        ":type_cc_proto",
+        "@com_google_absl//absl/base",
+        "@com_google_absl//absl/base:config",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/base:log_severity",
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_absl//absl/hash",
+        "@com_google_absl//absl/memory",
+        "@com_google_absl//absl/numeric:bits",
+        "@com_google_absl//absl/numeric:int128",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:cord",
+        "@com_google_absl//absl/strings:str_format",
+        "@com_google_absl//absl/time",
+        "@com_google_absl//absl/types:optional",
+        "@com_google_absl//absl/types:span",
+        "@com_google_absl//absl/types:variant",
+        "@com_google_googleapis//google/type:date_cc_proto",
+        "@com_google_googletest//:gtest",
+        "@com_google_protobuf//:cc_wkt_protos",
+        "@com_google_protobuf//:protobuf",
+        "@com_googlesource_code_re2//:re2",
+        "@icu//:headers",
+    ],
+)

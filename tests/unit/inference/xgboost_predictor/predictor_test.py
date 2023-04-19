@@ -22,7 +22,7 @@ import sys
 
 from absl import flags
 from absl.testing import absltest
-from bigquery_ml_utils import xgboost_predictor
+from bigquery_ml_utils.inference import xgboost_predictor
 import mock
 import numpy as np
 import xgboost as xgb

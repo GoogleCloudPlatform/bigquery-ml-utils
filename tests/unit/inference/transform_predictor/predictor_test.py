@@ -18,7 +18,7 @@ from typing import Any
 
 from absl import flags
 from absl.testing import absltest
-from bigquery_ml_utils import transform_predictor
+from bigquery_ml_utils.inference import transform_predictor
 import tensorflow as tf
 
 # pylint: disable=g-import-not-at-top
