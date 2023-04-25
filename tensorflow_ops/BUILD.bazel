@@ -18,13 +18,6 @@ package(
 
 licenses(["notice"])
 
-py_library(
-    name = "tensorflow_ops",
-    srcs = glob(include = ["**/*_ops.py"]),
-    data = [":timestamp_ops.so"],
-    srcs_version = "PY3",
-)
-
 cc_binary(
     name = "timestamp_ops.so",
     srcs = [
@@ -32,12 +25,37 @@ cc_binary(
         "timestamp_kernels.cc",
         "timestamp_ops.cc",
     ],
-    copts = ["-DNDEBUG"],
-    linkshared = True,
+    copts = select({
+        "//conditions:default": [
+            "-pthread",
+            "-std=c++17",
+            "-D_GLIBCXX_USE_CXX11_ABI=0",
+        ],
+    }),
+    features = select({
+        "//conditions:default": [],
+    }),
+    linkshared = 1,
     deps = [
         "//sql_utils",
         "@com_google_absl//absl/strings",
         "@local_config_tf//:libtensorflow_framework",
         "@local_config_tf//:tf_header_lib",
+    ],
+)
+
+py_library(
+    name = "tensorflow_ops_py",
+    srcs = glob(include = ["**/*_ops.py"]),
+    data = [":timestamp_ops.so"],
+    srcs_version = "PY2AND3",
+)
+
+py_library(
+    name = "tensorflow_ops",
+    srcs = glob(include = ["**/__init__.py"]),
+    srcs_version = "PY2AND3",
+    deps = [
+        ":tensorflow_ops_py",
     ],
 )
