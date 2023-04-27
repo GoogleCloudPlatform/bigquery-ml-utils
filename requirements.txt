@@ -1,0 +1,4 @@
+numpy
+tensorflow==2.11.0
+protobuf
+absl-py

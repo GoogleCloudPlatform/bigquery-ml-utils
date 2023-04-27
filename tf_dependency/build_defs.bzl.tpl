@@ -12,29 +12,4 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-package(default_visibility = ["//visibility:public"])
-
-DYNAMIC_COPTS = [
-    "-pthread",
-    "-std=c++17",
-    "%{_TF_CXX11_ABI_FLAG}",
-]
-
-cc_library(
-    name = "tf_header_lib",
-    hdrs = [":tf_header_include"],
-    copts = DYNAMIC_COPTS,
-    includes = ["include"],
-    visibility = ["//visibility:public"],
-)
-
-
-cc_library(
-    name = "libtensorflow_framework",
-    srcs = ["%{TF_SHARED_LIBRARY_NAME}"],
-    copts = DYNAMIC_COPTS,
-    visibility = ["//visibility:public"],
-)
-
-%{TF_HEADER_GENRULE}
-%{TF_SHARED_LIBRARY_GENRULE}
+D_GLIBCXX_USE_CXX11_ABI = "%{tf_cx11_abi}"

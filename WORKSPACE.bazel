@@ -15,7 +15,6 @@
 workspace(name = "bigquery_ml_utils")
 
 load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
-load("//tf_dependency:tf_configure.bzl", "tf_configure")
 
 http_archive(
     name = "platforms",
@@ -26,16 +25,8 @@ http_archive(
     ],
 )
 
-# Protoc needs to be initialized first, to prevent version check error in other libs.
-http_archive(
-    name = "com_google_protobuf",
-    sha256 = "930c2c3b5ecc6c9c12615cf5ad93f1cd6e12d0aba862b572e076259970ac3a53",
-    strip_prefix = "protobuf-3.21.12",
-    urls = ["https://github.com/protocolbuffers/protobuf/archive/v3.21.12.tar.gz"],
-)
-
-load("@com_google_protobuf//:protobuf_deps.bzl", "protobuf_deps")
-
+# Aligns with Vertex serving TF version.
+# Changing TF version here needs to be reflected in requirements.txt.
 http_archive(
     name = "org_tensorflow",
     sha256 = "e52cda3bae45f0ae0fccd4055e9fa29892b414f70e2df94df9a3a10319c75fff",
@@ -59,45 +50,16 @@ load("@org_tensorflow//tensorflow:workspace0.bzl", "tf_workspace0")
 
 tf_workspace0()
 
+load("//tf_dependency:tf_configure.bzl", "tf_configure")
+
 tf_configure(name = "local_config_tf")
 
 http_archive(
-    name = "com_google_googletest",
-    sha256 = "d1407f647bd6300b3434f7156fbf206100f8080b1661d8d56c57876c4173ddcd",
-    strip_prefix = "googletest-0e6aac2571eb1753b8855d8d1f592df64d1a4828",
-    url = "https://github.com/google/googletest/archive/0e6aac2571eb1753b8855d8d1f592df64d1a4828.tar.gz",
-)
-
-http_archive(
     name = "com_google_absl",
-    patch_args = [
-        "-p1",
-    ],
-    patches = [
-        "@//third_party:com_google_absl_windows_patch.diff",
-    ],
     sha256 = "3ea49a7d97421b88a8c48a0de16c16048e17725c7ec0f1d3ea2683a2a75adc21",
     strip_prefix = "abseil-cpp-20230125.0",
     urls = [
         "https://github.com/abseil/abseil-cpp/archive/refs/tags/20230125.0.tar.gz",
-    ],
-)
-
-http_archive(
-    name = "com_google_googleapis",
-    sha256 = "5bb6b0253ccf64b53d6c7249625a7e3f6c3bc6402abd52d3778bfa48258703a0",
-    strip_prefix = "googleapis-2f9af297c84c55c8b871ba4495e01ade42476c92",
-    url = "https://github.com/googleapis/googleapis/archive/2f9af297c84c55c8b871ba4495e01ade42476c92.tar.gz",
-)
-
-load("@com_google_googleapis//:repository_rules.bzl", "switched_rules_by_language")
-
-http_archive(
-    name = "com_googlesource_code_re2",
-    sha256 = "c5f46950cdf33175f0668f454d9b6b4fe1b5a71ffd9283213e77fb04461af099",
-    strip_prefix = "re2-e8cb5ecb8ee1066611aa937a42fa10514edf30fb",
-    urls = [
-        "https://github.com/google/re2/archive/e8cb5ecb8ee1066611aa937a42fa10514edf30fb.tar.gz",
     ],
 )
 
