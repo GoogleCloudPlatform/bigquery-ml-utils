@@ -1,1 +1,1 @@
-recursive-include tensorflow_ops *.so
+recursive-include bigquery_ml_utils *.so

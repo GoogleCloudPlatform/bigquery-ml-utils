@@ -46,8 +46,10 @@ function main() {
   cp ${PIP_FILE_PREFIX}MANIFEST.in "${TMPDIR}"
   cp ${PIP_FILE_PREFIX}LICENSE "${TMPDIR}"
   cp ${PIP_FILE_PREFIX}README.md "${TMPDIR}"
-  rsync -avm -L ${PIP_FILE_PREFIX}inference "${TMPDIR}"
-  rsync -avm -L ${PIP_FILE_PREFIX}tensorflow_ops "${TMPDIR}"
+  mkdir "${TMPDIR}"/bigquery_ml_utils
+  cp ${PIP_FILE_PREFIX}__init__.py "${TMPDIR}"/bigquery_ml_utils
+  rsync -avm -L ${PIP_FILE_PREFIX}inference "${TMPDIR}"/bigquery_ml_utils
+  rsync -avm -L ${PIP_FILE_PREFIX}tensorflow_ops "${TMPDIR}"/bigquery_ml_utils
 
   pushd ${TMPDIR}
   echo $(date) : "=== Building wheel"
