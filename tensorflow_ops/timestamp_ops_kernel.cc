@@ -14,10 +14,10 @@
  * limitations under the License.
  */
 
-#include "tensorflow_ops/constants.h"
-#include "tensorflow/core/framework/op_kernel.h"
 #include "sql_utils/public/functions/date_time_util.h"
 #include "sql_utils/public/functions/parse_date_time.h"
+#include "tensorflow_ops/constants.h"
+#include "tensorflow/core/framework/op_kernel.h"
 
 using ::tensorflow::DEVICE_CPU;
 using ::tensorflow::OpKernel;
@@ -52,7 +52,8 @@ class ExtractFromTimestamp : public OpKernel {
 
     // Parse and validate the timezone.
     absl::TimeZone tz;
-    absl::Status status = bigquery_ml_utils::functions::MakeTimeZone(time_zone, &tz);
+    absl::Status status =
+        bigquery_ml_utils::functions::MakeTimeZone(time_zone, &tz);
     OP_REQUIRES(context, status.ok(),
                 ::tensorflow::errors::InvalidArgument(
                     "Invalid timezone in ExtractFromTimestamp: ", time_zone));

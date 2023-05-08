@@ -12,13 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for BQML timestamp custom ops."""
+"""Tests for BQML EXTRACT from timestamp custom ops."""
 
 from bigquery_ml_utils.tensorflow_ops import timestamp_ops
 import tensorflow as tf
 
 
-class TimestampOpsTest(tf.test.TestCase):
+class ExtractFromTimestampTest(tf.test.TestCase):
 
   def test_extract_from_timestamp(self):
     timestamp = tf.constant(
