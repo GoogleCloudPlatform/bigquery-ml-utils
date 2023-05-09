@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+#include "absl/strings/ascii.h"
 #include "sql_utils/public/functions/date_time_util.h"
 #include "sql_utils/public/functions/parse_date_time.h"
 #include "tensorflow_ops/constants.h"

@@ -25,8 +25,41 @@ http_archive(
     ],
 )
 
+# Required by tensorflow_ops.
+http_archive(
+    name = "com_google_absl",
+    sha256 = "3ea49a7d97421b88a8c48a0de16c16048e17725c7ec0f1d3ea2683a2a75adc21",
+    strip_prefix = "abseil-cpp-20230125.0",
+    urls = [
+        "https://github.com/abseil/abseil-cpp/archive/refs/tags/20230125.0.tar.gz",
+    ],
+)
+
+# Required by icu.
+http_archive(
+    name = "rules_foreign_cc",
+    sha256 = "2a4d07cd64b0719b39a7c12218a3e507672b82a97b98c6a89d38565894cf7c51",
+    strip_prefix = "rules_foreign_cc-0.9.0",
+    url = "https://github.com/bazelbuild/rules_foreign_cc/archive/0.9.0.tar.gz",
+)
+
+load("@rules_foreign_cc//foreign_cc:repositories.bzl", "rules_foreign_cc_dependencies")
+
+rules_foreign_cc_dependencies()
+
+# Required by sql_utils.
+http_archive(
+    name = "icu",
+    build_file = "@bigquery_ml_utils//bazel:icu.BUILD",
+    patches = ["@bigquery_ml_utils//bazel:icu4c-64_2.patch"],
+    sha256 = "53e37466b3d6d6d01ead029e3567d873a43a5d1c668ed2278e253b683136d948",
+    strip_prefix = "icu",
+    urls = ["https://github.com/unicode-org/icu/releases/download/release-65-1/icu4c-65_1-src.tgz"],
+)
+
 # Aligns with Vertex serving TF version.
 # Changing TF version here needs to be reflected in requirements.txt.
+# Define TF in the end, so packages defined above will be skipped here.
 http_archive(
     name = "org_tensorflow",
     sha256 = "e52cda3bae45f0ae0fccd4055e9fa29892b414f70e2df94df9a3a10319c75fff",
@@ -53,21 +86,3 @@ tf_workspace0()
 load("//tf_dependency:tf_configure.bzl", "tf_configure")
 
 tf_configure(name = "local_config_tf")
-
-http_archive(
-    name = "com_google_absl",
-    sha256 = "3ea49a7d97421b88a8c48a0de16c16048e17725c7ec0f1d3ea2683a2a75adc21",
-    strip_prefix = "abseil-cpp-20230125.0",
-    urls = [
-        "https://github.com/abseil/abseil-cpp/archive/refs/tags/20230125.0.tar.gz",
-    ],
-)
-
-http_archive(
-    name = "icu",
-    build_file = "@bigquery_ml_utils//:bazel/icu.BUILD",
-    patches = ["@bigquery_ml_utils//:bazel/icu4c-64_2.patch"],
-    sha256 = "53e37466b3d6d6d01ead029e3567d873a43a5d1c668ed2278e253b683136d948",
-    strip_prefix = "icu",
-    urls = ["https://github.com/unicode-org/icu/releases/download/release-65-1/icu4c-65_1-src.tgz"],
-)

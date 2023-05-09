@@ -18,6 +18,8 @@
 #include "tensorflow/core/framework/shape_inference.h"
 #include "tensorflow/core/lib/core/status.h"
 
+namespace bigquery_ml_utils {
+
 // Register ExtractFromDatetime op with signature.
 // Output has the same shape of the input datetime.
 REGISTER_OP("ExtractFromDatetime")
@@ -48,3 +50,5 @@ REGISTER_OP("ExtractTimeFromDatetime")
       c->set_output(0, c->input(0));
       return tensorflow::OkStatus();
     });
+
+}  // namespace bigquery_ml_utils

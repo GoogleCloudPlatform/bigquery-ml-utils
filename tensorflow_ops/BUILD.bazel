@@ -18,12 +18,25 @@ package(
 
 licenses(["notice"])
 
+# Export for the PIP package.
+exports_files(
+    [
+        "__init__.py",
+    ],
+)
+
+py_library(
+    name = "load_module",
+    srcs = ["load_module.py"],
+    deps = [],
+)
+
 cc_binary(
-    name = "timestamp_ops.so",
+    name = "_timestamp_ops.so",
     srcs = [
         "constants.h",
-        "timestamp_ops_kernel.cc",
         "timestamp_ops.cc",
+        "timestamp_ops_kernel.cc",
     ],
     copts = select({
         "//conditions:default": [
@@ -45,11 +58,11 @@ cc_binary(
 )
 
 cc_binary(
-    name = "datetime_ops.so",
+    name = "_datetime_ops.so",
     srcs = [
         "constants.h",
-        "datetime_ops_kernel.cc",
         "datetime_ops.cc",
+        "datetime_ops_kernel.cc",
     ],
     copts = select({
         "//conditions:default": [
@@ -74,20 +87,24 @@ cc_binary(
 )
 
 py_library(
-    name = "tensorflow_ops_py",
-    srcs = glob(include = ["**/*_ops.py"]),
-    data = [
-        ":timestamp_ops.so",
-        ":datetime_ops.so",
-    ],
-    srcs_version = "PY2AND3",
+    name = "timestamp_ops_py",
+    srcs = ["timestamp_ops.py"],
+    data = [":_timestamp_ops.so"],
+    deps = [":load_module"],
+)
+
+py_library(
+    name = "datetime_ops_py",
+    srcs = ["datetime_ops.py"],
+    data = [":_datetime_ops.so"],
+    deps = [":load_module"],
 )
 
 py_library(
     name = "tensorflow_ops",
-    srcs = glob(include = ["**/__init__.py"]),
-    srcs_version = "PY2AND3",
+    srcs = ["__init__.py"],
     deps = [
-        ":tensorflow_ops_py",
+        ":datetime_ops_py",
+        ":timestamp_ops_py",
     ],
 )

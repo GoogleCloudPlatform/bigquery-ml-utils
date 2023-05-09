@@ -14,11 +14,9 @@
 
 """Python wrapper for BigQuery datetime custom ops."""
 
-import tensorflow as tf
+from bigquery_ml_utils.tensorflow_ops.load_module import load_module
 
-gen_datetime_ops = tf.load_op_library(
-    tf.compat.v1.resource_loader.get_path_to_datafile('datetime_ops.so')
-)
+gen_datetime_ops = load_module("_datetime_ops.so")
 
 
 def extract_from_datetime(datetime, part, name=None):

@@ -18,9 +18,11 @@ package(
 
 licenses(["notice"])
 
+# Export for the PIP package.
 exports_files(
     [
         "LICENSE",
+        "__init__.py",
     ],
 )
 

@@ -14,11 +14,9 @@
 
 """Python wrapper for BQML timestamp custom ops."""
 
-import tensorflow as tf
+from bigquery_ml_utils.tensorflow_ops.load_module import load_module
 
-gen_timestamp_ops = tf.load_op_library(
-    tf.compat.v1.resource_loader.get_path_to_datafile('timestamp_ops.so')
-)
+gen_timestamp_ops = load_module("_timestamp_ops.so")
 
 def extract_from_timestamp(part, timestamp, time_zone, name=None):
   """Returns the specified part from a supplied timestamp at a given timezone.

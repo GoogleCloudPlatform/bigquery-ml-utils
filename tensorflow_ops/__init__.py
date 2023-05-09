@@ -11,3 +11,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
+from bigquery_ml_utils.tensorflow_ops.timestamp_ops import extract_from_timestamp
+from bigquery_ml_utils.tensorflow_ops.datetime_ops import (
+    extract_from_datetime,
+    extract_date_from_datetime,
+    extract_time_from_datetime,
+)

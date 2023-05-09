@@ -17,6 +17,8 @@
 #include "tensorflow/core/framework/op.h"
 #include "tensorflow/core/framework/shape_inference.h"
 
+namespace bigquery_ml_utils {
+
 // Register ExtractFromTimestamp op with signature.
 // Output has the same shape of the input timestamp.
 REGISTER_OP("ExtractFromTimestamp")
@@ -28,3 +30,5 @@ REGISTER_OP("ExtractFromTimestamp")
       c->set_output(0, c->input(1));
       return ::tensorflow::OkStatus();
     });
+
+}  // namespace bigquery_ml_utils
