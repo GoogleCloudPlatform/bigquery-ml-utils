@@ -49,7 +49,7 @@ class ExtractFromTimestamp : public OpKernel {
     Tensor* output_tensor = NULL;
     OP_REQUIRES_OK(context, context->allocate_output(
                                 0, timestamp_tensor.shape(), &output_tensor));
-    auto output_flat = output_tensor->flat<int32_t>();
+    auto output_flat = output_tensor->flat<int64_t>();
 
     // Parse and validate the timezone.
     absl::TimeZone tz;
@@ -82,7 +82,8 @@ class ExtractFromTimestamp : public OpKernel {
                       "Invalid part in ExtractFromTimestamp: ", part));
 
       // Set the output value.
-      output_flat(i) = out;
+      // Currently, BQML util inference only supports int64.
+      output_flat(i) = static_cast<int64_t>(out);
     }
   }
 };

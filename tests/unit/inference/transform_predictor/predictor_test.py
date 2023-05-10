@@ -80,6 +80,28 @@ class PredictorTest(absltest.TestCase):
             'f3': 'bbb',
         }]), [[10.310742], [11.064549]])
 
+  def test_linear_reg_custom_op(self):
+    model_path = str(
+        importlib_resources.files('bigquery_ml_utils').joinpath(
+            'tests/data/inference/transform_predictor/'
+            'linear_reg_model_custom_op'
+        )
+    )
+    test_predictor = transform_predictor.Predictor.from_path(model_path)
+    self._validate_prediction_results(
+        test_predictor.predict([
+            {
+                'f1': '2023-01-10 12:34:56.7 +1234',
+                'f2': '2023-03-14 23:45:12.3 +1234',
+            },
+            {
+                'f1': '2023-01-10 15:34:56.7 +1234',
+                'f2': '2023-03-14 21:45:12.3 +1234',
+            },
+        ]),
+        [[0.20000000000000004], [0.20000000000000004]],
+    )
+
   def test_boosted_tree_classifier(self):
     model_path = str(
         importlib_resources.files('bigquery_ml_utils').joinpath(

@@ -30,4 +30,7 @@ py_library(
     srcs = glob(
         include = ["**/*.py"],
     ),
+    deps = [
+        "//tensorflow_ops",
+    ],
 )

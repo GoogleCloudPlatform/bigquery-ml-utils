@@ -25,7 +25,7 @@ REGISTER_OP("ExtractFromTimestamp")
     .Input("part: string")
     .Input("timestamp: string")
     .Input("time_zone: string")
-    .Output("part_out: int32")
+    .Output("part_out: int64")
     .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
       c->set_output(0, c->input(1));
       return ::tensorflow::OkStatus();
