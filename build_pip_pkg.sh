@@ -51,10 +51,15 @@ function main() {
   rsync -avm -L ${PIP_FILE_PREFIX}inference "${TMPDIR}"/bigquery_ml_utils
   rsync -avm -L ${PIP_FILE_PREFIX}tensorflow_ops "${TMPDIR}"/bigquery_ml_utils
 
+  # Read PYTHON_BIN_PATH that is set by configure.py.
+  if [[ -e python_bin_path.sh ]]; then
+    source python_bin_path.sh
+  fi
+
   pushd ${TMPDIR}
   echo $(date) : "=== Building wheel"
 
-  python3 setup.py bdist_wheel > /dev/null
+  "${PYTHON_BIN_PATH:-python3}" setup.py bdist_wheel > /dev/null
 
   cp dist/*.whl "${DEST}"
   popd

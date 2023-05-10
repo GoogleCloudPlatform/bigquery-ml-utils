@@ -28,7 +28,7 @@ from typing import List
 
 _BAZELRC = '.bazelrc'
 _BAZEL_QUERY = '.bazel-query.sh'
-_WORKSPACE_ROOT = ''
+_PYTHON_BIN_PATH = 'python_bin_path.sh'
 
 
 # Writes variables to bazelrc file
@@ -65,6 +65,8 @@ def create_build_configuration():
     os.remove(_BAZELRC)
   if os.path.isfile(_BAZEL_QUERY):
     os.remove(_BAZEL_QUERY)
+  if os.path.isfile(_PYTHON_BIN_PATH):
+    os.remove(_PYTHON_BIN_PATH)
 
   environ_cp = dict(os.environ)
   setup_python(environ_cp)
@@ -190,6 +192,10 @@ def setup_python(environ_cp):
     python_paths = environ_cp.get('PYTHONPATH').split(':')
     if python_lib_path in python_paths:
       write_action_env('PYTHONPATH', environ_cp.get('PYTHONPATH'))
+
+  # Write tools/python_bin_path.sh
+  with open(_PYTHON_BIN_PATH, 'a') as f:
+    f.write('export PYTHON_BIN_PATH="{}"'.format(python_bin_path))
 
 
 def get_from_env_or_user_or_default(
