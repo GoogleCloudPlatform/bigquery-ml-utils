@@ -110,8 +110,8 @@ function main() {
   then
     cp -r artifacts/* $WHEEL_DIST
   else
-    echo "=== Repairing the wheel to be manylinux compatible"
-    auditwheel repair --exclude libtensorflow_framework.so.2 --plat manylinux_2_17_x86_64 -w $WHEEL_DIST artifacts/bigquery_ml_utils-${PKG_VERSION}-cp3${V}-cp3${V}-linux_x86_64.whl
+    echo "=== Repairing the wheels to be manylinux compatible"
+    auditwheel repair --exclude libtensorflow_framework.so.2 --plat manylinux_2_17_x86_64 -w $WHEEL_DIST artifacts/*.whl
   fi
 
   echo "=== Generated bigquery-ml-utils wheels in $WHEEL_DIST"
