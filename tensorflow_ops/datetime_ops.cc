@@ -20,6 +20,100 @@
 
 namespace bigquery_ml_utils {
 
+// Register DatetimeFromComponents op with signature.
+// Output has the same shape of the inputs.
+REGISTER_OP("DatetimeFromComponents")
+    .Input("year: int64")
+    .Input("month: int64")
+    .Input("day: int64")
+    .Input("hour: int64")
+    .Input("minute: int64")
+    .Input("second: int64")
+    .Output("output: string")
+    .SetShapeFn([](tensorflow::shape_inference::InferenceContext* c) {
+      c->set_output(0, c->input(0));
+      return tensorflow::OkStatus();
+    });
+
+// Register DatetimeFromDate op with signature.
+// Output has the same shape of the inputs.
+REGISTER_OP("DatetimeFromDate")
+    .Input("date: string")
+    .Output("output: string")
+    .SetShapeFn([](tensorflow::shape_inference::InferenceContext* c) {
+      c->set_output(0, c->input(0));
+      return tensorflow::OkStatus();
+    });
+
+// Register DatetimeFromDateAndTime op with signature.
+// Output has the same shape of the inputs.
+REGISTER_OP("DatetimeFromDateAndTime")
+    .Input("date: string")
+    .Input("time: string")
+    .Output("output: string")
+    .SetShapeFn([](tensorflow::shape_inference::InferenceContext* c) {
+      c->set_output(0, c->input(0));
+      return tensorflow::OkStatus();
+    });
+
+// Register DatetimeFromTimestamp op with signature.
+// Output has the same shape of the inputs.
+REGISTER_OP("DatetimeFromTimestamp")
+    .Input("timestamp: string")
+    .Input("time_zone: string")
+    .Output("output: string")
+    .SetShapeFn([](tensorflow::shape_inference::InferenceContext* c) {
+      c->set_output(0, c->input(0));
+      return tensorflow::OkStatus();
+    });
+
+// Register DatetimeAdd op with signature.
+// Output has the same shape of the inputs.
+REGISTER_OP("DatetimeAdd")
+    .Input("datetime: string")
+    .Input("interval: int64")
+    .Input("part: string")
+    .Output("output: string")
+    .SetShapeFn([](tensorflow::shape_inference::InferenceContext* c) {
+      c->set_output(0, c->input(0));
+      return tensorflow::OkStatus();
+    });
+
+// Register DatetimeDiff op with signature.
+// Output has the same shape of the inputs.
+REGISTER_OP("DatetimeDiff")
+    .Input("datetime_a: string")
+    .Input("datetime_b: string")
+    .Input("part: string")
+    .Output("output: int64")
+    .SetShapeFn([](tensorflow::shape_inference::InferenceContext* c) {
+      c->set_output(0, c->input(0));
+      return tensorflow::OkStatus();
+    });
+
+// Register DatetimeSub op with signature.
+// Output has the same shape of the inputs.
+REGISTER_OP("DatetimeSub")
+    .Input("datetime: string")
+    .Input("interval: int64")
+    .Input("part: string")
+    .Output("output: string")
+    .SetShapeFn([](tensorflow::shape_inference::InferenceContext* c) {
+      c->set_output(0, c->input(0));
+      return tensorflow::OkStatus();
+    });
+
+// Register DatetimeTrunc op with signature.
+// Output has the same shape of the inputs.
+REGISTER_OP("DatetimeTrunc")
+    .Input("datetime: string")
+    .Input("part: string")
+    .Output("output: string")
+    .SetShapeFn([](tensorflow::shape_inference::InferenceContext* c) {
+      c->set_output(0, c->input(0));
+      return tensorflow::OkStatus();
+    });
+
 // Register ExtractFromDatetime op with signature.
 // Output has the same shape of the input datetime.
 REGISTER_OP("ExtractFromDatetime")
@@ -48,6 +142,17 @@ REGISTER_OP("ExtractTimeFromDatetime")
     .Output("part_out: string")
     .SetShapeFn([](tensorflow::shape_inference::InferenceContext* c) {
       c->set_output(0, c->input(0));
+      return tensorflow::OkStatus();
+    });
+
+// Register ParseDatetime op with signature.
+// Output has the same shape of the input datetime.
+REGISTER_OP("ParseDatetime")
+    .Input("format_string: string")
+    .Input("datetime_string: string")
+    .Output("output: string")
+    .SetShapeFn([](tensorflow::shape_inference::InferenceContext* c) {
+      c->set_output(0, c->input(1));
       return tensorflow::OkStatus();
     });
 

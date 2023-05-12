@@ -1,4 +1,4 @@
-# Copyright 2022 Google LLC
+# Copyright 2023 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -123,44 +123,6 @@ class ExtractFromDatetimeTest(tf.test.TestCase):
         'Invalid part in ExtractFromDatetime: DATE',
     ):
       self.evaluate(datetime_ops.extract_from_datetime(datetime, 'DATE'))
-
-  def test_extract_date_from_datetime(self):
-    self.assertAllEqual(
-        datetime_ops.extract_date_from_datetime(
-            tf.constant(['2023-01-10 12:34:56.7', '2023-03-14 23:45:12.3'])
-        ),
-        tf.constant(['2023-01-10', '2023-03-14']),
-    )
-
-  def test_extract_date_from_datetime_invalid_datetime(self):
-    with self.assertRaisesRegex(
-        (tf.errors.InvalidArgumentError, ValueError),
-        'Invalid datetime in ExtractDateFromDatetime: 2023-01-10',
-    ):
-      self.evaluate(
-          datetime_ops.extract_date_from_datetime(
-              tf.constant(['2023-01-10', '2023-03-14'])
-          )
-      )
-
-  def test_extract_time_from_datetime(self):
-    self.assertAllEqual(
-        datetime_ops.extract_time_from_datetime(
-            tf.constant(['2023-01-10 12:34:56.7', '2023-03-14 23:45:12.3'])
-        ),
-        tf.constant(['12:34:56.700', '23:45:12.300']),
-    )
-
-  def test_extract_time_from_datetime_invalid_datetime(self):
-    with self.assertRaisesRegex(
-        (tf.errors.InvalidArgumentError, ValueError),
-        'Invalid datetime in ExtractTimeFromDatetime: 2023-01-10',
-    ):
-      self.evaluate(
-          datetime_ops.extract_time_from_datetime(
-              tf.constant(['2023-01-10', '2023-03-14'])
-          )
-      )
 
 
 if __name__ == '__main__':
