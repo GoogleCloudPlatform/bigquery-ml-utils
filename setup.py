@@ -52,7 +52,7 @@ setup(
     url='https://github.com/GoogleCloudPlatform/bigquery-ml-utils',
     license='Apache 2.0',
     packages=find_packages(exclude=['tests', 'notebooks']),
-    install_requires=['absl-py', 'xgboost', 'numpy', 'tensorflow >= 2.1.0'],
+    install_requires=['absl-py', 'xgboost', 'numpy', 'tensorflow ~= 2.11.0'],
     include_package_data=True,
     zip_safe=False,
     distclass=BinaryDistribution,
