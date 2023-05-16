@@ -18,7 +18,8 @@ from bigquery_ml_utils.tensorflow_ops.load_module import load_module
 
 gen_timestamp_ops = load_module("_timestamp_ops.so")
 
-def extract_from_timestamp(part, timestamp, time_zone, name=None):
+
+def extract_from_timestamp(part, timestamp, time_zone="UTC", name=None):
   """Returns the specified part from a supplied timestamp at a given timezone.
 
   Equivalent SQL: EXTRACT(part FROM timestamp AT TIME ZONE time_zone)
@@ -33,4 +34,19 @@ def extract_from_timestamp(part, timestamp, time_zone, name=None):
   """
   return gen_timestamp_ops.extract_from_timestamp(
       part=part, timestamp=timestamp, time_zone=time_zone, name=name
+  )
+
+
+def string_from_timestamp(timestamp, time_zone="UTC", name=None):
+  """Returns a timestamp to a string at a given timezone.
+
+  Equivalent SQL: STRING(timestamp_expression[, time_zone])
+
+  Args:
+    timestamp: tf.Tensor of type string. Timestamp in "%F %H:%M:%E1S %z" format.
+    time_zone: A string represents the timezone. Case sensitive.
+    name: An optional name for the op.
+  """
+  return gen_timestamp_ops.string_from_timestamp(
+      timestamp=timestamp, time_zone=time_zone, name=name
   )

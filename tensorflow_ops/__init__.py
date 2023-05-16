@@ -12,9 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from bigquery_ml_utils.tensorflow_ops.datetime_ops import extract_date_from_datetime
+from bigquery_ml_utils.tensorflow_ops.datetime_ops import extract_from_datetime
+from bigquery_ml_utils.tensorflow_ops.datetime_ops import extract_time_from_datetime
 from bigquery_ml_utils.tensorflow_ops.timestamp_ops import extract_from_timestamp
-from bigquery_ml_utils.tensorflow_ops.datetime_ops import (
-    extract_from_datetime,
-    extract_date_from_datetime,
-    extract_time_from_datetime,
-)
+from bigquery_ml_utils.tensorflow_ops.timestamp_ops import string_from_timestamp

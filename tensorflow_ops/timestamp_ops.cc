@@ -31,4 +31,15 @@ REGISTER_OP("ExtractFromTimestamp")
       return ::tensorflow::OkStatus();
     });
 
+// Register StringFromTimestamp op with signature.
+// Output has the same shape of the input timestamp.
+REGISTER_OP("StringFromTimestamp")
+    .Input("timestamp: string")
+    .Input("time_zone: string")
+    .Output("part_out: string")
+    .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
+      c->set_output(0, c->input(1));
+      return ::tensorflow::OkStatus();
+    });
+
 }  // namespace bigquery_ml_utils
