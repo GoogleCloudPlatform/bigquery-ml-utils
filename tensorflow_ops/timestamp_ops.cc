@@ -19,6 +19,8 @@
 
 namespace bigquery_ml_utils {
 
+// NOTE: changing signature will break the existing SavedModel.
+
 // Register ExtractFromTimestamp op with signature.
 // Output has the same shape of the input timestamp.
 REGISTER_OP("ExtractFromTimestamp")
@@ -36,7 +38,41 @@ REGISTER_OP("ExtractFromTimestamp")
 REGISTER_OP("StringFromTimestamp")
     .Input("timestamp: string")
     .Input("time_zone: string")
-    .Output("part_out: string")
+    .Output("output: string")
+    .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
+      c->set_output(0, c->input(1));
+      return ::tensorflow::OkStatus();
+    });
+
+// Register TimestampFromString op with signature.
+// Output has the same shape of the input string.
+REGISTER_OP("TimestampFromString")
+    .Input("timestamp: string")
+    .Input("time_zone: string")
+    .Input("allow_tz_in_str: bool")
+    .Output("output: string")
+    .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
+      c->set_output(0, c->input(1));
+      return ::tensorflow::OkStatus();
+    });
+
+// Register TimestampFromDate op with signature.
+// Output has the same shape of the input date.
+REGISTER_OP("TimestampFromDate")
+    .Input("date: string")
+    .Input("time_zone: string")
+    .Output("output: string")
+    .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
+      c->set_output(0, c->input(1));
+      return ::tensorflow::OkStatus();
+    });
+
+// Register TimestampFromDatetime op with signature.
+// Output has the same shape of the input datetime.
+REGISTER_OP("TimestampFromDatetime")
+    .Input("datetime: string")
+    .Input("time_zone: string")
+    .Output("output: string")
     .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
       c->set_output(0, c->input(1));
       return ::tensorflow::OkStatus();

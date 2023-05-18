@@ -97,7 +97,7 @@ class ExtractFromTimestampTest(tf.test.TestCase):
     )
     with self.assertRaisesRegex(
         (tf.errors.InvalidArgumentError, ValueError),
-        'Invalid timezone in ExtractFromTimestamp: UtC',
+        'Invalid time zone in ExtractFromTimestamp: UtC',
     ):
       self.evaluate(
           timestamp_ops.extract_from_timestamp('MICROSECOND', timestamp, 'UtC')

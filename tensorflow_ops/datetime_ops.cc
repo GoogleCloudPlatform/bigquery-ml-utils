@@ -20,6 +20,8 @@
 
 namespace bigquery_ml_utils {
 
+// NOTE: changing signature will break the existing SavedModel.
+
 // Register DatetimeFromComponents op with signature.
 // Output has the same shape of the inputs.
 REGISTER_OP("DatetimeFromComponents")
