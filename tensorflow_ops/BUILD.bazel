@@ -92,6 +92,36 @@ cc_binary(
     ],
 )
 
+cc_binary(
+    name = "_date_ops.so",
+    srcs = [
+        "constants.h",
+        "date_ops.cc",
+        "date_ops_kernel.cc",
+        "utils.cc",
+        "utils.h",
+    ],
+    copts = select({
+        "//conditions:default": [
+            "-pthread",
+            "-std=c++17",
+            "-D_GLIBCXX_USE_CXX11_ABI=1",
+        ],
+    }),
+    features = select({
+        "//conditions:default": [],
+    }),
+    linkshared = 1,
+    deps = [
+        "//sql_utils",
+        "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings",
+        "@local_config_tf//:libtensorflow_framework",
+        "@local_config_tf//:tf_header_lib",
+    ],
+)
+
 py_library(
     name = "timestamp_ops_py",
     srcs = ["timestamp_ops.py"],
@@ -107,9 +137,17 @@ py_library(
 )
 
 py_library(
+    name = "date_ops_py",
+    srcs = ["date_ops.py"],
+    data = [":_date_ops.so"],
+    deps = [":load_module"],
+)
+
+py_library(
     name = "tensorflow_ops",
     srcs = ["__init__.py"],
     deps = [
+        ":date_ops_py",
         ":datetime_ops_py",
         ":timestamp_ops_py",
     ],

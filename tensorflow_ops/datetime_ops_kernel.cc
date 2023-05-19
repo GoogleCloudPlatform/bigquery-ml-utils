@@ -661,8 +661,8 @@ class ExtractFromDatetime : public OpKernel {
       status = functions::ExtractFromDatetime(part_enum, datetime_value, &out);
       OP_REQUIRES(
           context, status.ok(),
-          InvalidArgument(
-              "InvalidArgument in ExtractFromDatetime with status: ", status));
+          Internal("Internal error in ExtractFromDatetime with status: ",
+                   status));
 
       // Set the output value.
       output_flat(i) = static_cast<int64_t>(out);
