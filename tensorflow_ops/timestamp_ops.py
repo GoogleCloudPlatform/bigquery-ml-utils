@@ -52,20 +52,20 @@ def string_from_timestamp(timestamp, time_zone="UTC", name=None):
   )
 
 
-def timestamp_from_string(timestamp, time_zone=None, name=None):
+def timestamp_from_string(timestamp_string, time_zone=None, name=None):
   """Returns a timestamp from a string at a given timezone.
 
   Equivalent SQL: TIMESTAMP(string_expression[, time_zone])
 
   Args:
-    timestamp: tf.Tensor of type string. Must include a timestamp literal. If
-      timestamp includes a time_zone in the string, do not include an explicit
-      time_zone argument.
+    timestamp_string: tf.Tensor of type string. Must include a timestamp
+      literal. If timestamp includes a time_zone in the string, do not include
+      an explicit time_zone argument.
     time_zone: A string represents the timezone. Case sensitive.
     name: An optional name for the op.
   """
   return gen_timestamp_ops.timestamp_from_string(
-      timestamp=timestamp,
+      timestamp_string=timestamp_string,
       time_zone="UTC" if time_zone is None else time_zone,
       allow_tz_in_str=time_zone is None,
       name=name,
@@ -103,5 +103,225 @@ def timestamp_from_datetime(datetime, time_zone="UTC", name=None):
   return gen_timestamp_ops.timestamp_from_datetime(
       datetime=datetime,
       time_zone=time_zone,
+      name=name,
+  )
+
+
+def timestamp_add(timestamp, diff, part, name=None):
+  """Returns a timestamp by adding diff to the timestamp.
+
+  Equivalent SQL: TIMESTAMP_ADD(timestamp_expression, INTERVAL int64_expression
+  date_part)
+
+  Args:
+    timestamp: tf.Tensor of type string. Timestamp in "%F %H:%M:%E1S %z" format.
+    diff: A integer represents the unit of part.
+    part: A string represents the datetime part. Can be MICROSECOND,
+      MILLISECOND, SECOND, MINUTE, HOUR, DAY. Case insensitive.
+    name: An optional name for the op.
+  """
+  return gen_timestamp_ops.timestamp_add(
+      timestamp=timestamp,
+      diff=diff,
+      part=part,
+      name=name,
+  )
+
+
+def timestamp_sub(timestamp, diff, part, name=None):
+  """Returns a timestamp by subtracting diff to the timestamp.
+
+  Equivalent SQL: TIMESTAMP_SUB(timestamp_expression, INTERVAL int64_expression
+  date_part)
+
+  Args:
+    timestamp: tf.Tensor of type string. Timestamp in "%F %H:%M:%E1S %z" format.
+    diff: A integer represents the unit of part.
+    part: A string represents the datetime part. Can be MICROSECOND,
+      MILLISECOND, SECOND, MINUTE, HOUR, DAY. Case insensitive.
+    name: An optional name for the op.
+  """
+  return gen_timestamp_ops.timestamp_sub(
+      timestamp=timestamp,
+      diff=diff,
+      part=part,
+      name=name,
+  )
+
+
+def timestamp_diff(timestamp_a, timestamp_b, part, name=None):
+  """Returns the whole number of specified date_part intervals between timestamp_a and timestamp_b.
+
+  Equivalent SQL: TIMESTAMP_DIFF(timestamp_expression_a, timestamp_expression_b,
+  date_part)
+
+  Args:
+    timestamp_a: tf.Tensor of type string. Timestamp in "%F %H:%M:%E1S %z"
+      format.
+    timestamp_b: tf.Tensor of type string. Timestamp in "%F %H:%M:%E1S %z"
+      format.
+    part: A string represents the datetime part. Can be MICROSECOND,
+      MILLISECOND, SECOND, MINUTE, HOUR, DAY. Case insensitive.
+    name: An optional name for the op.
+  """
+  return gen_timestamp_ops.timestamp_diff(
+      timestamp_a=timestamp_a,
+      timestamp_b=timestamp_b,
+      part=part,
+      name=name,
+  )
+
+
+def timestamp_trunc(timestamp, part, time_zone="UTC", name=None):
+  """Returns a timestamp which by truncating the original timestamp to the granularity of part.
+
+  Equivalent SQL: TIMESTAMP_TRUNC(timestamp_expression, date_time_part[,
+  time_zone])
+
+  Args:
+    timestamp: tf.Tensor of type string. Timestamp in "%F %H:%M:%E1S %z" format.
+    part: A string represents the datetime part. Can be MICROSECOND,
+      MILLISECOND, SECOND,MINUTE, HOUR,  DAY, WEEK,  WEEK_MONDAY, WEEK_TUESDAY,
+      WEEK_WEDNESDAY, WEEK_THURSDAY, WEEK_FRIDAY, WEEK_SATURDAY, ISOWEEK, MONTH,
+      QUARTER, YEAR,  ISOYEAR. Case insensitive.
+    time_zone: A string represents the timezone. Case sensitive.
+    name: An optional name for the op.
+  """
+  return gen_timestamp_ops.timestamp_trunc(
+      timestamp=timestamp,
+      part=part,
+      time_zone=time_zone,
+      name=name,
+  )
+
+
+def format_timestamp(format_string, timestamp, time_zone="UTC", name=None):
+  """Returns a timestamp which by truncating the original timestamp to the granularity of part.
+
+  Equivalent SQL: TIMESTAMP_TRUNC(timestamp_expression, date_time_part[,
+  time_zone])
+
+  Args:
+    format_string: tf.Tensor of type string. Format of the output string.
+    timestamp: tf.Tensor of type string. Timestamp in "%F %H:%M:%E1S %z" format.
+    time_zone: A string represents the timezone. Case sensitive.
+    name: An optional name for the op.
+  """
+  return gen_timestamp_ops.format_timestamp(
+      format_string=format_string,
+      timestamp=timestamp,
+      time_zone=time_zone,
+      name=name,
+  )
+
+
+def parse_timestamp(
+    format_string, timestamp_string, time_zone="UTC", name=None
+):
+  """Returns a timestamp by parsing a string.
+
+  Equivalent SQL: PARSE_TIMESTAMP(format_string, timestamp_string[, time_zone])
+
+  Args:
+    format_string: tf.Tensor of type string. Format of the string timestamp.
+    timestamp_string: tf.Tensor of type string. Timestamp in any supported
+      format.
+    time_zone: A string represents the timezone. Case sensitive.
+    name: An optional name for the op.
+  """
+  return gen_timestamp_ops.parse_timestamp(
+      format_string=format_string,
+      timestamp_string=timestamp_string,
+      time_zone=time_zone,
+      name=name,
+  )
+
+
+def timestamp_micros(timestamp_micro, name=None):
+  """Returns a timestamp by interpreting timestamp_micro as the number of microseconds since 1970-01-01 00:00:00 UTC.
+
+  Equivalent SQL: TIMESTAMP_MICROS(int64_expression)
+
+  Args:
+    timestamp_micro: tf.Tensor of type int64.
+    name: An optional name for the op.
+  """
+  return gen_timestamp_ops.timestamp_micros(
+      timestamp_micro=timestamp_micro,
+      name=name,
+  )
+
+
+def timestamp_millis(timestamp_milli, name=None):
+  """Returns a timestamp by interpreting timestamp_milli as the number of milliseconds since 1970-01-01 00:00:00 UTC.
+
+  Equivalent SQL: TIMESTAMP_MILLIS(int64_expression)
+
+  Args:
+    timestamp_milli: tf.Tensor of type int64.
+    name: An optional name for the op.
+  """
+  return gen_timestamp_ops.timestamp_millis(
+      timestamp_milli=timestamp_milli,
+      name=name,
+  )
+
+
+def timestamp_seconds(timestamp_sec, name=None):
+  """Returns a timestamp by interpreting timestamp_sec as the number of seconds since 1970-01-01 00:00:00 UTC.
+
+  Equivalent SQL: TIMESTAMP_SECONDS(int64_expression)
+
+  Args:
+    timestamp_sec: tf.Tensor of type int64.
+    name: An optional name for the op.
+  """
+  return gen_timestamp_ops.timestamp_seconds(
+      timestamp_sec=timestamp_sec,
+      name=name,
+  )
+
+
+def unix_micros(timestamp, name=None):
+  """Returns the number of microseconds since 1970-01-01 00:00:00 UTC.
+
+  Equivalent SQL: UNIX_MICROS(timestamp_expression)
+
+  Args:
+    timestamp: tf.Tensor of type string. Timestamp in "%F %H:%M:%E1S %z" format.
+    name: An optional name for the op.
+  """
+  return gen_timestamp_ops.unix_micros(
+      timestamp=timestamp,
+      name=name,
+  )
+
+
+def unix_millis(timestamp, name=None):
+  """Returns number of milliseconds since 1970-01-01 00:00:00 UTC.
+
+  Equivalent SQL: UNIX_MILLIS(timestamp_expression)
+
+  Args:
+    timestamp: tf.Tensor of type string. Timestamp in "%F %H:%M:%E1S %z" format.
+    name: An optional name for the op.
+  """
+  return gen_timestamp_ops.unix_millis(
+      timestamp=timestamp,
+      name=name,
+  )
+
+
+def unix_seconds(timestamp, name=None):
+  """Returns number of seconds since 1970-01-01 00:00:00 UTC.
+
+  Equivalent SQL: UNIX_SECONDS(timestamp_expression)
+
+  Args:
+    timestamp: tf.Tensor of type string. Timestamp in "%F %H:%M:%E1S %z" format.
+    name: An optional name for the op.
+  """
+  return gen_timestamp_ops.unix_seconds(
+      timestamp=timestamp,
       name=name,
   )

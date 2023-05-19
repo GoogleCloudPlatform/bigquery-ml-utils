@@ -40,19 +40,19 @@ REGISTER_OP("StringFromTimestamp")
     .Input("time_zone: string")
     .Output("output: string")
     .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
-      c->set_output(0, c->input(1));
+      c->set_output(0, c->input(0));
       return ::tensorflow::OkStatus();
     });
 
 // Register TimestampFromString op with signature.
 // Output has the same shape of the input string.
 REGISTER_OP("TimestampFromString")
-    .Input("timestamp: string")
+    .Input("timestamp_string: string")
     .Input("time_zone: string")
     .Input("allow_tz_in_str: bool")
     .Output("output: string")
     .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
-      c->set_output(0, c->input(1));
+      c->set_output(0, c->input(0));
       return ::tensorflow::OkStatus();
     });
 
@@ -63,7 +63,7 @@ REGISTER_OP("TimestampFromDate")
     .Input("time_zone: string")
     .Output("output: string")
     .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
-      c->set_output(0, c->input(1));
+      c->set_output(0, c->input(0));
       return ::tensorflow::OkStatus();
     });
 
@@ -74,7 +74,139 @@ REGISTER_OP("TimestampFromDatetime")
     .Input("time_zone: string")
     .Output("output: string")
     .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
+      c->set_output(0, c->input(0));
+      return ::tensorflow::OkStatus();
+    });
+
+// Register TimestampAdd op with signature.
+// Output has the same shape of the input timestamp.
+REGISTER_OP("TimestampAdd")
+    .Input("timestamp: string")
+    .Input("diff: int64")
+    .Input("part: string")
+    .Output("output: string")
+    .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
+      c->set_output(0, c->input(0));
+      return ::tensorflow::OkStatus();
+    });
+
+// Register TimestampSub op with signature.
+// Output has the same shape of the input timestamp.
+REGISTER_OP("TimestampSub")
+    .Input("timestamp: string")
+    .Input("diff: int64")
+    .Input("part: string")
+    .Output("output: string")
+    .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
+      c->set_output(0, c->input(0));
+      return ::tensorflow::OkStatus();
+    });
+
+// Register TimestampDiff op with signature.
+// Output has the same shape of the input timestamp.
+REGISTER_OP("TimestampDiff")
+    .Input("timestamp_a: string")
+    .Input("timestamp_b: string")
+    .Input("part: string")
+    .Output("output: int64")
+    .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
+      c->set_output(0, c->input(0));
+      return ::tensorflow::OkStatus();
+    });
+
+// Register TimestampTrunc op with signature.
+// Output has the same shape of the input timestamp.
+REGISTER_OP("TimestampTrunc")
+    .Input("timestamp: string")
+    .Input("part: string")
+    .Input("time_zone: string")
+    .Output("output: string")
+    .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
+      c->set_output(0, c->input(0));
+      return ::tensorflow::OkStatus();
+    });
+
+// Register FormatTimestamp op with signature.
+// Output has the same shape of the input timestamp.
+REGISTER_OP("FormatTimestamp")
+    .Input("format_string: string")
+    .Input("timestamp: string")
+    .Input("time_zone: string")
+    .Output("output: string")
+    .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
+      c->set_output(0, c->input(0));
+      return ::tensorflow::OkStatus();
+    });
+
+// Register ParseTimestamp op with signature.
+// Output has the same shape of the input timestamp.
+REGISTER_OP("ParseTimestamp")
+    .Input("format_string: string")
+    .Input("timestamp_string: string")
+    .Input("time_zone: string")
+    .Output("output: string")
+    .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
       c->set_output(0, c->input(1));
+      return ::tensorflow::OkStatus();
+    });
+
+// Register TimestampMicros op with signature.
+// Output has the same shape of the input timestamp.
+REGISTER_OP("TimestampMicros")
+    .Input("timestamp_micro: int64")
+    .Output("output: string")
+    .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
+      c->set_output(0, c->input(0));
+      return ::tensorflow::OkStatus();
+    });
+
+// Register TimestampMillis op with signature.
+// Output has the same shape of the input timestamp.
+REGISTER_OP("TimestampMillis")
+    .Input("timestamp_milli: int64")
+    .Output("output: string")
+    .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
+      c->set_output(0, c->input(0));
+      return ::tensorflow::OkStatus();
+    });
+
+// Register TimestampSeconds op with signature.
+// Output has the same shape of the input timestamp.
+REGISTER_OP("TimestampSeconds")
+    .Input("timestamp_sec: int64")
+    .Output("output: string")
+    .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
+      c->set_output(0, c->input(0));
+      return ::tensorflow::OkStatus();
+    });
+
+// Register UnixMicros op with signature.
+// Output has the same shape of the input timestamp.
+REGISTER_OP("UnixMicros")
+    .Input("timestamp: string")
+    .Output("output: int64")
+    .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
+      c->set_output(0, c->input(0));
+      return ::tensorflow::OkStatus();
+    });
+
+// Register UnixMillis op with signature.
+// Output has the same shape of the input timestamp.
+REGISTER_OP("UnixMillis")
+    .Input("timestamp: string")
+    .Output("output: int64")
+    .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
+      c->set_output(0, c->input(0));
+      return ::tensorflow::OkStatus();
+    });
+
+// Register UnixSeconds op with signature.
+// Output has the same shape of the input timestamp.
+REGISTER_OP("UnixSeconds")
+    .Input("timestamp: string")
+    .Output("output: int64")
+    .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
+      c->set_output(0, c->input(0));
       return ::tensorflow::OkStatus();
     });
 

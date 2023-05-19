@@ -102,8 +102,8 @@ namespace bigquery_ml_utils {
 ::tsl::Status FormatOutputTimestamp(int64_t ts, absl::string_view function_name,
                                     std::string* out) {
   functions::FormatDateTimestampOptions format_options = {
-      .expand_Q = false,
-      .expand_J = false,
+      .expand_Q = true,
+      .expand_J = true,
   };
   // Output at the UTC time zone.
   absl::Status status = functions::FormatTimestampToString(
