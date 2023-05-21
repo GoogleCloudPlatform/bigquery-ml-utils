@@ -771,6 +771,91 @@ class ExtractTimeFromDatetime : public OpKernel {
   }
 };
 
+class LastDayFromDatetime : public OpKernel {
+ public:
+  explicit LastDayFromDatetime(OpKernelConstruction* context)
+      : OpKernel(context) {}
+
+  void Compute(OpKernelContext* context) override {
+    // Grab the datetime tensor.
+    const Tensor& datetime_tensor = context->input(0);
+    auto datetime = datetime_tensor.flat<tstring>();
+
+    // Grab the part tensor.
+    const Tensor& part_tensor = context->input(1);
+    std::string part = part_tensor.flat<tstring>()(0);
+    int part_int = functions::DateTimestampPart_FromName(part);
+    bool valid_part = part_int != -1;
+    functions::DateTimestampPart part_enum;
+    if (valid_part) {
+      part_enum = static_cast<functions::DateTimestampPart>(part_int);
+      static auto* kSupportedPart =
+          new absl::flat_hash_set<functions::DateTimestampPart>({
+              functions::WEEK,
+              functions::WEEK_MONDAY,
+              functions::WEEK_TUESDAY,
+              functions::WEEK_WEDNESDAY,
+              functions::WEEK_THURSDAY,
+              functions::WEEK_FRIDAY,
+              functions::WEEK_SATURDAY,
+              functions::ISOWEEK,
+              functions::MONTH,
+              functions::QUARTER,
+              functions::YEAR,
+              functions::ISOYEAR,
+          });
+      valid_part = kSupportedPart->contains(part_enum);
+    }
+    OP_REQUIRES(context, valid_part,
+                InvalidArgument("Invalid part in LastDayFromDatetime: ", part));
+
+    // Create an output tensor with the shape of the datetime tensor.
+    Tensor* output_tensor = nullptr;
+    OP_REQUIRES_OK(context, context->allocate_output(0, datetime_tensor.shape(),
+                                                     &output_tensor));
+    auto output_flat = output_tensor->flat<tstring>();
+
+    const int N = datetime.size();
+    for (int i = 0; i < N; i++) {
+      // Parse the datetime.
+      DatetimeValue datetime_value;
+      absl::Status status = functions::ParseStringToDatetime(
+          kDatetimeFormatString, datetime(i), functions::kMicroseconds,
+          /*parse_version2=*/true, &datetime_value);
+      OP_REQUIRES(context, status.ok(),
+                  InvalidArgument("Invalid datetime in LastDayFromDatetime: ",
+                                  datetime(i)));
+
+      // Extract LAST_DAY from the datetime value.
+      int32_t date_int;
+      status =
+          functions::LastDayOfDatetime(datetime_value, part_enum, &date_int);
+      tsl::Status tf_status = tsl::OkStatus();
+      if (!status.ok()) {
+        if (status.code() == absl::StatusCode::kInvalidArgument) {
+          tf_status = InvalidArgument(
+              "InvalidArgument in LastDayFromDatetime with status ", status);
+        } else {
+          tf_status = Internal(
+              "Internal error in LastDayFromDatetime with status ", status);
+        }
+      }
+      OP_REQUIRES(context, tf_status.ok(), tf_status);
+
+      // Set the output value.
+      std::string output_str;
+      status = functions::FormatDateToString(kDateFormatString, date_int,
+                                             &output_str);
+      OP_REQUIRES(context, status.ok(),
+                  Internal("Internal error in FormatDateToString with status ",
+                           status));
+
+      output_flat(i).reserve(output_str.size());
+      output_flat(i) = std::move(output_str);
+    }
+  }
+};
+
 class ParseDatetime : public OpKernel {
  public:
   explicit ParseDatetime(OpKernelConstruction* context) : OpKernel(context) {}
@@ -840,6 +925,8 @@ REGISTER_KERNEL_BUILDER(Name("ExtractDateFromDatetime").Device(DEVICE_CPU),
                         ExtractDateFromDatetime);
 REGISTER_KERNEL_BUILDER(Name("ExtractTimeFromDatetime").Device(DEVICE_CPU),
                         ExtractTimeFromDatetime);
+REGISTER_KERNEL_BUILDER(Name("LastDayFromDatetime").Device(DEVICE_CPU),
+                        LastDayFromDatetime);
 REGISTER_KERNEL_BUILDER(Name("ParseDatetime").Device(DEVICE_CPU),
                         ParseDatetime);
 

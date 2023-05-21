@@ -207,6 +207,22 @@ def extract_time_from_datetime(datetime, name=None):
   )
 
 
+def last_day_from_datetime(datetime, part="MONTH", name=None):
+  """Returns the last day from a datetime that contains the date.
+
+  Equivalent SQL: LAST_DAY(datetime[, part])
+
+  Args:
+    datetime: tf.Tensor of type string. Datetime in "%F %H:%M:%E6S" format.
+    part: A string represents the datetime part. Can be WEEK, WEEK(WEEKDAY),
+      ISOWEEK, MONTH, QUARTER, YEAR, ISOYEAR. It is case insensitive.
+    name: An optional name for the op.
+  """
+  return gen_datetime_ops.last_day_from_datetime(
+      datetime=datetime, part=part, name=name
+  )
+
+
 def parse_datetime(format_string, datetime_string, name=None):
   """Returns the parsed DATETIME value based on the format_string.
 

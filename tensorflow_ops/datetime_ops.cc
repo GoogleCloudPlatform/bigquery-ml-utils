@@ -147,6 +147,17 @@ REGISTER_OP("ExtractTimeFromDatetime")
       return tensorflow::OkStatus();
     });
 
+// Register LastDay op with signature.
+// Output has the same shape of the input datetime.
+REGISTER_OP("LastDayFromDatetime")
+    .Input("datetime: string")
+    .Input("part: string")
+    .Output("output: string")
+    .SetShapeFn([](tensorflow::shape_inference::InferenceContext* c) {
+      c->set_output(0, c->input(0));
+      return tensorflow::OkStatus();
+    });
+
 // Register ParseDatetime op with signature.
 // Output has the same shape of the input datetime.
 REGISTER_OP("ParseDatetime")
