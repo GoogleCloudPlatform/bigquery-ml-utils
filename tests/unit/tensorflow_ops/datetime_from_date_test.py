@@ -33,8 +33,8 @@ class DatetimeFromDateTest(tf.test.TestCase):
 
   def test_datetime_from_date_invalid(self):
     with self.assertRaisesRegex(
-        (tf.errors.InvalidArgumentError, ValueError),
-        "Invalid date input '01-01-2021' in DatetimeFromDate.",
+        (tf.errors.OutOfRangeError, ValueError),
+        'Failed to parse input string "01-01-2021"',
     ):
       self.evaluate(
           datetime_ops.datetime_from_date(

@@ -47,8 +47,8 @@ class TimestampFromDatetimeTest(tf.test.TestCase):
         ['2023-02-02 02:02:01.152903', '2008-12-25 15:30:00.152903']
     )
     with self.assertRaisesRegex(
-        (tf.errors.InvalidArgumentError, ValueError),
-        'Invalid time zone in TimestampFromDatetime: UtC',
+        (tf.errors.OutOfRangeError, ValueError),
+        'Invalid time zone: UtC',
     ):
       self.evaluate(timestamp_ops.timestamp_from_datetime(datetime, 'UtC'))
 
@@ -57,8 +57,8 @@ class TimestampFromDatetimeTest(tf.test.TestCase):
         ['2023-02-02T02:02:01.152903', '2008-12-25 15:30:00.152903']
     )
     with self.assertRaisesRegex(
-        (tf.errors.InvalidArgumentError, ValueError),
-        'Invalid datetime in TimestampFromDatetime: 2023-02-02T02:02:01.152903',
+        (tf.errors.OutOfRangeError, ValueError),
+        'Failed to parse input string "2023-02-02T02:02:01.152903"',
     ):
       self.evaluate(timestamp_ops.timestamp_from_datetime(datetime))
 

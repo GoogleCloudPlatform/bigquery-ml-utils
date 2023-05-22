@@ -27,11 +27,8 @@ namespace bigquery_ml_utils {
 ::tsl::Status ParseInputDateTimestampPart(
     absl::string_view part, absl::string_view function_name,
     functions::DateTimestampPart* out,
-    absl::flat_hash_set<functions::DateTimestampPart> supported_parts = {});
-
-::tsl::Status ParseInputTimeZone(absl::string_view time_zone,
-                                 absl::string_view function_name,
-                                 absl::TimeZone* out);
+    const absl::flat_hash_set<functions::DateTimestampPart>& supported_parts =
+        {});
 
 ::tsl::Status ParseInputDate(absl::string_view date,
                              absl::string_view function_name, int32_t* out);
@@ -40,13 +37,26 @@ namespace bigquery_ml_utils {
                                  absl::string_view function_name,
                                  DatetimeValue* out);
 
+::tsl::Status ParseInputTime(absl::string_view time,
+                             absl::string_view function_name, TimeValue* out);
+
 ::tsl::Status ParseInputTimestamp(absl::string_view timestamp,
-                                  absl::TimeZone time_zone,
+                                  const absl::TimeZone& time_zone,
                                   absl::string_view function_name,
                                   int64_t* out);
 
+::tsl::Status FormatOutputDatetime(const DatetimeValue& dt,
+                                   absl::string_view function_name,
+                                   std::string* out);
+
+::tsl::Status FormatOutputDate(int32_t d, absl::string_view function_name,
+                               std::string* out);
+
 ::tsl::Status FormatOutputTimestamp(int64_t ts, absl::string_view function_name,
                                     std::string* out);
+
+::tsl::Status ToTslStatus(absl::string_view function_name,
+                          const absl::Status& status);
 
 }  // namespace bigquery_ml_utils
 

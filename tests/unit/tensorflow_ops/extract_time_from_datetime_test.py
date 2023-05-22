@@ -31,8 +31,8 @@ class ExtractTimeFromDatetimeTest(tf.test.TestCase):
 
   def test_extract_time_from_datetime_invalid_datetime(self):
     with self.assertRaisesRegex(
-        (tf.errors.InvalidArgumentError, ValueError),
-        'Invalid datetime in ExtractTimeFromDatetime: 2023-01-10',
+        (tf.errors.OutOfRangeError, ValueError),
+        'Failed to parse input string "2023-01-10"',
     ):
       self.evaluate(
           datetime_ops.extract_time_from_datetime(

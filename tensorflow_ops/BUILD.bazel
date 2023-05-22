@@ -68,6 +68,8 @@ cc_binary(
         "constants.h",
         "datetime_ops.cc",
         "datetime_ops_kernel.cc",
+        "utils.cc",
+        "utils.h",
     ],
     copts = select({
         "//conditions:default": [

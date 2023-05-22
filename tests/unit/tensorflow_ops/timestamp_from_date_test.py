@@ -41,16 +41,16 @@ class TimestampFromDateTest(tf.test.TestCase):
   def test_timestamp_from_date_invalid_timezone(self):
     date = tf.constant(['2023-02-02', '2021-03-05'])
     with self.assertRaisesRegex(
-        (tf.errors.InvalidArgumentError, ValueError),
-        'Invalid time zone in TimestampFromDate: UtC',
+        (tf.errors.OutOfRangeError, ValueError),
+        'Invalid time zone: UtC',
     ):
       self.evaluate(timestamp_ops.timestamp_from_date(date, 'UtC'))
 
   def test_timestamp_from_date_invalid_date(self):
     date = tf.constant(['2021-03-05 00:00:00 UTC', '2021-03-05'])
     with self.assertRaisesRegex(
-        (tf.errors.InvalidArgumentError, ValueError),
-        'Invalid date in TimestampFromDate: 2021-03-05 00:00:00 UTC',
+        (tf.errors.OutOfRangeError, ValueError),
+        'Failed to parse input string "2021-03-05 00:00:00 UTC"',
     ):
       self.evaluate(timestamp_ops.timestamp_from_date(date))
 

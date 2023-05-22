@@ -97,8 +97,8 @@ class DatetimeAddTest(tf.test.TestCase):
 
   def test_datetime_add_invalid_datetime(self):
     with self.assertRaisesRegex(
-        (tf.errors.InvalidArgumentError, ValueError),
-        'Invalid datetime in DatetimeAdd: 2023-01-10',
+        (tf.errors.OutOfRangeError, ValueError),
+        'Failed to parse input string "2023-01-10"',
     ):
       self.evaluate(
           datetime_ops.datetime_add(
@@ -122,7 +122,7 @@ class DatetimeAddTest(tf.test.TestCase):
 
     with self.assertRaisesRegex(
         (tf.errors.InvalidArgumentError, ValueError),
-        'Invalid part in DatetimeAdd: DATE',
+        'Unsupported part in DatetimeAdd: DATE',
     ):
       self.evaluate(
           datetime_ops.datetime_add(

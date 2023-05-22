@@ -44,9 +44,8 @@ class ParseTimestampTest(tf.test.TestCase):
         ['Thu Dec 25 15:30:00 abc', 'Sat Nov 11 14:30:00 2023']
     )
     with self.assertRaisesRegex(
-        (tf.errors.InvalidArgumentError, ValueError),
-        "Mismatch between format '%c' and string 'Thu Dec 25 15:30:00 abc' in"
-        ' ParseTimestamp',
+        (tf.errors.OutOfRangeError, ValueError),
+        'Failed to parse input string "Thu Dec 25 15:30:00 abc"',
     ):
       self.evaluate(
           timestamp_ops.parse_timestamp('%c', timestamp, 'America/Los_Angeles')
@@ -57,8 +56,8 @@ class ParseTimestampTest(tf.test.TestCase):
         ['Thu Dec 25 15:30:00 abc', 'Sat Nov 11 14:30:00 2023']
     )
     with self.assertRaisesRegex(
-        (tf.errors.InvalidArgumentError, ValueError),
-        'Invalid time zone in ParseTimestamp: uTc',
+        (tf.errors.OutOfRangeError, ValueError),
+        'Invalid time zone: uTc',
     ):
       self.evaluate(timestamp_ops.parse_timestamp('%c', timestamp, 'uTc'))
 
@@ -67,9 +66,8 @@ class ParseTimestampTest(tf.test.TestCase):
         ['Thu Dec 25 15:30:00 abc', 'Sat Nov 11 14:30:00 2023']
     )
     with self.assertRaisesRegex(
-        (tf.errors.InvalidArgumentError, ValueError),
-        "Mismatch between format 'abc' and string 'Thu Dec 25 15:30:00 abc' in"
-        ' ParseTimestamp',
+        (tf.errors.OutOfRangeError, ValueError),
+        "Mismatch between format character 'a' and string character 'T'",
     ):
       self.evaluate(timestamp_ops.parse_timestamp('abc', timestamp))
 

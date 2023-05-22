@@ -34,8 +34,8 @@ class UnixMicrosTest(tf.test.TestCase):
         ['2008-12-25 15:30:00 abc', '2023-11-11 14:30:00.0 +0000']
     )
     with self.assertRaisesRegex(
-        (tf.errors.InvalidArgumentError, ValueError),
-        'Invalid timestamp in UnixMicros: 2008-12-25 15:30:00 abc',
+        (tf.errors.OutOfRangeError, ValueError),
+        'Failed to parse input string "2008-12-25 15:30:00 abc"',
     ):
       self.evaluate(timestamp_ops.unix_micros(timestamp_int))
 

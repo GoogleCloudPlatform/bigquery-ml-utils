@@ -118,8 +118,8 @@ class TimestampTruncTest(tf.test.TestCase):
         ['2008-12-25 15:30:00 abc', '2023-11-11 14:30:00+00']
     )
     with self.assertRaisesRegex(
-        (tf.errors.InvalidArgumentError, ValueError),
-        'Invalid timestamp in TimestampTrunc: 2008-12-25 15:30:00 abc',
+        (tf.errors.OutOfRangeError, ValueError),
+        'Failed to parse input string "2008-12-25 15:30:00 abc"',
     ):
       self.evaluate(timestamp_ops.timestamp_trunc(timestamp, 'YEAR'))
 
@@ -128,8 +128,8 @@ class TimestampTruncTest(tf.test.TestCase):
         ['2008-12-25 15:30:00+00', '2023-11-11 14:30:00+00']
     )
     with self.assertRaisesRegex(
-        (tf.errors.InvalidArgumentError, ValueError),
-        'Invalid time zone in TimestampTrunc: UtC',
+        (tf.errors.OutOfRangeError, ValueError),
+        'Invalid time zone: UtC',
     ):
       self.evaluate(timestamp_ops.timestamp_trunc(timestamp, 'YEAR', 'UtC'))
 

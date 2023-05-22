@@ -34,8 +34,8 @@ class DatetimeFromDateAndTimeTest(tf.test.TestCase):
 
   def test_datetime_from_date_and_time_invalid(self):
     with self.assertRaisesRegex(
-        (tf.errors.InvalidArgumentError, ValueError),
-        "Invalid date input '01-01-2021' in DatetimeFromDateAndTime.",
+        (tf.errors.OutOfRangeError, ValueError),
+        'Failed to parse input string "01-01-2021"',
     ):
       self.evaluate(
           datetime_ops.datetime_from_date_and_time(
@@ -45,8 +45,8 @@ class DatetimeFromDateAndTimeTest(tf.test.TestCase):
       )
 
     with self.assertRaisesRegex(
-        (tf.errors.InvalidArgumentError, ValueError),
-        "Invalid time input '25:10:00' in DatetimeFromDateAndTime.",
+        (tf.errors.OutOfRangeError, ValueError),
+        'Failed to parse input string "25:10:00"',
     ):
       self.evaluate(
           datetime_ops.datetime_from_date_and_time(

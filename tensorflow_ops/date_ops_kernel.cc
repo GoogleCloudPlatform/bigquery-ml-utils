@@ -49,25 +49,17 @@ class ExtractFromDate : public OpKernel {
     // Grab the part tensor.
     const Tensor& part_tensor = context->input(1);
     std::string part = absl::AsciiStrToLower(part_tensor.flat<tstring>()(0));
-    absl::flat_hash_set<functions::DateTimestampPart> supported_parts = {
-        functions::DAY,
-        functions::DAYOFWEEK,
-        functions::DAYOFYEAR,
-        functions::WEEK,
-        functions::WEEK_MONDAY,
-        functions::WEEK_TUESDAY,
-        functions::WEEK_WEDNESDAY,
-        functions::WEEK_THURSDAY,
-        functions::WEEK_FRIDAY,
-        functions::WEEK_SATURDAY,
-        functions::ISOWEEK,
-        functions::MONTH,
-        functions::QUARTER,
-        functions::YEAR,
-        functions::ISOYEAR};
+    static auto* supported_parts =
+        new absl::flat_hash_set<functions::DateTimestampPart>(
+            {functions::DAY, functions::DAYOFWEEK, functions::DAYOFYEAR,
+             functions::WEEK, functions::WEEK_MONDAY, functions::WEEK_TUESDAY,
+             functions::WEEK_WEDNESDAY, functions::WEEK_THURSDAY,
+             functions::WEEK_FRIDAY, functions::WEEK_SATURDAY,
+             functions::ISOWEEK, functions::MONTH, functions::QUARTER,
+             functions::YEAR, functions::ISOYEAR});
     functions::DateTimestampPart part_enum;
     OP_REQUIRES_OK(context, ParseInputDateTimestampPart(
-                                part, name(), &part_enum, supported_parts));
+                                part, name(), &part_enum, *supported_parts));
 
     // Create an output tensor with the shape of the date tensor.
     Tensor* output_tensor = nullptr;
@@ -83,11 +75,9 @@ class ExtractFromDate : public OpKernel {
 
       // Extract part from the date.
       int32_t out;
-      absl::Status status =
-          functions::ExtractFromDate(part_enum, date_value, &out);
-      OP_REQUIRES(
-          context, status.ok(),
-          Internal("Internal error in ExtractFromDate with status: ", status));
+      OP_REQUIRES_OK(context,
+                     ToTslStatus(name(), functions::ExtractFromDate(
+                                             part_enum, date_value, &out)));
 
       // Set the output value.
       output_flat(i) = static_cast<int64_t>(out);

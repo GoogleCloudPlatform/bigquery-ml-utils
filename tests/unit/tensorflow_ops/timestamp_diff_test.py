@@ -81,8 +81,8 @@ class TimestampDiffTest(tf.test.TestCase):
         ['2008-12-25 15:30:00+00', '2023-11-11 14:30:00+00']
     )
     with self.assertRaisesRegex(
-        (tf.errors.InvalidArgumentError, ValueError),
-        'Invalid timestamp in TimestampDiff: 2023-11-11 14:30:00 abc',
+        (tf.errors.OutOfRangeError, ValueError),
+        'Failed to parse input string "2023-11-11 14:30:00 abc"',
     ):
       self.evaluate(
           timestamp_ops.timestamp_diff(timestamp_a, timestamp_b, 'DAY')

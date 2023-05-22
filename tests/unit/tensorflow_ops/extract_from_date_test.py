@@ -76,8 +76,8 @@ class ExtractFromDateTest(tf.test.TestCase):
 
   def test_extract_from_date_invalid_date(self):
     with self.assertRaisesRegex(
-        (tf.errors.InvalidArgumentError, ValueError),
-        'Invalid date in ExtractFromDate: 2023-01-32',
+        (tf.errors.OutOfRangeError, ValueError),
+        'Failed to parse input string "2023-01-32"',
     ):
       self.evaluate(
           date_ops.extract_from_date(
@@ -86,8 +86,8 @@ class ExtractFromDateTest(tf.test.TestCase):
       )
 
     with self.assertRaisesRegex(
-        (tf.errors.InvalidArgumentError, ValueError),
-        'Invalid date in ExtractFromDate: 2023-03',
+        (tf.errors.OutOfRangeError, ValueError),
+        'Failed to parse input string "2023-03"',
     ):
       self.evaluate(
           date_ops.extract_from_date(

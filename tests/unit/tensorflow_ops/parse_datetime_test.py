@@ -56,12 +56,8 @@ class ParseDatetimeTest(tf.test.TestCase):
 
   def test_parse_datetime_invalid_format_string(self):
     with self.assertRaisesRegex(
-        (tf.errors.InvalidArgumentError, ValueError),
-        (
-            "Error in ParseDatetime with format_string 'abcd' and"
-            " datetime_string '1998-10-18 13:45:55': OUT_OF_RANGE: Mismatch"
-            " between format character 'a' and string character '1' "
-        ),
+        (tf.errors.OutOfRangeError, ValueError),
+        "Mismatch between format character 'a' and string character '1'",
     ):
       self.evaluate(
           datetime_ops.parse_datetime(
@@ -72,12 +68,8 @@ class ParseDatetimeTest(tf.test.TestCase):
 
   def test_parse_datetime_invalid_datetime_string(self):
     with self.assertRaisesRegex(
-        (tf.errors.InvalidArgumentError, ValueError),
-        (
-            "Error in ParseDatetime with format_string '%m/%d/%Y %I:%M:%S %p'"
-            " and datetime_string '02/29/2018 2:23:38 pm': OUT_OF_RANGE:"
-            ' Out-of-range datetime field in parsing function'
-        ),
+        (tf.errors.OutOfRangeError, ValueError),
+        'Out-of-range datetime field in parsing function',
     ):
       self.evaluate(
           datetime_ops.parse_datetime(
@@ -87,12 +79,8 @@ class ParseDatetimeTest(tf.test.TestCase):
       )
 
     with self.assertRaisesRegex(
-        (tf.errors.InvalidArgumentError, ValueError),
-        (
-            "Error in ParseDatetime with format_string '%m/%d/%Y %I:%M:%S %p'"
-            " and datetime_string '2023-03-14 23:45:12.3': OUT_OF_RANGE: Failed"
-            ' to parse input string "2023-03-14 23:45:12.3"'
-        ),
+        (tf.errors.OutOfRangeError, ValueError),
+        'Failed to parse input string "2023-03-14 23:45:12.3"',
     ):
       self.evaluate(
           datetime_ops.parse_datetime(

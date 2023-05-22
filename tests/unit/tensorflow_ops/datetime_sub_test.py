@@ -97,8 +97,8 @@ class DatetimeSubTest(tf.test.TestCase):
 
   def test_datetime_sub_invalid_datetime(self):
     with self.assertRaisesRegex(
-        (tf.errors.InvalidArgumentError, ValueError),
-        'Invalid datetime in DatetimeSub: 2023-01-10',
+        (tf.errors.OutOfRangeError, ValueError),
+        'Failed to parse input string "2023-01-10"',
     ):
       self.evaluate(
           datetime_ops.datetime_sub(
@@ -122,7 +122,7 @@ class DatetimeSubTest(tf.test.TestCase):
 
     with self.assertRaisesRegex(
         (tf.errors.InvalidArgumentError, ValueError),
-        'Invalid part in DatetimeSub: DATE',
+        'Unsupported part in DatetimeSub: DATE',
     ):
       self.evaluate(
           datetime_ops.datetime_sub(

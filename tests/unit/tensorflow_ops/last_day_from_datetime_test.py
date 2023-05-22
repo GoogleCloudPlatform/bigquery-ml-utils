@@ -61,8 +61,8 @@ class LastDayFromDatetimeTest(tf.test.TestCase):
 
   def test_last_day_from_datetime_invalid_datetime(self):
     with self.assertRaisesRegex(
-        (tf.errors.InvalidArgumentError, ValueError),
-        'Invalid datetime in LastDayFromDatetime: 2023-01-10',
+        (tf.errors.OutOfRangeError, ValueError),
+        'Failed to parse input string "2023-01-10"',
     ):
       self.evaluate(
           datetime_ops.last_day_from_datetime(
@@ -80,7 +80,7 @@ class LastDayFromDatetimeTest(tf.test.TestCase):
 
     with self.assertRaisesRegex(
         (tf.errors.InvalidArgumentError, ValueError),
-        'Invalid part in LastDayFromDatetime: DATE',
+        'Unsupported part in LastDayFromDatetime: DATE',
     ):
       self.evaluate(datetime_ops.last_day_from_datetime(datetime, 'DATE'))
 

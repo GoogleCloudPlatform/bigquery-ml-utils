@@ -23,7 +23,6 @@
 #include "tensorflow_ops/constants.h"
 #include "tensorflow/core/framework/op_kernel.h"
 
-using ::tensorflow::errors::Internal;
 using ::tensorflow::errors::InvalidArgument;
 
 namespace bigquery_ml_utils {
@@ -31,7 +30,7 @@ namespace bigquery_ml_utils {
 ::tsl::Status ParseInputDateTimestampPart(
     absl::string_view part, absl::string_view function_name,
     functions::DateTimestampPart* out,
-    absl::flat_hash_set<functions::DateTimestampPart> supported_parts) {
+    const absl::flat_hash_set<functions::DateTimestampPart>& supported_parts) {
   int part_int = functions::DateTimestampPart_FromName(part);
   if (part_int == -1) {
     return InvalidArgument(
@@ -46,57 +45,50 @@ namespace bigquery_ml_utils {
   return ::tsl::OkStatus();
 }
 
-::tsl::Status ParseInputTimeZone(absl::string_view time_zone,
-                                 absl::string_view function_name,
-                                 absl::TimeZone* out) {
-  absl::Status status = functions::MakeTimeZone(time_zone, out);
-  if (!status.ok()) {
-    return InvalidArgument(absl::Substitute("Invalid time zone in $0: $1",
-                                            function_name, time_zone));
-  }
-
-  return ::tsl::OkStatus();
-}
-
 ::tsl::Status ParseInputDate(absl::string_view date,
                              absl::string_view function_name, int32_t* out) {
-  absl::Status status = functions::ParseStringToDate(
-      kDateFormatString, date, /*parse_version2=*/true, out);
-  if (!status.ok()) {
-    return InvalidArgument(
-        absl::Substitute("Invalid date in $0: $1", function_name, date));
-  }
-
-  return ::tsl::OkStatus();
+  return ToTslStatus(function_name, functions::ParseStringToDate(
+                                        kDateFormatString, date,
+                                        /*parse_version2=*/true, out));
 }
 
 ::tsl::Status ParseInputDatetime(absl::string_view datetime,
                                  absl::string_view function_name,
                                  DatetimeValue* out) {
-  absl::Status status = functions::ParseStringToDatetime(
-      kDatetimeFormatString, datetime, functions::kMicroseconds,
-      /*parse_version2=*/true, out);
-  if (!status.ok()) {
-    return InvalidArgument(absl::Substitute("Invalid datetime in $0: $1",
-                                            function_name, datetime));
-  }
+  return ToTslStatus(function_name, functions::ParseStringToDatetime(
+                                        kDatetimeFormatString, datetime,
+                                        functions::kMicroseconds,
+                                        /*parse_version2=*/true, out));
+}
 
-  return ::tsl::OkStatus();
+::tsl::Status ParseInputTime(absl::string_view time,
+                             absl::string_view function_name, TimeValue* out) {
+  return ToTslStatus(function_name, functions::ParseStringToTime(
+                                        kTimeFormatString, time,
+                                        functions::kMicroseconds, out));
 }
 
 ::tsl::Status ParseInputTimestamp(absl::string_view timestamp,
-                                  absl::TimeZone time_zone,
+                                  const absl::TimeZone& time_zone,
                                   absl::string_view function_name,
                                   int64_t* out) {
-  absl::Status status = functions::ParseStringToTimestamp(
-      kTimestampFormatString, timestamp, time_zone,
-      /*parse_version2=*/true, out);
-  if (!status.ok()) {
-    return InvalidArgument(absl::Substitute("Invalid timestamp in $0: $1",
-                                            function_name, timestamp));
-  }
+  return ToTslStatus(function_name,
+                     functions::ParseStringToTimestamp(
+                         kTimestampFormatString, timestamp, time_zone,
+                         /*parse_version2=*/true, out));
+}
 
-  return ::tsl::OkStatus();
+::tsl::Status FormatOutputDatetime(const DatetimeValue& dt,
+                                   absl::string_view function_name,
+                                   std::string* out) {
+  return ToTslStatus(function_name, functions::FormatDatetimeToString(
+                                        kDatetimeFormatString, dt, out));
+}
+
+::tsl::Status FormatOutputDate(int32_t d, absl::string_view function_name,
+                               std::string* out) {
+  return ToTslStatus(function_name,
+                     functions::FormatDateToString(kDateFormatString, d, out));
 }
 
 ::tsl::Status FormatOutputTimestamp(int64_t ts, absl::string_view function_name,
@@ -106,15 +98,21 @@ namespace bigquery_ml_utils {
       .expand_J = true,
   };
   // Output at the UTC time zone.
-  absl::Status status = functions::FormatTimestampToString(
-      kTimestampFormatString, ts, absl::UTCTimeZone(), format_options, out);
-  if (!status.ok()) {
-    return Internal(absl::Substitute(
-        "Error to format output timestamp in $0 with status: $1", function_name,
-        status.ToString()));
+  return ToTslStatus(function_name,
+                     functions::FormatTimestampToString(kTimestampFormatString,
+                                                        ts, absl::UTCTimeZone(),
+                                                        format_options, out));
+}
+
+::tsl::Status ToTslStatus(absl::string_view function_name,
+                          const absl::Status& status) {
+  if (status.ok()) {
+    return ::tsl::OkStatus();
   }
 
-  return ::tsl::OkStatus();
+  return ::tsl::Status(static_cast<tensorflow::errors::Code>(status.code()),
+                       absl::Substitute("Error in $0 with status: $1",
+                                        function_name, status.ToString()));
 }
 
 }  // namespace bigquery_ml_utils

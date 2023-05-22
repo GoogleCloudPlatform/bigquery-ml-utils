@@ -40,12 +40,8 @@ class DatetimeFromComponentsTest(tf.test.TestCase):
 
   def test_datetime_from_components_invalid(self):
     with self.assertRaisesRegex(
-        (tf.errors.InvalidArgumentError, ValueError),
-        (
-            "Errors in DatetimeFromComponents with input '20', '20', '20',"
-            " '20', '20', '20': OUT_OF_RANGE: Input calculates to invalid"
-            ' datetime: 0020-20-20 0020:20:20'
-        ),
+        (tf.errors.OutOfRangeError, ValueError),
+        'Input calculates to invalid datetime: 0020-20-20 0020:20:20',
     ):
       self.evaluate(
           datetime_ops.datetime_from_components(

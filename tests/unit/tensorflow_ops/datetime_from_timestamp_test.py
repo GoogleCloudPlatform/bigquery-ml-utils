@@ -35,8 +35,8 @@ class DatetimeFromTimestampTest(tf.test.TestCase):
 
   def test_datetime_from_timestamp_invalid(self):
     with self.assertRaisesRegex(
-        (tf.errors.InvalidArgumentError, ValueError),
-        "Invalid date input 'aaaa' in DatetimeFromTimestamp.",
+        (tf.errors.OutOfRangeError, ValueError),
+        'Failed to parse input string "aaaa"',
     ):
       self.evaluate(
           datetime_ops.datetime_from_timestamp(
@@ -45,8 +45,8 @@ class DatetimeFromTimestampTest(tf.test.TestCase):
       )
 
     with self.assertRaisesRegex(
-        (tf.errors.InvalidArgumentError, ValueError),
-        'Invalid timezone in DatetimeFromTimestamp: aaaa',
+        (tf.errors.OutOfRangeError, ValueError),
+        'Invalid time zone: aaaa',
     ):
       self.evaluate(
           datetime_ops.datetime_from_timestamp(

@@ -29,6 +29,7 @@
 #include "tensorflow_ops/constants.h"
 #include "tensorflow_ops/utils.h"
 #include "tensorflow/core/framework/op_kernel.h"
+#include "tensorflow/core/framework/op_requires.h"
 
 using ::tensorflow::DEVICE_CPU;
 using ::tensorflow::OpKernel;
@@ -50,20 +51,21 @@ class ExtractFromTimestamp : public OpKernel {
     // Grab the part tensor
     const Tensor& part_tensor = context->input(0);
     std::string part = absl::AsciiStrToLower(part_tensor.flat<tstring>()(0));
-    absl::flat_hash_set<functions::DateTimestampPart> supported_parts = {
-        functions::MICROSECOND,   functions::MILLISECOND,
-        functions::SECOND,        functions::MINUTE,
-        functions::HOUR,          functions::DAYOFWEEK,
-        functions::DAY,           functions::DAYOFYEAR,
-        functions::WEEK,          functions::WEEK_MONDAY,
-        functions::WEEK_TUESDAY,  functions::WEEK_WEDNESDAY,
-        functions::WEEK_THURSDAY, functions::WEEK_FRIDAY,
-        functions::WEEK_SATURDAY, functions::ISOWEEK,
-        functions::MONTH,         functions::QUARTER,
-        functions::YEAR,          functions::ISOYEAR};
+    static auto* supported_parts =
+        new absl::flat_hash_set<functions::DateTimestampPart>(
+            {functions::MICROSECOND,   functions::MILLISECOND,
+             functions::SECOND,        functions::MINUTE,
+             functions::HOUR,          functions::DAYOFWEEK,
+             functions::DAY,           functions::DAYOFYEAR,
+             functions::WEEK,          functions::WEEK_MONDAY,
+             functions::WEEK_TUESDAY,  functions::WEEK_WEDNESDAY,
+             functions::WEEK_THURSDAY, functions::WEEK_FRIDAY,
+             functions::WEEK_SATURDAY, functions::ISOWEEK,
+             functions::MONTH,         functions::QUARTER,
+             functions::YEAR,          functions::ISOYEAR});
     functions::DateTimestampPart part_enum;
     OP_REQUIRES_OK(context, ParseInputDateTimestampPart(
-                                part, name(), &part_enum, supported_parts));
+                                part, name(), &part_enum, *supported_parts));
     // Grab the timestamp tensor
     const Tensor& timestamp_tensor = context->input(1);
     auto timestamp = timestamp_tensor.flat<tstring>();
@@ -71,7 +73,8 @@ class ExtractFromTimestamp : public OpKernel {
     const Tensor& time_zone_tensor = context->input(2);
     std::string time_zone = time_zone_tensor.flat<tstring>()(0);
     absl::TimeZone tz;
-    OP_REQUIRES_OK(context, ParseInputTimeZone(time_zone, name(), &tz));
+    OP_REQUIRES_OK(
+        context, ToTslStatus(name(), functions::MakeTimeZone(time_zone, &tz)));
 
     // Create an output tensor with the shape of the timestamp tensor
     Tensor* output_tensor = NULL;
@@ -88,12 +91,11 @@ class ExtractFromTimestamp : public OpKernel {
 
       // Extract part from the timestamp.
       int32_t out;
-      absl::Status status = functions::ExtractFromTimestamp(
-          part_enum, ts, functions::kMicroseconds, tz, &out);
-      OP_REQUIRES(context, status.ok(),
-                  Internal(absl::Substitute(
-                      "Error in ExtractFromTimestamp of $0 with status: $1",
-                      name(), status.ToString())));
+      OP_REQUIRES_OK(
+          context,
+          ToTslStatus(name(),
+                      functions::ExtractFromTimestamp(
+                          part_enum, ts, functions::kMicroseconds, tz, &out)));
 
       // Set the output value.
       // Currently, BQML util inference only supports int64.
@@ -123,7 +125,8 @@ class StringFromTimestamp : public OpKernel {
 
     // Parse and validate the timezone.
     absl::TimeZone tz;
-    OP_REQUIRES_OK(context, ParseInputTimeZone(time_zone, name(), &tz));
+    OP_REQUIRES_OK(
+        context, ToTslStatus(name(), functions::MakeTimeZone(time_zone, &tz)));
 
     const int N = timestamp.size();
     for (int i = 0; i < N; i++) {
@@ -134,11 +137,11 @@ class StringFromTimestamp : public OpKernel {
 
       // Convert timestamp to string.
       std::string out;
-      absl::Status status =
-          functions::ConvertTimestampMicrosToStringWithTruncation(ts, tz, &out);
-      OP_REQUIRES(context, status.ok(),
-                  Internal(absl::Substitute("Error in $0 with status: $1",
-                                            name(), status.ToString())));
+      OP_REQUIRES_OK(
+          context,
+          ToTslStatus(name(),
+                      functions::ConvertTimestampMicrosToStringWithTruncation(
+                          ts, tz, &out)));
 
       // Set the output value.
       output_flat(i) = std::move(out);
@@ -170,18 +173,18 @@ class TimestampFromString : public OpKernel {
 
     // Parse and validate the timezone.
     absl::TimeZone tz;
-    OP_REQUIRES_OK(context, ParseInputTimeZone(time_zone, name(), &tz));
+    OP_REQUIRES_OK(
+        context, ToTslStatus(name(), functions::MakeTimeZone(time_zone, &tz)));
 
     const int N = timestamp.size();
     for (int i = 0; i < N; i++) {
       // Parse the timestamp.
       int64_t ts;
-      absl::Status status = functions::ConvertStringToTimestamp(
-          timestamp(i), tz, functions::kMicroseconds, allow_tz_in_str, &ts);
-      OP_REQUIRES(
-          context, status.ok(),
-          InvalidArgument(absl::Substitute("Invalid timestamp in $0: $1",
-                                           name(), timestamp(i).c_str())));
+      OP_REQUIRES_OK(
+          context,
+          ToTslStatus(name(), functions::ConvertStringToTimestamp(
+                                  timestamp(i), tz, functions::kMicroseconds,
+                                  allow_tz_in_str, &ts)));
 
       // Format timestamp to string.
       std::string out;
@@ -214,7 +217,8 @@ class TimestampFromDate : public OpKernel {
 
     // Parse and validate the timezone.
     absl::TimeZone tz;
-    OP_REQUIRES_OK(context, ParseInputTimeZone(time_zone, name(), &tz));
+    OP_REQUIRES_OK(
+        context, ToTslStatus(name(), functions::MakeTimeZone(time_zone, &tz)));
 
     const int N = date.size();
     for (int i = 0; i < N; i++) {
@@ -223,12 +227,10 @@ class TimestampFromDate : public OpKernel {
       OP_REQUIRES_OK(context, ParseInputDate(date(i), name(), &date_int));
 
       int64_t ts;
-      absl::Status status = functions::ConvertDateToTimestamp(
-          date_int, functions::kMicroseconds, tz, &ts);
-      OP_REQUIRES(context, status.ok(),
-                  Internal(absl::Substitute(
-                      "Error in ConvertDateToTimestamp of $0 with status: $1",
-                      name(), status.ToString())));
+      OP_REQUIRES_OK(context,
+                     ToTslStatus(name(), functions::ConvertDateToTimestamp(
+                                             date_int, functions::kMicroseconds,
+                                             tz, &ts)));
 
       // Format timestamp to string.
       std::string out;
@@ -261,7 +263,8 @@ class TimestampFromDatetime : public OpKernel {
 
     // Parse and validate the timezone.
     absl::TimeZone tz;
-    OP_REQUIRES_OK(context, ParseInputTimeZone(time_zone, name(), &tz));
+    OP_REQUIRES_OK(
+        context, ToTslStatus(name(), functions::MakeTimeZone(time_zone, &tz)));
 
     const int N = datetime.size();
     for (int i = 0; i < N; i++) {
@@ -270,14 +273,11 @@ class TimestampFromDatetime : public OpKernel {
       OP_REQUIRES_OK(context, ParseInputDatetime(datetime(i), name(), &dt));
 
       absl::Time base_time;
-      absl::Status status = functions::ConvertDatetimeToTimestamp(
-          DatetimeValue::FromPacked64Micros(dt.Packed64DatetimeMicros()), tz,
-          &base_time);
-      OP_REQUIRES(
-          context, status.ok(),
-          Internal(absl::Substitute(
-              "Error in ConvertDatetimeToTimestamp of $0 with status: $1",
-              name(), status.ToString())));
+      OP_REQUIRES_OK(context,
+                     ToTslStatus(name(), functions::ConvertDatetimeToTimestamp(
+                                             DatetimeValue::FromPacked64Micros(
+                                                 dt.Packed64DatetimeMicros()),
+                                             tz, &base_time)));
       int64_t ts = absl::ToUnixMicros(base_time);
 
       // Format timestamp to string.
@@ -318,11 +318,12 @@ class TimestampAdd : public OpKernel {
     const Tensor& part_tensor = context->input(2);
     std::string part = part_tensor.flat<tstring>()(0);
     functions::DateTimestampPart part_enum;
-    absl::flat_hash_set<functions::DateTimestampPart> supported_parts = {
-        functions::MICROSECOND, functions::MILLISECOND, functions::SECOND,
-        functions::MINUTE,      functions::HOUR,        functions::DAY};
+    static auto* supported_parts =
+        new absl::flat_hash_set<functions::DateTimestampPart>(
+            {functions::MICROSECOND, functions::MILLISECOND, functions::SECOND,
+             functions::MINUTE, functions::HOUR, functions::DAY});
     OP_REQUIRES_OK(context, ParseInputDateTimestampPart(
-                                part, name(), &part_enum, supported_parts));
+                                part, name(), &part_enum, *supported_parts));
     absl::StatusOr<IntervalValue> interval = GetIntervalValue(diff, part_enum);
     OP_REQUIRES(
         context, interval.ok(),
@@ -346,27 +347,14 @@ class TimestampAdd : public OpKernel {
                      ParseInputTimestamp(timestamp(i), tz, name(), &input_ts));
 
       absl::Time base_time;
-      absl::Status status = functions::AddTimestamp(
-          absl::FromUnixMicros(input_ts), tz, *interval, &base_time);
-      OP_REQUIRES(
-          context, status.ok(),
-          Internal("Error in AddTimestamp of TimestampAdd with status: ",
-                   status));
+      OP_REQUIRES_OK(context,
+                     ToTslStatus(name(), functions::AddTimestamp(
+                                             absl::FromUnixMicros(input_ts), tz,
+                                             *interval, &base_time)));
       int64_t ts = absl::ToUnixMicros(base_time);
 
-      // Format timestamp to string.
-      functions::FormatDateTimestampOptions format_options = {
-          .expand_Q = false,
-          .expand_J = false,
-      };
       std::string out;
-      status = functions::FormatTimestampToString(kTimestampFormatString, ts,
-                                                  tz, format_options, &out);
-      OP_REQUIRES(
-          context, status.ok(),
-          Internal(
-              "Error in FormatTimestampToString of TimestampAdd with status: ",
-              status));
+      OP_REQUIRES_OK(context, FormatOutputTimestamp(ts, name(), &out));
 
       // Set the output value.
       output_flat(i) = std::move(out);
@@ -389,11 +377,12 @@ class TimestampSub : public OpKernel {
     const Tensor& part_tensor = context->input(2);
     std::string part = part_tensor.flat<tstring>()(0);
     functions::DateTimestampPart part_enum;
-    absl::flat_hash_set<functions::DateTimestampPart> supported_parts = {
-        functions::MICROSECOND, functions::MILLISECOND, functions::SECOND,
-        functions::MINUTE,      functions::HOUR,        functions::DAY};
+    static auto* supported_parts =
+        new absl::flat_hash_set<functions::DateTimestampPart>(
+            {functions::MICROSECOND, functions::MILLISECOND, functions::SECOND,
+             functions::MINUTE, functions::HOUR, functions::DAY});
     OP_REQUIRES_OK(context, ParseInputDateTimestampPart(
-                                part, name(), &part_enum, supported_parts));
+                                part, name(), &part_enum, *supported_parts));
     absl::StatusOr<IntervalValue> interval = GetIntervalValue(-diff, part_enum);
     OP_REQUIRES(
         context, interval.ok(),
@@ -417,25 +406,15 @@ class TimestampSub : public OpKernel {
                      ParseInputTimestamp(timestamp(i), tz, name(), &input_ts));
 
       absl::Time base_time;
-      absl::Status status = functions::AddTimestamp(
-          absl::FromUnixMicros(input_ts), tz, *interval, &base_time);
-      OP_REQUIRES(
-          context, status.ok(),
-          Internal("Error in AddTimestamp of TimestampSub with status: ",
-                   status));
+      OP_REQUIRES_OK(context,
+                     ToTslStatus(name(), functions::AddTimestamp(
+                                             absl::FromUnixMicros(input_ts), tz,
+                                             *interval, &base_time)));
       int64_t ts = absl::ToUnixMicros(base_time);
 
       // Format timestamp to string.
-      functions::FormatDateTimestampOptions format_options = {
-          .expand_Q = false,
-          .expand_J = false,
-      };
       std::string out;
-      status = functions::FormatTimestampToString(kTimestampFormatString, ts,
-                                                  tz, format_options, &out);
-      OP_REQUIRES(
-          context, status.ok(),
-          Internal("Error in TimestampFromDatetime with status: ", status));
+      OP_REQUIRES_OK(context, FormatOutputTimestamp(ts, name(), &out));
 
       // Set the output value.
       output_flat(i) = std::move(out);
@@ -461,11 +440,12 @@ class TimestampDiff : public OpKernel {
     const Tensor& part_tensor = context->input(2);
     std::string part = part_tensor.flat<tstring>()(0);
     functions::DateTimestampPart part_enum;
-    absl::flat_hash_set<functions::DateTimestampPart> supported_parts = {
-        functions::MICROSECOND, functions::MILLISECOND, functions::SECOND,
-        functions::MINUTE,      functions::HOUR,        functions::DAY};
+    static auto* supported_parts =
+        new absl::flat_hash_set<functions::DateTimestampPart>(
+            {functions::MICROSECOND, functions::MILLISECOND, functions::SECOND,
+             functions::MINUTE, functions::HOUR, functions::DAY});
     OP_REQUIRES_OK(context, ParseInputDateTimestampPart(
-                                part, name(), &part_enum, supported_parts));
+                                part, name(), &part_enum, *supported_parts));
 
     // Create an output tensor with the shape of the timestamp tensor
     Tensor* output_tensor = NULL;
@@ -487,12 +467,10 @@ class TimestampDiff : public OpKernel {
                      ParseInputTimestamp(timestamp_b(i), tz, name(), &ts_b));
 
       int64_t out;
-      absl::Status status = functions::TimestampDiff(
-          ts_a, ts_b, functions::kMicroseconds, part_enum, &out);
-      OP_REQUIRES(
-          context, status.ok(),
-          Internal("Error in AddTimestamp of TimestampDiff with status: ",
-                   status));
+      OP_REQUIRES_OK(
+          context, ToTslStatus(name(), functions::TimestampDiff(
+                                           ts_a, ts_b, functions::kMicroseconds,
+                                           part_enum, &out)));
 
       // Set the output value.
       output_flat(i) = std::move(out);
@@ -512,23 +490,23 @@ class TimestampTrunc : public OpKernel {
     const Tensor& part_tensor = context->input(1);
     std::string part = part_tensor.flat<tstring>()(0);
     functions::DateTimestampPart part_enum;
-    absl::flat_hash_set<functions::DateTimestampPart> supported_parts = {
-        functions::MICROSECOND,   functions::MILLISECOND,
-        functions::SECOND,        functions::MINUTE,
-        functions::HOUR,          functions::DAY,
-        functions::WEEK,          functions::WEEK_MONDAY,
-        functions::WEEK_TUESDAY,  functions::WEEK_WEDNESDAY,
-        functions::WEEK_THURSDAY, functions::WEEK_FRIDAY,
-        functions::WEEK_SATURDAY, functions::ISOWEEK,
-        functions::MONTH,         functions::QUARTER,
-        functions::YEAR,          functions::ISOYEAR};
+    static auto* supported_parts =
+        new absl::flat_hash_set<functions::DateTimestampPart>(
+            {functions::MICROSECOND, functions::MILLISECOND, functions::SECOND,
+             functions::MINUTE, functions::HOUR, functions::DAY,
+             functions::WEEK, functions::WEEK_MONDAY, functions::WEEK_TUESDAY,
+             functions::WEEK_WEDNESDAY, functions::WEEK_THURSDAY,
+             functions::WEEK_FRIDAY, functions::WEEK_SATURDAY,
+             functions::ISOWEEK, functions::MONTH, functions::QUARTER,
+             functions::YEAR, functions::ISOYEAR});
     OP_REQUIRES_OK(context, ParseInputDateTimestampPart(
-                                part, name(), &part_enum, supported_parts));
+                                part, name(), &part_enum, *supported_parts));
     // Grab the time_zone tensor
     const Tensor& time_zone_tensor = context->input(2);
     std::string time_zone = time_zone_tensor.flat<tstring>()(0);
     absl::TimeZone tz;
-    OP_REQUIRES_OK(context, ParseInputTimeZone(time_zone, name(), &tz));
+    OP_REQUIRES_OK(
+        context, ToTslStatus(name(), functions::MakeTimeZone(time_zone, &tz)));
 
     // Create an output tensor with the shape of the timestamp tensor
     Tensor* output_tensor = NULL;
@@ -544,12 +522,10 @@ class TimestampTrunc : public OpKernel {
                      ParseInputTimestamp(timestamp(i), tz, name(), &input_ts));
 
       int64_t out_ts;
-      absl::Status status = functions::TruncateTimestamp(
-          input_ts, functions::kMicroseconds, tz, part_enum, &out_ts);
-      OP_REQUIRES(context, status.ok(),
-                  Internal(absl::Substitute(
-                      "Error in TruncateTimestamp of $0 with status: $1",
-                      name(), status.ToString())));
+      OP_REQUIRES_OK(context,
+                     ToTslStatus(name(), functions::TruncateTimestamp(
+                                             input_ts, functions::kMicroseconds,
+                                             tz, part_enum, &out_ts)));
 
       // Format timestamp to string.
       std::string out;
@@ -576,7 +552,8 @@ class FormatTimestamp : public OpKernel {
     const Tensor& time_zone_tensor = context->input(2);
     std::string time_zone = time_zone_tensor.flat<tstring>()(0);
     absl::TimeZone tz;
-    OP_REQUIRES_OK(context, ParseInputTimeZone(time_zone, name(), &tz));
+    OP_REQUIRES_OK(
+        context, ToTslStatus(name(), functions::MakeTimeZone(time_zone, &tz)));
 
     // Create an output tensor with the shape of the timestamp tensor
     Tensor* output_tensor = NULL;
@@ -597,12 +574,10 @@ class FormatTimestamp : public OpKernel {
           .expand_J = true,
       };
       std::string out;
-      absl::Status status = functions::FormatTimestampToString(
-          format, ts, tz, format_options, &out);
-      OP_REQUIRES(context, status.ok(),
-                  Internal(absl::Substitute(
-                      "Error in FormatTimestampToString of $0 with status: $1",
-                      name(), status.ToString())));
+      OP_REQUIRES_OK(
+          context,
+          ToTslStatus(name(), functions::FormatTimestampToString(
+                                  format, ts, tz, format_options, &out)));
 
       // Set the output value.
       output_flat(i) = std::move(out);
@@ -625,7 +600,8 @@ class ParseTimestamp : public OpKernel {
     const Tensor& time_zone_tensor = context->input(2);
     std::string time_zone = time_zone_tensor.flat<tstring>()(0);
     absl::TimeZone tz;
-    OP_REQUIRES_OK(context, ParseInputTimeZone(time_zone, name(), &tz));
+    OP_REQUIRES_OK(
+        context, ToTslStatus(name(), functions::MakeTimeZone(time_zone, &tz)));
 
     // Create an output tensor with the shape of the timestamp tensor
     Tensor* output_tensor = NULL;
@@ -637,13 +613,10 @@ class ParseTimestamp : public OpKernel {
     for (int i = 0; i < N; i++) {
       // Parse the timestamp.
       int64_t ts;
-      absl::Status status =
-          functions::ParseStringToTimestamp(format, timestamp(i), time_zone,
-                                            /*parse_version2=*/true, &ts);
-      OP_REQUIRES(context, status.ok(),
-                  InvalidArgument(absl::Substitute(
-                      "Mismatch between format '$0' and string '$1' in $2",
-                      format, timestamp(i).c_str(), name())));
+      OP_REQUIRES_OK(context,
+                     ToTslStatus(name(), functions::ParseStringToTimestamp(
+                                             format, timestamp(i), time_zone,
+                                             /*parse_version2=*/true, &ts)));
 
       // Format timestamp to string.
       std::string out;

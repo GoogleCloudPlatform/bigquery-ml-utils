@@ -26,6 +26,7 @@
 #include "sql_utils/public/functions/datetime.pb.h"
 #include "sql_utils/public/functions/parse_date_time.h"
 #include "tensorflow_ops/constants.h"
+#include "tensorflow_ops/utils.h"
 #include "tensorflow/core/framework/op_kernel.h"
 #include "tensorflow/core/framework/op_requires.h"
 #include "tensorflow/core/framework/tensor.h"
@@ -38,7 +39,6 @@ using ::tensorflow::OpKernelConstruction;
 using ::tensorflow::OpKernelContext;
 using ::tensorflow::Tensor;
 using ::tensorflow::tstring;
-using ::tensorflow::errors::Internal;
 using ::tensorflow::errors::InvalidArgument;
 
 namespace bigquery_ml_utils {
@@ -93,23 +93,16 @@ class DatetimeFromComponents : public OpKernel {
     for (int i = 0; i < N; i++) {
       // Parse the datetime.
       DatetimeValue datetime_value;
-      absl::Status status =
-          functions::ConstructDatetime(years(i), months(i), days(i), hours(i),
-                                       minutes(i), seconds(i), &datetime_value);
-      OP_REQUIRES(context, status.ok(),
-                  InvalidArgument(absl::Substitute(
-                      "Errors in DatetimeFromComponents with input '$0', '$1', "
-                      "'$2', '$3', '$4', '$5': $6",
-                      years(i), months(i), days(i), hours(i), minutes(i),
-                      seconds(i), status.ToString())));
+      OP_REQUIRES_OK(
+          context,
+          ToTslStatus(name(), functions::ConstructDatetime(
+                                  years(i), months(i), days(i), hours(i),
+                                  minutes(i), seconds(i), &datetime_value)));
 
       // Convert output_datetime to string.
       std::string output_str;
-      status = functions::FormatDatetimeToString(kDatetimeFormatString,
-                                                 datetime_value, &output_str);
-      OP_REQUIRES(
-          context, status.ok(),
-          Internal("Error in FormatDatetimeToString with status: ", status));
+      OP_REQUIRES_OK(context,
+                     FormatOutputDatetime(datetime_value, name(), &output_str));
 
       // Set the output value.
       output_flat(i).reserve(output_str.size());
@@ -138,29 +131,18 @@ class DatetimeFromDate : public OpKernel {
     for (int i = 0; i < N; i++) {
       // Parse the date.
       int32_t date_int;
-      absl::Status status = functions::ParseStringToDate(
-          kDateFormatString, dates(i), /*parse_version2=*/true, &date_int);
-      OP_REQUIRES(context, status.ok(),
-                  InvalidArgument(absl::Substitute(
-                      "Invalid date input '$0' in DatetimeFromDate.",
-                      dates(i).c_str())));
+      OP_REQUIRES_OK(context, ParseInputDate(dates(i), name(), &date_int));
 
       // Parse the datetime.
       DatetimeValue datetime_value;
-      status =
-          functions::ConstructDatetime(date_int, TimeValue(), &datetime_value);
-      OP_REQUIRES(context, status.ok(),
-                  Internal(absl::Substitute(
-                      "Internal error in DatetimeFromDate with input '$0': $1",
-                      dates(i).c_str(), status.ToString())));
+      OP_REQUIRES_OK(context, ToTslStatus(name(), functions::ConstructDatetime(
+                                                      date_int, TimeValue(),
+                                                      &datetime_value)));
 
       // Convert output_datetime to string.
       std::string output_str;
-      status = functions::FormatDatetimeToString(kDatetimeFormatString,
-                                                 datetime_value, &output_str);
-      OP_REQUIRES(
-          context, status.ok(),
-          Internal("Error in FormatDatetimeToString with status: ", status));
+      OP_REQUIRES_OK(context,
+                     FormatOutputDatetime(datetime_value, name(), &output_str));
 
       // Set the output value.
       output_flat(i).reserve(output_str.size());
@@ -198,39 +180,22 @@ class DatetimeFromDateAndTime : public OpKernel {
     for (int i = 0; i < N; i++) {
       // Parse the date.
       int32_t date_int;
-      absl::Status status = functions::ParseStringToDate(
-          kDateFormatString, dates(i), /*parse_version2=*/true, &date_int);
-      OP_REQUIRES(context, status.ok(),
-                  InvalidArgument(absl::Substitute(
-                      "Invalid date input '$0' in DatetimeFromDateAndTime.",
-                      dates(i).c_str())));
+      OP_REQUIRES_OK(context, ParseInputDate(dates(i), name(), &date_int));
 
       // Parse the time.
       TimeValue time_value;
-      status = functions::ParseStringToTime(
-          kTimeFormatString, times(i), functions::kMicroseconds, &time_value);
-      OP_REQUIRES(context, status.ok(),
-                  InvalidArgument(absl::Substitute(
-                      "Invalid time input '$0' in DatetimeFromDateAndTime.",
-                      times(i).c_str())));
+      OP_REQUIRES_OK(context, ParseInputTime(times(i), name(), &time_value));
 
       // Construct the datetime.
       DatetimeValue datetime_value;
-      status =
-          functions::ConstructDatetime(date_int, time_value, &datetime_value);
-      OP_REQUIRES(
-          context, status.ok(),
-          Internal(absl::Substitute(
-              "Internal error in DatetimeFromDateAndTime with input '$0': $1",
-              dates(i).c_str(), status.ToString())));
+      OP_REQUIRES_OK(context, ToTslStatus(name(), functions::ConstructDatetime(
+                                                      date_int, time_value,
+                                                      &datetime_value)));
 
       // Convert output_datetime to string.
       std::string output_str;
-      status = functions::FormatDatetimeToString(kDatetimeFormatString,
-                                                 datetime_value, &output_str);
-      OP_REQUIRES(
-          context, status.ok(),
-          Internal("Error in FormatDatetimeToString with status: ", status));
+      OP_REQUIRES_OK(context,
+                     FormatOutputDatetime(datetime_value, name(), &output_str));
 
       // Set the output value.
       output_flat(i).reserve(output_str.size());
@@ -254,10 +219,8 @@ class DatetimeFromTimestamp : public OpKernel {
     absl::string_view timezone_str = timezone_tensor.flat<tstring>()(0);
     // Parse and validate the timezone.
     absl::TimeZone timezone;
-    absl::Status status = functions::MakeTimeZone(timezone_str, &timezone);
-    OP_REQUIRES(context, status.ok(),
-                InvalidArgument("Invalid timezone in DatetimeFromTimestamp: ",
-                                timezone_str));
+    OP_REQUIRES_OK(context, ToTslStatus(name(), functions::MakeTimeZone(
+                                                    timezone_str, &timezone)));
 
     // Create an output tensor with the shape of the Timestamp tensor.
     Tensor* output_tensor = nullptr;
@@ -269,31 +232,20 @@ class DatetimeFromTimestamp : public OpKernel {
     for (int i = 0; i < N; i++) {
       // Parse the timestamp.
       int64_t timestamp_int;
-      absl::Status status = functions::ParseStringToTimestamp(
-          kTimestampFormatString, timestamps(i), timezone,
-          /*parse_version2=*/true, &timestamp_int);
-      OP_REQUIRES(context, status.ok(),
-                  InvalidArgument(absl::Substitute(
-                      "Invalid date input '$0' in DatetimeFromTimestamp.",
-                      timestamps(i).c_str())));
+      OP_REQUIRES_OK(context, ParseInputTimestamp(timestamps(i), timezone,
+                                                  name(), &timestamp_int));
 
       // Construct the datetime.
       DatetimeValue datetime_value;
-      status = functions::ConvertTimestampToDatetime(
-          absl::FromUnixMicros(timestamp_int), timezone, &datetime_value);
-      OP_REQUIRES(
-          context, status.ok(),
-          Internal(absl::Substitute(
-              "Internal error in DatetimeFromTimestamp with input '$0': $1",
-              timestamps(i).c_str(), status.ToString())));
+      OP_REQUIRES_OK(
+          context, ToTslStatus(name(), functions::ConvertTimestampToDatetime(
+                                           absl::FromUnixMicros(timestamp_int),
+                                           timezone, &datetime_value)));
 
       // Convert output_datetime to string.
       std::string output_str;
-      status = functions::FormatDatetimeToString(kDatetimeFormatString,
-                                                 datetime_value, &output_str);
-      OP_REQUIRES(
-          context, status.ok(),
-          Internal("Error in FormatDatetimeToString with status: ", status));
+      OP_REQUIRES_OK(context,
+                     FormatOutputDatetime(datetime_value, name(), &output_str));
 
       // Set the output value.
       output_flat(i).reserve(output_str.size());
@@ -318,21 +270,15 @@ class DatetimeAdd : public OpKernel {
     // Grab the part tensor.
     const Tensor& part_tensor = context->input(2);
     absl::string_view part = part_tensor.flat<tstring>()(0);
-    int part_int = functions::DateTimestampPart_FromName(part);
-    bool valid_part = part_int != -1;
     functions::DateTimestampPart part_enum;
-    if (valid_part) {
-      part_enum = static_cast<functions::DateTimestampPart>(part_int);
-      static auto* kSupportedPart =
-          new absl::flat_hash_set<functions::DateTimestampPart>(
-              {functions::MICROSECOND, functions::MILLISECOND,
-               functions::SECOND, functions::MINUTE, functions::HOUR,
-               functions::DAY, functions::WEEK, functions::MONTH,
-               functions::QUARTER, functions::YEAR});
-      valid_part = kSupportedPart->contains(part_enum);
-    }
-    OP_REQUIRES(context, valid_part,
-                InvalidArgument("Invalid part in DatetimeAdd: ", part));
+    static auto* supported_parts =
+        new absl::flat_hash_set<functions::DateTimestampPart>(
+            {functions::MICROSECOND, functions::MILLISECOND, functions::SECOND,
+             functions::MINUTE, functions::HOUR, functions::DAY,
+             functions::WEEK, functions::MONTH, functions::QUARTER,
+             functions::YEAR});
+    OP_REQUIRES_OK(context, ParseInputDateTimestampPart(
+                                part, name(), &part_enum, *supported_parts));
 
     // Create an output tensor with the shape of the datetime tensor.
     Tensor* output_tensor = nullptr;
@@ -347,29 +293,20 @@ class DatetimeAdd : public OpKernel {
     for (int i = 0; i < N; i++) {
       // Parse the datetime.
       DatetimeValue datetime_value;
-      absl::Status status = functions::ParseStringToDatetime(
-          kDatetimeFormatString, input_datetime(i), functions::kMicroseconds,
-          /*parse_version2=*/true, &datetime_value);
-      OP_REQUIRES(context, status.ok(),
-                  InvalidArgument("Invalid datetime in DatetimeAdd: ",
-                                  input_datetime(i)));
+      OP_REQUIRES_OK(context, ParseInputDatetime(input_datetime(i), name(),
+                                                 &datetime_value));
 
       // Add the part of the internal to the datetime.
       DatetimeValue output_datetime;
-      status = functions::AddDatetime(datetime_value, part_enum,
-                                      input_interval(i), &output_datetime);
-      OP_REQUIRES(
-          context, status.ok(),
-          Internal("Error in AddDatetime of DatetimeAdd with status: $0",
-                   status));
+      OP_REQUIRES_OK(context, ToTslStatus(name(), functions::AddDatetime(
+                                                      datetime_value, part_enum,
+                                                      input_interval(i),
+                                                      &output_datetime)));
 
       // Convert output_datetime to string.
       std::string output_str;
-      status = functions::FormatDatetimeToString(kDatetimeFormatString,
-                                                 output_datetime, &output_str);
-      OP_REQUIRES(
-          context, status.ok(),
-          Internal("Error in FormatDatetimeToString with status: $0", status));
+      OP_REQUIRES_OK(
+          context, FormatOutputDatetime(output_datetime, name(), &output_str));
 
       // Set the output value.
       output_flat(i).reserve(output_str.size());
@@ -394,24 +331,18 @@ class DatetimeDiff : public OpKernel {
     // Grab the part tensor.
     const Tensor& part_tensor = context->input(2);
     absl::string_view part = part_tensor.flat<tstring>()(0);
-    int part_int = functions::DateTimestampPart_FromName(part);
-    bool valid_part = part_int != -1;
     functions::DateTimestampPart part_enum;
-    if (valid_part) {
-      part_enum = static_cast<functions::DateTimestampPart>(part_int);
-      static auto* kSupportedPart =
-          new absl::flat_hash_set<functions::DateTimestampPart>(
-              {functions::MICROSECOND, functions::MILLISECOND,
-               functions::SECOND, functions::MINUTE, functions::HOUR,
-               functions::DAY, functions::WEEK, functions::WEEK_MONDAY,
-               functions::WEEK_TUESDAY, functions::WEEK_WEDNESDAY,
-               functions::WEEK_THURSDAY, functions::WEEK_FRIDAY,
-               functions::WEEK_SATURDAY, functions::ISOWEEK, functions::MONTH,
-               functions::QUARTER, functions::YEAR, functions::ISOYEAR});
-      valid_part = kSupportedPart->contains(part_enum);
-    }
-    OP_REQUIRES(context, valid_part,
-                InvalidArgument("Invalid part in DatetimeDiff: ", part));
+    static auto* supported_parts =
+        new absl::flat_hash_set<functions::DateTimestampPart>(
+            {functions::MICROSECOND, functions::MILLISECOND, functions::SECOND,
+             functions::MINUTE, functions::HOUR, functions::DAY,
+             functions::WEEK, functions::WEEK_MONDAY, functions::WEEK_TUESDAY,
+             functions::WEEK_WEDNESDAY, functions::WEEK_THURSDAY,
+             functions::WEEK_FRIDAY, functions::WEEK_SATURDAY,
+             functions::ISOWEEK, functions::MONTH, functions::QUARTER,
+             functions::YEAR, functions::ISOYEAR});
+    OP_REQUIRES_OK(context, ParseInputDateTimestampPart(
+                                part, name(), &part_enum, *supported_parts));
 
     // Create an output tensor with the shape of the datetime tensor.
     Tensor* output_tensor = nullptr;
@@ -426,30 +357,20 @@ class DatetimeDiff : public OpKernel {
     for (int i = 0; i < N; i++) {
       // Parse the datetime_a.
       DatetimeValue datetime_a_value;
-      absl::Status status = functions::ParseStringToDatetime(
-          kDatetimeFormatString, datetime_a(i), functions::kMicroseconds,
-          /*parse_version2=*/true, &datetime_a_value);
-      OP_REQUIRES(
-          context, status.ok(),
-          InvalidArgument("Invalid datetime in DatetimeDiff: ", datetime_a(i)));
+      OP_REQUIRES_OK(context, ParseInputDatetime(datetime_a(i), name(),
+                                                 &datetime_a_value));
 
       // Parse the datetime_b.
       DatetimeValue datetime_b_value;
-      status = functions::ParseStringToDatetime(
-          kDatetimeFormatString, datetime_b(i), functions::kMicroseconds,
-          /*parse_version2=*/true, &datetime_b_value);
-      OP_REQUIRES(
-          context, status.ok(),
-          InvalidArgument("Invalid datetime in DatetimeDiff: ", datetime_b(i)));
+      OP_REQUIRES_OK(context, ParseInputDatetime(datetime_b(i), name(),
+                                                 &datetime_b_value));
 
       // Get the diff of datetime_a and datetime_b in part.
       int64_t output;
-      status = functions::DiffDatetimes(datetime_a_value, datetime_b_value,
-                                        part_enum, &output);
-      OP_REQUIRES(
-          context, status.ok(),
-          Internal("Error in DiffDatetimes of DatetimeDiff with status: $0",
-                   status));
+      OP_REQUIRES_OK(context,
+                     ToTslStatus(name(), functions::DiffDatetimes(
+                                             datetime_a_value, datetime_b_value,
+                                             part_enum, &output)));
 
       // Set the output value.
       output_flat(i) = output;
@@ -473,21 +394,15 @@ class DatetimeSub : public OpKernel {
     // Grab the part tensor.
     const Tensor& part_tensor = context->input(2);
     absl::string_view part = part_tensor.flat<tstring>()(0);
-    int part_int = functions::DateTimestampPart_FromName(part);
-    bool valid_part = part_int != -1;
     functions::DateTimestampPart part_enum;
-    if (valid_part) {
-      part_enum = static_cast<functions::DateTimestampPart>(part_int);
-      static auto* kSupportedPart =
-          new absl::flat_hash_set<functions::DateTimestampPart>(
-              {functions::MICROSECOND, functions::MILLISECOND,
-               functions::SECOND, functions::MINUTE, functions::HOUR,
-               functions::DAY, functions::WEEK, functions::MONTH,
-               functions::QUARTER, functions::YEAR});
-      valid_part = kSupportedPart->contains(part_enum);
-    }
-    OP_REQUIRES(context, valid_part,
-                InvalidArgument("Invalid part in DatetimeSub: ", part));
+    static auto* supported_parts =
+        new absl::flat_hash_set<functions::DateTimestampPart>(
+            {functions::MICROSECOND, functions::MILLISECOND, functions::SECOND,
+             functions::MINUTE, functions::HOUR, functions::DAY,
+             functions::WEEK, functions::MONTH, functions::QUARTER,
+             functions::YEAR});
+    OP_REQUIRES_OK(context, ParseInputDateTimestampPart(
+                                part, name(), &part_enum, *supported_parts));
 
     // Create an output tensor with the shape of the datetime tensor.
     Tensor* output_tensor = nullptr;
@@ -502,29 +417,20 @@ class DatetimeSub : public OpKernel {
     for (int i = 0; i < N; i++) {
       // Parse the datetime.
       DatetimeValue datetime_value;
-      absl::Status status = functions::ParseStringToDatetime(
-          kDatetimeFormatString, input_datetime(i), functions::kMicroseconds,
-          /*parse_version2=*/true, &datetime_value);
-      OP_REQUIRES(context, status.ok(),
-                  InvalidArgument("Invalid datetime in DatetimeSub: ",
-                                  input_datetime(i)));
+      OP_REQUIRES_OK(context, ParseInputDatetime(input_datetime(i), name(),
+                                                 &datetime_value));
 
       // Add the part of the internal to the datetime.
       DatetimeValue output_datetime;
-      status = functions::SubDatetime(datetime_value, part_enum,
-                                      input_interval(i), &output_datetime);
-      OP_REQUIRES(
-          context, status.ok(),
-          Internal("Error in SubDatetime of DatetimeSub with status: $0",
-                   status));
+      OP_REQUIRES_OK(context, ToTslStatus(name(), functions::SubDatetime(
+                                                      datetime_value, part_enum,
+                                                      input_interval(i),
+                                                      &output_datetime)));
 
       // Convert output_datetime to string.
       std::string output_str;
-      status = functions::FormatDatetimeToString(kDatetimeFormatString,
-                                                 output_datetime, &output_str);
-      OP_REQUIRES(
-          context, status.ok(),
-          Internal("Error in FormatDatetimeToString with status: $0", status));
+      OP_REQUIRES_OK(
+          context, FormatOutputDatetime(output_datetime, name(), &output_str));
 
       // Set the output value.
       output_flat(i).reserve(output_str.size());
@@ -545,24 +451,18 @@ class DatetimeTrunc : public OpKernel {
     // Grab the part tensor.
     const Tensor& part_tensor = context->input(1);
     absl::string_view part = part_tensor.flat<tstring>()(0);
-    int part_int = functions::DateTimestampPart_FromName(part);
-    bool valid_part = part_int != -1;
     functions::DateTimestampPart part_enum;
-    if (valid_part) {
-      part_enum = static_cast<functions::DateTimestampPart>(part_int);
-      static auto* kSupportedPart =
-          new absl::flat_hash_set<functions::DateTimestampPart>(
-              {functions::MICROSECOND, functions::MILLISECOND,
-               functions::SECOND, functions::MINUTE, functions::HOUR,
-               functions::DAY, functions::WEEK, functions::WEEK_MONDAY,
-               functions::WEEK_TUESDAY, functions::WEEK_WEDNESDAY,
-               functions::WEEK_THURSDAY, functions::WEEK_FRIDAY,
-               functions::WEEK_SATURDAY, functions::ISOWEEK, functions::MONTH,
-               functions::QUARTER, functions::YEAR, functions::ISOYEAR});
-      valid_part = kSupportedPart->contains(part_enum);
-    }
-    OP_REQUIRES(context, valid_part,
-                InvalidArgument("Invalid part in DatetimeTrunc: ", part));
+    static auto* supported_parts =
+        new absl::flat_hash_set<functions::DateTimestampPart>(
+            {functions::MICROSECOND, functions::MILLISECOND, functions::SECOND,
+             functions::MINUTE, functions::HOUR, functions::DAY,
+             functions::WEEK, functions::WEEK_MONDAY, functions::WEEK_TUESDAY,
+             functions::WEEK_WEDNESDAY, functions::WEEK_THURSDAY,
+             functions::WEEK_FRIDAY, functions::WEEK_SATURDAY,
+             functions::ISOWEEK, functions::MONTH, functions::QUARTER,
+             functions::YEAR, functions::ISOYEAR});
+    OP_REQUIRES_OK(context, ParseInputDateTimestampPart(
+                                part, name(), &part_enum, *supported_parts));
 
     // Create an output tensor with the shape of the datetime tensor.
     Tensor* output_tensor = nullptr;
@@ -574,28 +474,18 @@ class DatetimeTrunc : public OpKernel {
     for (int i = 0; i < N; i++) {
       // Parse the datetime.
       DatetimeValue datetime_value;
-      absl::Status status = functions::ParseStringToDatetime(
-          kDatetimeFormatString, input_datetime(i), functions::kMicroseconds,
-          /*parse_version2=*/true, &datetime_value);
-      OP_REQUIRES(context, status.ok(),
-                  InvalidArgument("Invalid datetime in DatetimeTrunc: ",
-                                  input_datetime(i)));
+      OP_REQUIRES_OK(context, ParseInputDatetime(input_datetime(i), name(),
+                                                 &datetime_value));
 
       DatetimeValue output_datetime;
-      status = functions::TruncateDatetime(datetime_value, part_enum,
-                                           &output_datetime);
-      OP_REQUIRES(
-          context, status.ok(),
-          Internal("Error in SubDatetime of DatetimeTrunc with status: $0",
-                   status));
+      OP_REQUIRES_OK(context, ToTslStatus(name(), functions::TruncateDatetime(
+                                                      datetime_value, part_enum,
+                                                      &output_datetime)));
 
       // Convert output_datetime to string.
       std::string output_str;
-      status = functions::FormatDatetimeToString(kDatetimeFormatString,
-                                                 output_datetime, &output_str);
-      OP_REQUIRES(
-          context, status.ok(),
-          Internal("Error in FormatDatetimeToString with status: $0", status));
+      OP_REQUIRES_OK(
+          context, FormatOutputDatetime(output_datetime, name(), &output_str));
 
       // Set the output value.
       output_flat(i).reserve(output_str.size());
@@ -617,27 +507,21 @@ class ExtractFromDatetime : public OpKernel {
     // Grab the part tensor.
     const Tensor& part_tensor = context->input(1);
     std::string part = part_tensor.flat<tstring>()(0);
-    int part_int = functions::DateTimestampPart_FromName(part);
-    bool valid_part = part_int != -1;
     functions::DateTimestampPart part_enum;
-    if (valid_part) {
-      part_enum = static_cast<functions::DateTimestampPart>(part_int);
-      static auto* kSupportedPart =
-          new absl::flat_hash_set<functions::DateTimestampPart>(
-              {functions::MICROSECOND,   functions::MILLISECOND,
-               functions::SECOND,        functions::MINUTE,
-               functions::HOUR,          functions::DAY,
-               functions::DAYOFWEEK,     functions::DAYOFYEAR,
-               functions::WEEK,          functions::WEEK_MONDAY,
-               functions::WEEK_TUESDAY,  functions::WEEK_WEDNESDAY,
-               functions::WEEK_THURSDAY, functions::WEEK_FRIDAY,
-               functions::WEEK_SATURDAY, functions::ISOWEEK,
-               functions::MONTH,         functions::QUARTER,
-               functions::YEAR,          functions::ISOYEAR});
-      valid_part = kSupportedPart->contains(part_enum);
-    }
-    OP_REQUIRES(context, valid_part,
-                InvalidArgument("Invalid part in ExtractFromDatetime: ", part));
+    static auto* supported_parts =
+        new absl::flat_hash_set<functions::DateTimestampPart>(
+            {functions::MICROSECOND,   functions::MILLISECOND,
+             functions::SECOND,        functions::MINUTE,
+             functions::HOUR,          functions::DAY,
+             functions::DAYOFWEEK,     functions::DAYOFYEAR,
+             functions::WEEK,          functions::WEEK_MONDAY,
+             functions::WEEK_TUESDAY,  functions::WEEK_WEDNESDAY,
+             functions::WEEK_THURSDAY, functions::WEEK_FRIDAY,
+             functions::WEEK_SATURDAY, functions::ISOWEEK,
+             functions::MONTH,         functions::QUARTER,
+             functions::YEAR,          functions::ISOYEAR});
+    OP_REQUIRES_OK(context, ParseInputDateTimestampPart(
+                                part, name(), &part_enum, *supported_parts));
 
     // Create an output tensor with the shape of the datetime tensor.
     Tensor* output_tensor = nullptr;
@@ -649,20 +533,14 @@ class ExtractFromDatetime : public OpKernel {
     for (int i = 0; i < N; i++) {
       // Parse the datetime.
       DatetimeValue datetime_value;
-      absl::Status status = functions::ParseStringToDatetime(
-          kDatetimeFormatString, datetime(i), functions::kMicroseconds,
-          /*parse_version2=*/true, &datetime_value);
-      OP_REQUIRES(context, status.ok(),
-                  InvalidArgument("Invalid datetime in ExtractFromDatetime: ",
-                                  datetime(i)));
+      OP_REQUIRES_OK(context,
+                     ParseInputDatetime(datetime(i), name(), &datetime_value));
 
       // Extract part from the datetime.
       int32_t out;
-      status = functions::ExtractFromDatetime(part_enum, datetime_value, &out);
-      OP_REQUIRES(
-          context, status.ok(),
-          Internal("Internal error in ExtractFromDatetime with status: ",
-                   status));
+      OP_REQUIRES_OK(context,
+                     ToTslStatus(name(), functions::ExtractFromDatetime(
+                                             part_enum, datetime_value, &out)));
 
       // Set the output value.
       output_flat(i) = static_cast<int64_t>(out);
@@ -690,29 +568,20 @@ class ExtractDateFromDatetime : public OpKernel {
     for (int i = 0; i < N; i++) {
       // Parse the datetime.
       DatetimeValue datetime_value;
-      absl::Status status = functions::ParseStringToDatetime(
-          kDatetimeFormatString, datetime(i), functions::kMicroseconds,
-          /*parse_version2=*/true, &datetime_value);
-      OP_REQUIRES(
-          context, status.ok(),
-          InvalidArgument("Invalid datetime in ExtractDateFromDatetime: ",
-                          datetime(i)));
+      OP_REQUIRES_OK(context,
+                     ParseInputDatetime(datetime(i), name(), &datetime_value));
 
       // Extract DATE from the datetime.
       int32_t out;
-      status =
-          functions::ExtractFromDatetime(functions::DATE, datetime_value, &out);
-      OP_REQUIRES(
-          context, status.ok(),
-          InvalidArgument(
-              "InvalidArgument in ExtractDateFromDatetime with status: ",
-              status));
+      OP_REQUIRES_OK(
+          context,
+          ToTslStatus(name(), functions::ExtractFromDatetime(
+                                  functions::DATE, datetime_value, &out)));
 
       std::string output_str;
-      status = functions::ConvertDateToString(out, &output_str);
-      OP_REQUIRES(context, status.ok(),
-                  Internal("Internal error in ConvertDateToString with value ",
-                           out, " and status: ", status));
+      OP_REQUIRES_OK(context,
+                     ToTslStatus(name(), functions::ConvertDateToString(
+                                             out, &output_str)));
 
       // Set the output value.
       output_flat(i).reserve(output_str.size());
@@ -741,28 +610,20 @@ class ExtractTimeFromDatetime : public OpKernel {
     for (int i = 0; i < N; i++) {
       // Parse the datetime.
       DatetimeValue datetime_value;
-      absl::Status status = functions::ParseStringToDatetime(
-          kDatetimeFormatString, datetime(i), functions::kMicroseconds,
-          /*parse_version2=*/true, &datetime_value);
-      OP_REQUIRES(
-          context, status.ok(),
-          InvalidArgument("Invalid datetime in ExtractTimeFromDatetime: ",
-                          datetime(i)));
+      OP_REQUIRES_OK(context,
+                     ParseInputDatetime(datetime(i), name(), &datetime_value));
 
       // Extract TIME from the datetime value.
       TimeValue time_value;
-      status = functions::ExtractTimeFromDatetime(datetime_value, &time_value);
-      OP_REQUIRES(context, status.ok(),
-                  InvalidArgument(
-                      "InvalidArgument in ExtractTimeFromDatetime with status ",
-                      status));
+      OP_REQUIRES_OK(context,
+                     ToTslStatus(name(), functions::ExtractTimeFromDatetime(
+                                             datetime_value, &time_value)));
 
       std::string output_str;
-      status = functions::ConvertTimeToString(
-          time_value, functions::kMicroseconds, &output_str);
-      OP_REQUIRES(context, status.ok(),
-                  Internal("Internal error in ConvertTimeToString with status ",
-                           status));
+      OP_REQUIRES_OK(
+          context, ToTslStatus(name(), functions::ConvertTimeToString(
+                                           time_value, functions::kMicroseconds,
+                                           &output_str)));
 
       // Set the output value.
       output_flat(i).reserve(output_str.size());
@@ -784,30 +645,24 @@ class LastDayFromDatetime : public OpKernel {
     // Grab the part tensor.
     const Tensor& part_tensor = context->input(1);
     std::string part = part_tensor.flat<tstring>()(0);
-    int part_int = functions::DateTimestampPart_FromName(part);
-    bool valid_part = part_int != -1;
     functions::DateTimestampPart part_enum;
-    if (valid_part) {
-      part_enum = static_cast<functions::DateTimestampPart>(part_int);
-      static auto* kSupportedPart =
-          new absl::flat_hash_set<functions::DateTimestampPart>({
-              functions::WEEK,
-              functions::WEEK_MONDAY,
-              functions::WEEK_TUESDAY,
-              functions::WEEK_WEDNESDAY,
-              functions::WEEK_THURSDAY,
-              functions::WEEK_FRIDAY,
-              functions::WEEK_SATURDAY,
-              functions::ISOWEEK,
-              functions::MONTH,
-              functions::QUARTER,
-              functions::YEAR,
-              functions::ISOYEAR,
-          });
-      valid_part = kSupportedPart->contains(part_enum);
-    }
-    OP_REQUIRES(context, valid_part,
-                InvalidArgument("Invalid part in LastDayFromDatetime: ", part));
+    static auto* supported_parts =
+        new absl::flat_hash_set<functions::DateTimestampPart>({
+            functions::WEEK,
+            functions::WEEK_MONDAY,
+            functions::WEEK_TUESDAY,
+            functions::WEEK_WEDNESDAY,
+            functions::WEEK_THURSDAY,
+            functions::WEEK_FRIDAY,
+            functions::WEEK_SATURDAY,
+            functions::ISOWEEK,
+            functions::MONTH,
+            functions::QUARTER,
+            functions::YEAR,
+            functions::ISOYEAR,
+        });
+    OP_REQUIRES_OK(context, ParseInputDateTimestampPart(
+                                part, name(), &part_enum, *supported_parts));
 
     // Create an output tensor with the shape of the datetime tensor.
     Tensor* output_tensor = nullptr;
@@ -819,36 +674,18 @@ class LastDayFromDatetime : public OpKernel {
     for (int i = 0; i < N; i++) {
       // Parse the datetime.
       DatetimeValue datetime_value;
-      absl::Status status = functions::ParseStringToDatetime(
-          kDatetimeFormatString, datetime(i), functions::kMicroseconds,
-          /*parse_version2=*/true, &datetime_value);
-      OP_REQUIRES(context, status.ok(),
-                  InvalidArgument("Invalid datetime in LastDayFromDatetime: ",
-                                  datetime(i)));
+      OP_REQUIRES_OK(context,
+                     ParseInputDatetime(datetime(i), name(), &datetime_value));
 
       // Extract LAST_DAY from the datetime value.
       int32_t date_int;
-      status =
-          functions::LastDayOfDatetime(datetime_value, part_enum, &date_int);
-      tsl::Status tf_status = tsl::OkStatus();
-      if (!status.ok()) {
-        if (status.code() == absl::StatusCode::kInvalidArgument) {
-          tf_status = InvalidArgument(
-              "InvalidArgument in LastDayFromDatetime with status ", status);
-        } else {
-          tf_status = Internal(
-              "Internal error in LastDayFromDatetime with status ", status);
-        }
-      }
-      OP_REQUIRES(context, tf_status.ok(), tf_status);
+      OP_REQUIRES_OK(context, ToTslStatus(name(), functions::LastDayOfDatetime(
+                                                      datetime_value, part_enum,
+                                                      &date_int)));
 
       // Set the output value.
       std::string output_str;
-      status = functions::FormatDateToString(kDateFormatString, date_int,
-                                             &output_str);
-      OP_REQUIRES(context, status.ok(),
-                  Internal("Internal error in FormatDateToString with status ",
-                           status));
+      OP_REQUIRES_OK(context, FormatOutputDate(date_int, name(), &output_str));
 
       output_flat(i).reserve(output_str.size());
       output_flat(i) = std::move(output_str);
@@ -880,23 +717,17 @@ class ParseDatetime : public OpKernel {
     for (int i = 0; i < N; i++) {
       // Parse the datetime.
       DatetimeValue datetime_value;
-      absl::Status status = functions::ParseStringToDatetime(
-          format_string, datetime_strings(i), functions::kMicroseconds,
-          /*parse_version2=*/true, &datetime_value);
-      OP_REQUIRES(
-          context, status.ok(),
-          InvalidArgument(absl::Substitute(
-              "Error in ParseDatetime with format_string '$0' and "
-              "datetime_string '$1': $2",
-              format_string, datetime_strings(i).c_str(), status.ToString())));
+      OP_REQUIRES_OK(
+          context,
+          ToTslStatus(name(), functions::ParseStringToDatetime(
+                                  format_string, datetime_strings(i),
+                                  functions::kMicroseconds,
+                                  /*parse_version2=*/true, &datetime_value)));
 
       // Convert output_datetime to string.
       std::string output_str;
-      status = functions::FormatDatetimeToString(kDatetimeFormatString,
-                                                 datetime_value, &output_str);
-      OP_REQUIRES(
-          context, status.ok(),
-          Internal("Error in FormatDatetimeToString with status: ", status));
+      OP_REQUIRES_OK(context,
+                     FormatOutputDatetime(datetime_value, name(), &output_str));
 
       // Set the output value.
       output_flat(i).reserve(output_str.size());
