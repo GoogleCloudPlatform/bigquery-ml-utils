@@ -311,9 +311,15 @@ class TimestampAdd : public OpKernel {
     // Grab the timestamp tensor
     const Tensor& timestamp_tensor = context->input(0);
     auto timestamp = timestamp_tensor.flat<tstring>();
-    // Grab the diff tensor
+    // Grab the interval tensor
     const Tensor& diff_tensor = context->input(1);
-    int64_t diff = diff_tensor.flat<int64_t>()(0);
+    auto interval_int = diff_tensor.flat<int64_t>();
+    OP_REQUIRES(
+        context, interval_int.size() == timestamp.size(),
+        InvalidArgument(absl::Substitute(
+            "Error in $0: timestamp and interval must have the same shape, "
+            "but are $1, $2",
+            name(), timestamp.size(), interval_int.size())));
     // Grab the part tensor
     const Tensor& part_tensor = context->input(2);
     std::string part = part_tensor.flat<tstring>()(0);
@@ -324,11 +330,6 @@ class TimestampAdd : public OpKernel {
              functions::MINUTE, functions::HOUR, functions::DAY});
     OP_REQUIRES_OK(context, ParseInputDateTimestampPart(
                                 part, name(), &part_enum, *supported_parts));
-    absl::StatusOr<IntervalValue> interval = GetIntervalValue(diff, part_enum);
-    OP_REQUIRES(
-        context, interval.ok(),
-        Internal("Error in getting interval of TimestampAdd with status: ",
-                 interval.status()));
 
     // Create an output tensor with the shape of the timestamp tensor
     Tensor* output_tensor = NULL;
@@ -346,6 +347,12 @@ class TimestampAdd : public OpKernel {
       OP_REQUIRES_OK(context,
                      ParseInputTimestamp(timestamp(i), tz, name(), &input_ts));
 
+      absl::StatusOr<IntervalValue> interval =
+          GetIntervalValue(interval_int(i), part_enum);
+      OP_REQUIRES(
+          context, interval.ok(),
+          Internal("Error in getting interval of TimestampAdd with status: ",
+                   interval.status()));
       absl::Time base_time;
       OP_REQUIRES_OK(context,
                      ToTslStatus(name(), functions::AddTimestamp(
@@ -370,9 +377,15 @@ class TimestampSub : public OpKernel {
     // Grab the timestamp tensor
     const Tensor& timestamp_tensor = context->input(0);
     auto timestamp = timestamp_tensor.flat<tstring>();
-    // Grab the diff tensor
+    // Grab the interval tensor
     const Tensor& diff_tensor = context->input(1);
-    int64_t diff = diff_tensor.flat<int64_t>()(0);
+    auto interval_int = diff_tensor.flat<int64_t>();
+    OP_REQUIRES(
+        context, interval_int.size() == timestamp.size(),
+        InvalidArgument(absl::Substitute(
+            "Error in $0: timestamp and interval must have the same shape, "
+            "but are $1, $2",
+            name(), timestamp.size(), interval_int.size())));
     // Grab the part tensor
     const Tensor& part_tensor = context->input(2);
     std::string part = part_tensor.flat<tstring>()(0);
@@ -383,11 +396,6 @@ class TimestampSub : public OpKernel {
              functions::MINUTE, functions::HOUR, functions::DAY});
     OP_REQUIRES_OK(context, ParseInputDateTimestampPart(
                                 part, name(), &part_enum, *supported_parts));
-    absl::StatusOr<IntervalValue> interval = GetIntervalValue(-diff, part_enum);
-    OP_REQUIRES(
-        context, interval.ok(),
-        Internal("Error in getting interval of TimestampSub with status: ",
-                 interval.status()));
 
     // Create an output tensor with the shape of the timestamp tensor
     Tensor* output_tensor = NULL;
@@ -405,6 +413,12 @@ class TimestampSub : public OpKernel {
       OP_REQUIRES_OK(context,
                      ParseInputTimestamp(timestamp(i), tz, name(), &input_ts));
 
+      absl::StatusOr<IntervalValue> interval =
+          GetIntervalValue(-interval_int(i), part_enum);
+      OP_REQUIRES(
+          context, interval.ok(),
+          Internal("Error in getting interval of TimestampSub with status: ",
+                   interval.status()));
       absl::Time base_time;
       OP_REQUIRES_OK(context,
                      ToTslStatus(name(), functions::AddTimestamp(

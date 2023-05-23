@@ -82,7 +82,7 @@ REGISTER_OP("TimestampFromDatetime")
 // Output has the same shape of the input timestamp.
 REGISTER_OP("TimestampAdd")
     .Input("timestamp: string")
-    .Input("diff: int64")
+    .Input("interval: int64")
     .Input("part: string")
     .Output("output: string")
     .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
@@ -94,7 +94,7 @@ REGISTER_OP("TimestampAdd")
 // Output has the same shape of the input timestamp.
 REGISTER_OP("TimestampSub")
     .Input("timestamp: string")
-    .Input("diff: int64")
+    .Input("interval: int64")
     .Input("part: string")
     .Output("output: string")
     .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {

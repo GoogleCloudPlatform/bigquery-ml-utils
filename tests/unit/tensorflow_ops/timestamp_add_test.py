@@ -24,44 +24,44 @@ class TimestampAddTest(tf.test.TestCase):
     timestamp = tf.constant(
         ['2008-12-25 15:30:00+00', '2023-11-11 14:30:00+00']
     )
-
+    diff = tf.constant([500000, 500000], dtype=tf.int64)
     self.assertAllEqual(
-        timestamp_ops.timestamp_add(timestamp, 500000, 'MICROSECOND'),
+        timestamp_ops.timestamp_add(timestamp, diff, 'MICROSECOND'),
         tf.constant(
             ['2008-12-25 15:30:00.5 +0000', '2023-11-11 14:30:00.5 +0000']
         ),
     )
-
+    diff = tf.constant([5000, 5000], dtype=tf.int64)
     self.assertAllEqual(
-        timestamp_ops.timestamp_add(timestamp, 5000, 'MILLISECOND'),
+        timestamp_ops.timestamp_add(timestamp, diff, 'MILLISECOND'),
         tf.constant(
             ['2008-12-25 15:30:05.0 +0000', '2023-11-11 14:30:05.0 +0000']
         ),
     )
-
+    diff = tf.constant([50, 50], dtype=tf.int64)
     self.assertAllEqual(
-        timestamp_ops.timestamp_add(timestamp, 50, 'SECOND'),
+        timestamp_ops.timestamp_add(timestamp, diff, 'SECOND'),
         tf.constant(
             ['2008-12-25 15:30:50.0 +0000', '2023-11-11 14:30:50.0 +0000']
         ),
     )
-
+    diff = tf.constant([1, 1], dtype=tf.int64)
     self.assertAllEqual(
-        timestamp_ops.timestamp_add(timestamp, 1, 'MINUTE'),
+        timestamp_ops.timestamp_add(timestamp, diff, 'MINUTE'),
         tf.constant(
             ['2008-12-25 15:31:00.0 +0000', '2023-11-11 14:31:00.0 +0000']
         ),
     )
-
+    diff = tf.constant([2, 2], dtype=tf.int64)
     self.assertAllEqual(
-        timestamp_ops.timestamp_add(timestamp, 2, 'HOUR'),
+        timestamp_ops.timestamp_add(timestamp, diff, 'HOUR'),
         tf.constant(
             ['2008-12-25 17:30:00.0 +0000', '2023-11-11 16:30:00.0 +0000']
         ),
     )
-
+    diff = tf.constant([3, 3], dtype=tf.int64)
     self.assertAllEqual(
-        timestamp_ops.timestamp_add(timestamp, 3, 'DAY'),
+        timestamp_ops.timestamp_add(timestamp, diff, 'DAY'),
         tf.constant(
             ['2008-12-28 15:30:00.0 +0000', '2023-11-14 14:30:00.0 +0000']
         ),
@@ -71,23 +71,23 @@ class TimestampAddTest(tf.test.TestCase):
     timestamp = tf.constant(
         ['2008-12-25 15:30:00+00', '2023-11-11 14:30:00+00']
     )
+    diff = tf.constant([500000, 500000], dtype=tf.int64)
     with self.assertRaisesRegex(
         (tf.errors.InvalidArgumentError, ValueError),
         'Invalid part in TimestampAdd: RandomPart',
     ):
-      self.evaluate(
-          timestamp_ops.timestamp_add(timestamp, 500000, 'RandomPart')
-      )
+      self.evaluate(timestamp_ops.timestamp_add(timestamp, diff, 'RandomPart'))
 
   def test_timestamp_add_invalid_timestamp(self):
     timestamp = tf.constant(
         ['2008-12-25 15:30:00 abc', '2023-11-11 14:30:00+00']
     )
+    diff = tf.constant([500000, 500000], dtype=tf.int64)
     with self.assertRaisesRegex(
         (tf.errors.OutOfRangeError, ValueError),
         'Failed to parse input string "2008-12-25 15:30:00 abc"',
     ):
-      self.evaluate(timestamp_ops.timestamp_add(timestamp, 500000, 'DAY'))
+      self.evaluate(timestamp_ops.timestamp_add(timestamp, diff, 'DAY'))
 
 
 if __name__ == '__main__':

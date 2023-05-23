@@ -107,43 +107,43 @@ def timestamp_from_datetime(datetime, time_zone="UTC", name=None):
   )
 
 
-def timestamp_add(timestamp, diff, part, name=None):
-  """Returns a timestamp by adding diff to the timestamp.
+def timestamp_add(timestamp, interval, part, name=None):
+  """Returns a timestamp by adding interval to the timestamp.
 
   Equivalent SQL: TIMESTAMP_ADD(timestamp_expression, INTERVAL int64_expression
   date_part)
 
   Args:
     timestamp: tf.Tensor of type string. Timestamp in "%F %H:%M:%E1S %z" format.
-    diff: A integer represents the unit of part.
+    interval: tf.Tensor of type int64. Integer represents the unit of part.
     part: A string represents the datetime part. Can be MICROSECOND,
       MILLISECOND, SECOND, MINUTE, HOUR, DAY. Case insensitive.
     name: An optional name for the op.
   """
   return gen_timestamp_ops.timestamp_add(
       timestamp=timestamp,
-      diff=diff,
+      interval=interval,
       part=part,
       name=name,
   )
 
 
-def timestamp_sub(timestamp, diff, part, name=None):
-  """Returns a timestamp by subtracting diff to the timestamp.
+def timestamp_sub(timestamp, interval, part, name=None):
+  """Returns a timestamp by subtracting interval to the timestamp.
 
   Equivalent SQL: TIMESTAMP_SUB(timestamp_expression, INTERVAL int64_expression
   date_part)
 
   Args:
     timestamp: tf.Tensor of type string. Timestamp in "%F %H:%M:%E1S %z" format.
-    diff: A integer represents the unit of part.
+    interval: tf.Tensor of type int64. Integer represents the unit of part.
     part: A string represents the datetime part. Can be MICROSECOND,
       MILLISECOND, SECOND, MINUTE, HOUR, DAY. Case insensitive.
     name: An optional name for the op.
   """
   return gen_timestamp_ops.timestamp_sub(
       timestamp=timestamp,
-      diff=diff,
+      interval=interval,
       part=part,
       name=name,
   )
