@@ -52,6 +52,10 @@ namespace bigquery_ml_utils {
 ::tsl::Status FormatOutputDate(int32_t d, absl::string_view function_name,
                                std::string* out);
 
+::tsl::Status FormatOutputTime(const TimeValue& time,
+                               absl::string_view function_name,
+                               std::string* out);
+
 ::tsl::Status FormatOutputTimestamp(int64_t ts, absl::string_view function_name,
                                     std::string* out);
 

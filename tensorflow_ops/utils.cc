@@ -91,6 +91,13 @@ namespace bigquery_ml_utils {
                      functions::FormatDateToString(kDateFormatString, d, out));
 }
 
+::tsl::Status FormatOutputTime(const TimeValue& time,
+                               absl::string_view function_name,
+                               std::string* out) {
+  return ToTslStatus(function_name, functions::FormatTimeToString(
+                                        kTimeFormatString, time, out));
+}
+
 ::tsl::Status FormatOutputTimestamp(int64_t ts, absl::string_view function_name,
                                     std::string* out) {
   functions::FormatDateTimestampOptions format_options = {
