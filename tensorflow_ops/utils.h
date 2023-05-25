@@ -20,6 +20,7 @@
 #include "absl/container/flat_hash_set.h"
 #include "sql_utils/public/civil_time.h"
 #include "sql_utils/public/functions/datetime.pb.h"
+#include "sql_utils/public/interval_value.h"
 #include "tensorflow/core/framework/op_kernel.h"
 
 namespace bigquery_ml_utils {
@@ -61,6 +62,10 @@ namespace bigquery_ml_utils {
 
 ::tsl::Status ToTslStatus(absl::string_view function_name,
                           const absl::Status& status);
+
+// Create an IntervalValue based on number of DateTimestampPart.
+absl::StatusOr<IntervalValue> GetIntervalValue(
+    int64_t diff, functions::DateTimestampPart part_enum);
 
 }  // namespace bigquery_ml_utils
 

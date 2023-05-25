@@ -196,10 +196,9 @@ def timestamp_trunc(timestamp, part, time_zone="UTC", name=None):
 
 
 def format_timestamp(format_string, timestamp, time_zone="UTC", name=None):
-  """Returns a timestamp which by truncating the original timestamp to the granularity of part.
+  """Returns a timestamp string based on format_string.
 
-  Equivalent SQL: TIMESTAMP_TRUNC(timestamp_expression, date_time_part[,
-  time_zone])
+  Equivalent SQL: FORMAT_TIMESTAMP(format_string, timestamp[, time_zone])
 
   Args:
     format_string: tf.Tensor of type string. Format of the output string.

@@ -585,7 +585,7 @@ class ExtractDateFromDatetime : public OpKernel {
 
       // Set the output value.
       output_flat(i).reserve(output_str.size());
-      output_flat(i) = output_str;
+      output_flat(i) = std::move(output_str);
     }
   }
 };
@@ -627,7 +627,7 @@ class ExtractTimeFromDatetime : public OpKernel {
 
       // Set the output value.
       output_flat(i).reserve(output_str.size());
-      output_flat(i) = output_str;
+      output_flat(i) = std::move(output_str);
     }
   }
 };

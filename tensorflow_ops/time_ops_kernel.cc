@@ -78,7 +78,8 @@ class TimeFromComponents : public OpKernel {
       OP_REQUIRES_OK(context, FormatOutputTime(time, name(), &out));
 
       // Set the output value.
-      output_flat(i) = out;
+      output_flat(i).reserve(out.size());
+      output_flat(i) = std::move(out);
     }
   }
 };
@@ -122,7 +123,8 @@ class TimeFromTimestamp : public OpKernel {
       OP_REQUIRES_OK(context, FormatOutputTime(time, name(), &out));
 
       // Set the output value.
-      output_flat(i) = out;
+      output_flat(i).reserve(out.size());
+      output_flat(i) = std::move(out);
     }
   }
 };
@@ -160,7 +162,8 @@ class TimeFromDatetime : public OpKernel {
       OP_REQUIRES_OK(context, FormatOutputTime(time, name(), &out));
 
       // Set the output value.
-      output_flat(i) = out;
+      output_flat(i).reserve(out.size());
+      output_flat(i) = std::move(out);
     }
   }
 };
@@ -221,7 +224,8 @@ class TimeAdd : public OpKernel {
       OP_REQUIRES_OK(context, FormatOutputTime(out_time, name(), &out));
 
       // Set the output value.
-      output_flat(i) = out;
+      output_flat(i).reserve(out.size());
+      output_flat(i) = std::move(out);
     }
   }
 };
@@ -275,7 +279,8 @@ class TimeSub : public OpKernel {
       OP_REQUIRES_OK(context, FormatOutputTime(out_time, name(), &out));
 
       // Set the output value.
-      output_flat(i) = out;
+      output_flat(i).reserve(out.size());
+      output_flat(i) = std::move(out);
     }
   }
 };
@@ -376,7 +381,8 @@ class TimeTrunc : public OpKernel {
       OP_REQUIRES_OK(context, FormatOutputTime(out_time, name(), &out));
 
       // Set the output value.
-      output_flat(i) = out;
+      output_flat(i).reserve(out.size());
+      output_flat(i) = std::move(out);
     }
   }
 };
@@ -457,7 +463,8 @@ class ParseTime : public OpKernel {
       OP_REQUIRES_OK(context, FormatOutputTime(out_time, name(), &out));
 
       // Set the output value.
-      output_flat(i) = out;
+      output_flat(i).reserve(out.size());
+      output_flat(i) = std::move(out);
     }
   }
 };
@@ -493,7 +500,8 @@ class FormatTime : public OpKernel {
                                              format, time_value, &out)));
 
       // Set the output value.
-      output_flat(i) = out;
+      output_flat(i).reserve(out.size());
+      output_flat(i) = std::move(out);
     }
   }
 };

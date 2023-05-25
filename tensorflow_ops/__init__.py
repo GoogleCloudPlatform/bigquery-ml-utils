@@ -12,6 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from bigquery_ml_utils.tensorflow_ops.date_ops import date_add
+from bigquery_ml_utils.tensorflow_ops.date_ops import date_diff
+from bigquery_ml_utils.tensorflow_ops.date_ops import date_from_components
+from bigquery_ml_utils.tensorflow_ops.date_ops import date_from_datetime
+from bigquery_ml_utils.tensorflow_ops.date_ops import date_from_timestamp
+from bigquery_ml_utils.tensorflow_ops.date_ops import date_sub
+from bigquery_ml_utils.tensorflow_ops.date_ops import date_trunc
+from bigquery_ml_utils.tensorflow_ops.date_ops import extract_from_date
+from bigquery_ml_utils.tensorflow_ops.date_ops import format_date
+from bigquery_ml_utils.tensorflow_ops.date_ops import parse_date
 from bigquery_ml_utils.tensorflow_ops.datetime_ops import extract_date_from_datetime
 from bigquery_ml_utils.tensorflow_ops.datetime_ops import extract_from_datetime
 from bigquery_ml_utils.tensorflow_ops.datetime_ops import extract_time_from_datetime

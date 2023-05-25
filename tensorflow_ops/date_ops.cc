@@ -33,4 +33,106 @@ REGISTER_OP("ExtractFromDate")
       return tensorflow::OkStatus();
     });
 
+// Register DateFromComponents op with signature.
+// Output has the same shape of the inputs.
+REGISTER_OP("DateFromComponents")
+    .Input("year: int64")
+    .Input("month: int64")
+    .Input("day: int64")
+    .Output("output: string")
+    .SetShapeFn([](tensorflow::shape_inference::InferenceContext* c) {
+      c->set_output(0, c->input(0));
+      return tensorflow::OkStatus();
+    });
+
+// Register DateFromTimestamp op with signature.
+// Output has the same shape of the input timestamp.
+REGISTER_OP("DateFromTimestamp")
+    .Input("timestamp: string")
+    .Input("time_zone: string")
+    .Output("output: string")
+    .SetShapeFn([](tensorflow::shape_inference::InferenceContext* c) {
+      c->set_output(0, c->input(0));
+      return tensorflow::OkStatus();
+    });
+
+// Register DateFromDatetime op with signature.
+// Output has the same shape of the input datetime.
+REGISTER_OP("DateFromDatetime")
+    .Input("datetime: string")
+    .Output("output: string")
+    .SetShapeFn([](tensorflow::shape_inference::InferenceContext* c) {
+      c->set_output(0, c->input(0));
+      return tensorflow::OkStatus();
+    });
+
+// Register DateAdd op with signature.
+// Output has the same shape of the input date.
+REGISTER_OP("DateAdd")
+    .Input("date: string")
+    .Input("interval: int64")
+    .Input("part: string")
+    .Output("output: string")
+    .SetShapeFn([](tensorflow::shape_inference::InferenceContext* c) {
+      c->set_output(0, c->input(0));
+      return tensorflow::OkStatus();
+    });
+
+// Register DateSub op with signature.
+// Output has the same shape of the input date.
+REGISTER_OP("DateSub")
+    .Input("date: string")
+    .Input("interval: int64")
+    .Input("part: string")
+    .Output("output: string")
+    .SetShapeFn([](tensorflow::shape_inference::InferenceContext* c) {
+      c->set_output(0, c->input(0));
+      return tensorflow::OkStatus();
+    });
+
+// Register DateDiff op with signature.
+// Output has the same shape of the inputs.
+REGISTER_OP("DateDiff")
+    .Input("date_a: string")
+    .Input("date_b: string")
+    .Input("part: string")
+    .Output("output: int64")
+    .SetShapeFn([](tensorflow::shape_inference::InferenceContext* c) {
+      c->set_output(0, c->input(0));
+      return tensorflow::OkStatus();
+    });
+
+// Register DateTrunc op with signature.
+// Output has the same shape of the input date.
+REGISTER_OP("DateTrunc")
+    .Input("date: string")
+    .Input("part: string")
+    .Output("output: string")
+    .SetShapeFn([](tensorflow::shape_inference::InferenceContext* c) {
+      c->set_output(0, c->input(0));
+      return tensorflow::OkStatus();
+    });
+
+// Register FormatDate op with signature.
+// Output has the same shape of the input date.
+REGISTER_OP("FormatDate")
+    .Input("format_string: string")
+    .Input("date: string")
+    .Output("output: string")
+    .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
+      c->set_output(0, c->input(1));
+      return ::tensorflow::OkStatus();
+    });
+
+// Register ParseDate op with signature.
+// Output has the same shape of the input date_string.
+REGISTER_OP("ParseDate")
+    .Input("format_string: string")
+    .Input("date_string: string")
+    .Output("output: string")
+    .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
+      c->set_output(0, c->input(1));
+      return ::tensorflow::OkStatus();
+    });
+
 }  // namespace bigquery_ml_utils

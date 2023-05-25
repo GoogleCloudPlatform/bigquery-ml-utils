@@ -134,7 +134,7 @@ REGISTER_OP("FormatTimestamp")
     .Input("time_zone: string")
     .Output("output: string")
     .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
-      c->set_output(0, c->input(0));
+      c->set_output(0, c->input(1));
       return ::tensorflow::OkStatus();
     });
 

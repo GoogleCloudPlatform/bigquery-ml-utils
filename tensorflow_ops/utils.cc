@@ -20,6 +20,7 @@
 #include "absl/strings/substitute.h"
 #include "sql_utils/public/functions/date_time_util.h"
 #include "sql_utils/public/functions/parse_date_time.h"
+#include "sql_utils/public/interval_value.h"
 #include "tensorflow_ops/constants.h"
 #include "tensorflow/core/framework/op_kernel.h"
 
@@ -120,6 +121,19 @@ namespace bigquery_ml_utils {
   return ::tsl::Status(static_cast<tensorflow::errors::Code>(status.code()),
                        absl::Substitute("Error in $0 with status: $1",
                                         function_name, status.ToString()));
+}
+
+absl::StatusOr<IntervalValue> GetIntervalValue(
+    int64_t diff, functions::DateTimestampPart part_enum) {
+  switch (part_enum) {
+    case functions::MILLISECOND:
+      diff = IntervalValue::kMicrosInMilli * diff;
+      return IntervalValue::FromMicros(diff);
+    case functions::MICROSECOND:
+      return IntervalValue::FromMicros(diff);
+    default:
+      return IntervalValue::FromInteger(diff, part_enum);
+  }
 }
 
 }  // namespace bigquery_ml_utils

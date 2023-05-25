@@ -144,6 +144,7 @@ class StringFromTimestamp : public OpKernel {
                           ts, tz, &out)));
 
       // Set the output value.
+      output_flat(i).reserve(out.size());
       output_flat(i) = std::move(out);
     }
   }
@@ -191,6 +192,7 @@ class TimestampFromString : public OpKernel {
       OP_REQUIRES_OK(context, FormatOutputTimestamp(ts, name(), &out));
 
       // Set the output value.
+      output_flat(i).reserve(out.size());
       output_flat(i) = std::move(out);
     }
   }
@@ -237,6 +239,7 @@ class TimestampFromDate : public OpKernel {
       OP_REQUIRES_OK(context, FormatOutputTimestamp(ts, name(), &out));
 
       // Set the output value.
+      output_flat(i).reserve(out.size());
       output_flat(i) = std::move(out);
     }
   }
@@ -285,23 +288,11 @@ class TimestampFromDatetime : public OpKernel {
       OP_REQUIRES_OK(context, FormatOutputTimestamp(ts, name(), &out));
 
       // Set the output value.
+      output_flat(i).reserve(out.size());
       output_flat(i) = std::move(out);
     }
   }
 };
-
-absl::StatusOr<IntervalValue> GetIntervalValue(
-    int64_t diff, functions::DateTimestampPart part_enum) {
-  switch (part_enum) {
-    case functions::MILLISECOND:
-      diff = IntervalValue::kMicrosInMilli * diff;
-      return IntervalValue::FromMicros(diff);
-    case functions::MICROSECOND:
-      return IntervalValue::FromMicros(diff);
-    default:
-      return IntervalValue::FromInteger(diff, part_enum);
-  }
-}
 
 class TimestampAdd : public OpKernel {
  public:
@@ -364,6 +355,7 @@ class TimestampAdd : public OpKernel {
       OP_REQUIRES_OK(context, FormatOutputTimestamp(ts, name(), &out));
 
       // Set the output value.
+      output_flat(i).reserve(out.size());
       output_flat(i) = std::move(out);
     }
   }
@@ -431,6 +423,7 @@ class TimestampSub : public OpKernel {
       OP_REQUIRES_OK(context, FormatOutputTimestamp(ts, name(), &out));
 
       // Set the output value.
+      output_flat(i).reserve(out.size());
       output_flat(i) = std::move(out);
     }
   }
@@ -487,7 +480,7 @@ class TimestampDiff : public OpKernel {
                                            part_enum, &out)));
 
       // Set the output value.
-      output_flat(i) = std::move(out);
+      output_flat(i) = out;
     }
   }
 };
@@ -546,6 +539,7 @@ class TimestampTrunc : public OpKernel {
       OP_REQUIRES_OK(context, FormatOutputTimestamp(out_ts, name(), &out));
 
       // Set the output value.
+      output_flat(i).reserve(out.size());
       output_flat(i) = std::move(out);
     }
   }
@@ -594,6 +588,7 @@ class FormatTimestamp : public OpKernel {
                                   format, ts, tz, format_options, &out)));
 
       // Set the output value.
+      output_flat(i).reserve(out.size());
       output_flat(i) = std::move(out);
     }
   }
@@ -637,6 +632,7 @@ class ParseTimestamp : public OpKernel {
       OP_REQUIRES_OK(context, FormatOutputTimestamp(ts, name(), &out));
 
       // Set the output value.
+      output_flat(i).reserve(out.size());
       output_flat(i) = std::move(out);
     }
   }
@@ -707,6 +703,7 @@ class TimestampMicros : public OpKernel {
       OP_REQUIRES_OK(context, FormatOutputTimestamp(ts, name(), &out));
 
       // Set the output value.
+      output_flat(i).reserve(out.size());
       output_flat(i) = std::move(out);
     }
   }
@@ -741,6 +738,7 @@ class TimestampMillis : public OpKernel {
       OP_REQUIRES_OK(context, FormatOutputTimestamp(ts, name(), &out));
 
       // Set the output value.
+      output_flat(i).reserve(out.size());
       output_flat(i) = std::move(out);
     }
   }
@@ -776,6 +774,7 @@ class TimestampSeconds : public OpKernel {
       OP_REQUIRES_OK(context, FormatOutputTimestamp(ts, name(), &out));
 
       // Set the output value.
+      output_flat(i).reserve(out.size());
       output_flat(i) = std::move(out);
     }
   }
@@ -828,7 +827,7 @@ class UnixMicros : public OpKernel {
                                               /* scale= */ 1, name(), &out));
 
       // Set the output value.
-      output_flat(i) = std::move(out);
+      output_flat(i) = out;
     }
   }
 };
@@ -863,7 +862,7 @@ class UnixMillis : public OpKernel {
                                               /* scale= */ 1000, name(), &out));
 
       // Set the output value.
-      output_flat(i) = std::move(out);
+      output_flat(i) = out;
     }
   }
 };
@@ -898,7 +897,7 @@ class UnixSeconds : public OpKernel {
                                                        name(), &out));
 
       // Set the output value.
-      output_flat(i) = std::move(out);
+      output_flat(i) = out;
     }
   }
 };
