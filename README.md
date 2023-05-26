@@ -57,3 +57,21 @@ The XGBoost Predictor feeds input data into the BQML XGBoost model. It performs
 both preprocessing and postprocessing on the input and output. The first
 argument is a [XGBoost Booster](https://xgboost.readthedocs.io/en/latest/) which
 represents the model logic. The following arguments are model assets.
+
+#### Tensorflow Ops
+
+BQML Tensorflow Custom Ops provides SQL functions ([Date functions](https://cloud.google.com/bigquery/docs/reference/standard-sql/date_functions),
+[Datetime functions](https://cloud.google.com/bigquery/docs/reference/standard-sql/datetime_functions),
+[Time functions](https://cloud.google.com/bigquery/docs/reference/standard-sql/time_functions)
+and [Timestamp functions](https://cloud.google.com/bigquery/docs/reference/standard-sql/timestamp_functions))
+that are not available in TensorFlow. The implementation and function behavior
+align with the [BigQuery](https://cloud.google.com/bigquery). This is part of an
+effort to bridge the gap between the SQL community and the Tensorflow community.
+The following example returns the same result as `TIMESTAMP_ADD(timestamp_expression, INTERVAL int64_expression date_part)`
+
+```
+>>> timestamp = tf.constant(['2008-12-25 15:30:00+00', '2023-11-11 14:30:00+00'], dtype=tf.string)
+>>> interval = tf.constant([200, 300], dtype=tf.int64)
+>>> result = timestamp_ops.timestamp_add(timestamp, interval, 'MINUTE')
+tf.Tensor([b'2008-12-25 18:50:00.0 +0000' b'2023-11-11 19:30:00.0 +0000'], shape=(2,), dtype=string)
+```
