@@ -58,7 +58,7 @@ both preprocessing and postprocessing on the input and output. The first
 argument is a [XGBoost Booster](https://xgboost.readthedocs.io/en/latest/) which
 represents the model logic. The following arguments are model assets.
 
-#### Tensorflow Ops
+### Tensorflow Ops
 
 BQML Tensorflow Custom Ops provides SQL functions ([Date functions](https://cloud.google.com/bigquery/docs/reference/standard-sql/date_functions),
 [Datetime functions](https://cloud.google.com/bigquery/docs/reference/standard-sql/datetime_functions),
