@@ -27,7 +27,7 @@ class TimeFromComponentsTest(tf.test.TestCase):
 
     self.assertAllEqual(
         time_ops.time_from_components(hour, minute, second),
-        tf.constant(['10:14:01.000000', '20:35:05.000000']),
+        tf.constant(['10:14:01', '20:35:05']),
     )
 
   def test_time_from_components_invalid_input(self):

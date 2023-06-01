@@ -17,6 +17,7 @@
 #include "tensorflow_ops/utils.h"
 
 #include "absl/status/status.h"
+#include "absl/strings/string_view.h"
 #include "absl/strings/substitute.h"
 #include "sql_utils/public/functions/date_time_util.h"
 #include "sql_utils/public/functions/parse_date_time.h"
@@ -82,8 +83,9 @@ namespace bigquery_ml_utils {
 ::tsl::Status FormatOutputDatetime(const DatetimeValue& dt,
                                    absl::string_view function_name,
                                    std::string* out) {
-  return ToTslStatus(function_name, functions::FormatDatetimeToString(
-                                        kDatetimeFormatString, dt, out));
+  // Output 3 formats dynamically to align with CAST AS STRING in BQML.
+  return ToTslStatus(function_name, functions::ConvertDatetimeToString(
+                                        dt, functions::kMicroseconds, out));
 }
 
 ::tsl::Status FormatOutputDate(int32_t d, absl::string_view function_name,
@@ -95,8 +97,9 @@ namespace bigquery_ml_utils {
 ::tsl::Status FormatOutputTime(const TimeValue& time,
                                absl::string_view function_name,
                                std::string* out) {
-  return ToTslStatus(function_name, functions::FormatTimeToString(
-                                        kTimeFormatString, time, out));
+  // Output 3 formats dynamically to align with CAST AS STRING in BQML.
+  return ToTslStatus(function_name, functions::ConvertTimeToString(
+                                        time, functions::kMicroseconds, out));
 }
 
 ::tsl::Status FormatOutputTimestamp(int64_t ts, absl::string_view function_name,

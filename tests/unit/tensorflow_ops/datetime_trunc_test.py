@@ -26,128 +26,92 @@ class DatetimeTruncTest(tf.test.TestCase):
 
     self.assertAllEqual(
         datetime_ops.datetime_trunc(datetime, 'MICROSECOND'),
-        tf.constant(
-            ['2023-01-10 12:34:56.700000', '2023-03-14 23:45:12.300000']
-        ),
+        tf.constant(['2023-01-10 12:34:56.700', '2023-03-14 23:45:12.300']),
     )
 
     self.assertAllEqual(
         datetime_ops.datetime_trunc(datetime, 'MILLISECOND'),
-        tf.constant(
-            ['2023-01-10 12:34:56.700000', '2023-03-14 23:45:12.300000']
-        ),
+        tf.constant(['2023-01-10 12:34:56.700', '2023-03-14 23:45:12.300']),
     )
 
     self.assertAllEqual(
         datetime_ops.datetime_trunc(datetime, 'second'),
-        tf.constant(
-            ['2023-01-10 12:34:56.000000', '2023-03-14 23:45:12.000000']
-        ),
+        tf.constant(['2023-01-10 12:34:56', '2023-03-14 23:45:12']),
     )
 
     self.assertAllEqual(
         datetime_ops.datetime_trunc(datetime, 'minute'),
-        tf.constant(
-            ['2023-01-10 12:34:00.000000', '2023-03-14 23:45:00.000000']
-        ),
+        tf.constant(['2023-01-10 12:34:00', '2023-03-14 23:45:00']),
     )
 
     self.assertAllEqual(
         datetime_ops.datetime_trunc(datetime, 'hour'),
-        tf.constant(
-            ['2023-01-10 12:00:00.000000', '2023-03-14 23:00:00.000000']
-        ),
+        tf.constant(['2023-01-10 12:00:00', '2023-03-14 23:00:00']),
     )
 
     self.assertAllEqual(
         datetime_ops.datetime_trunc(datetime, 'day'),
-        tf.constant(
-            ['2023-01-10 00:00:00.000000', '2023-03-14 00:00:00.000000']
-        ),
+        tf.constant(['2023-01-10 00:00:00', '2023-03-14 00:00:00']),
     )
 
     self.assertAllEqual(
         datetime_ops.datetime_trunc(datetime, 'Week'),
-        tf.constant(
-            ['2023-01-08 00:00:00.000000', '2023-03-12 00:00:00.000000']
-        ),
+        tf.constant(['2023-01-08 00:00:00', '2023-03-12 00:00:00']),
     )
 
     self.assertAllEqual(
         datetime_ops.datetime_trunc(datetime, 'week_monday'),
-        tf.constant(
-            ['2023-01-09 00:00:00.000000', '2023-03-13 00:00:00.000000']
-        ),
+        tf.constant(['2023-01-09 00:00:00', '2023-03-13 00:00:00']),
     )
 
     self.assertAllEqual(
         datetime_ops.datetime_trunc(datetime, 'week_tuesday'),
-        tf.constant(
-            ['2023-01-10 00:00:00.000000', '2023-03-14 00:00:00.000000']
-        ),
+        tf.constant(['2023-01-10 00:00:00', '2023-03-14 00:00:00']),
     )
 
     self.assertAllEqual(
         datetime_ops.datetime_trunc(datetime, 'week_wednesday'),
-        tf.constant(
-            ['2023-01-04 00:00:00.000000', '2023-03-08 00:00:00.000000']
-        ),
+        tf.constant(['2023-01-04 00:00:00', '2023-03-08 00:00:00']),
     )
 
     self.assertAllEqual(
         datetime_ops.datetime_trunc(datetime, 'week_thursday'),
-        tf.constant(
-            ['2023-01-05 00:00:00.000000', '2023-03-09 00:00:00.000000']
-        ),
+        tf.constant(['2023-01-05 00:00:00', '2023-03-09 00:00:00']),
     )
 
     self.assertAllEqual(
         datetime_ops.datetime_trunc(datetime, 'week_friday'),
-        tf.constant(
-            ['2023-01-06 00:00:00.000000', '2023-03-10 00:00:00.000000']
-        ),
+        tf.constant(['2023-01-06 00:00:00', '2023-03-10 00:00:00']),
     )
 
     self.assertAllEqual(
         datetime_ops.datetime_trunc(datetime, 'week_saturday'),
-        tf.constant(
-            ['2023-01-07 00:00:00.000000', '2023-03-11 00:00:00.000000']
-        ),
+        tf.constant(['2023-01-07 00:00:00', '2023-03-11 00:00:00']),
     )
 
     self.assertAllEqual(
         datetime_ops.datetime_trunc(datetime, 'isoweek'),
-        tf.constant(
-            ['2023-01-09 00:00:00.000000', '2023-03-13 00:00:00.000000']
-        ),
+        tf.constant(['2023-01-09 00:00:00', '2023-03-13 00:00:00']),
     )
 
     self.assertAllEqual(
         datetime_ops.datetime_trunc(datetime, 'month'),
-        tf.constant(
-            ['2023-01-01 00:00:00.000000', '2023-03-01 00:00:00.000000']
-        ),
+        tf.constant(['2023-01-01 00:00:00', '2023-03-01 00:00:00']),
     )
 
     self.assertAllEqual(
         datetime_ops.datetime_trunc(datetime, 'QUARTER'),
-        tf.constant(
-            ['2023-01-01 00:00:00.000000', '2023-01-01 00:00:00.000000']
-        ),
+        tf.constant(['2023-01-01 00:00:00', '2023-01-01 00:00:00']),
     )
 
     self.assertAllEqual(
         datetime_ops.datetime_trunc(datetime, 'year'),
-        tf.constant(
-            ['2023-01-01 00:00:00.000000', '2023-01-01 00:00:00.000000']
-        ),
+        tf.constant(['2023-01-01 00:00:00', '2023-01-01 00:00:00']),
     )
 
     self.assertAllEqual(
         datetime_ops.datetime_trunc(datetime, 'isoyear'),
-        tf.constant(
-            ['2023-01-02 00:00:00.000000', '2023-01-02 00:00:00.000000']
-        ),
+        tf.constant(['2023-01-02 00:00:00', '2023-01-02 00:00:00']),
     )
 
   def test_datetime_trunc_invalid_datetime(self):

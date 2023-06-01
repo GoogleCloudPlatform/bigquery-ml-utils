@@ -26,11 +26,11 @@ class TimeFromTimestampTest(tf.test.TestCase):
     )
     self.assertAllEqual(
         time_ops.time_from_timestamp(timestamp),
-        tf.constant(['15:30:00.000000', '14:30:00.000000']),
+        tf.constant(['15:30:00', '14:30:00']),
     )
     self.assertAllEqual(
         time_ops.time_from_timestamp(timestamp, 'America/Los_Angeles'),
-        tf.constant(['07:30:00.000000', '06:30:00.000000']),
+        tf.constant(['07:30:00', '06:30:00']),
     )
 
   def test_time_from_timestamp_invalid_timestamp(self):

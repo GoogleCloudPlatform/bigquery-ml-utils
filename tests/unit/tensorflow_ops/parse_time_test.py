@@ -24,7 +24,7 @@ class ParseTimeTest(tf.test.TestCase):
     time = tf.constant(['07:31:15', '06:22:23'])
     self.assertAllEqual(
         time_ops.parse_time('%I:%M:%S', time),
-        tf.constant(['07:31:15.000000', '06:22:23.000000']),
+        tf.constant(['07:31:15', '06:22:23']),
     )
 
   def test_parse_time_invalid_time(self):

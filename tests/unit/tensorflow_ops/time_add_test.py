@@ -29,19 +29,26 @@ class TimeAddTest(tf.test.TestCase):
     )
     self.assertAllEqual(
         time_ops.time_add(time, interval, 'MILLISECOND'),
-        tf.constant(['07:30:00.002000', '06:30:00.002000']),
+        tf.constant(['07:30:00.002', '06:30:00.002']),
     )
     self.assertAllEqual(
         time_ops.time_add(time, interval, 'SECOND'),
-        tf.constant(['07:30:02.000000', '06:30:02.000000']),
+        tf.constant(['07:30:02', '06:30:02']),
     )
     self.assertAllEqual(
         time_ops.time_add(time, interval, 'MINUTE'),
-        tf.constant(['07:32:00.000000', '06:32:00.000000']),
+        tf.constant(['07:32:00', '06:32:00']),
     )
     self.assertAllEqual(
         time_ops.time_add(time, interval, 'HOUR'),
-        tf.constant(['09:30:00.000000', '08:30:00.000000']),
+        tf.constant(['09:30:00', '08:30:00']),
+    )
+    # Test time can handle 3 formats of CAST AS STRING.
+    time = tf.constant(['07:30:00', '06:30:00.010', '06:30:00.000100'])
+    interval = tf.constant([2, 3, 4], dtype=tf.int64)
+    self.assertAllEqual(
+        time_ops.time_add(time, interval, 'MINUTE'),
+        tf.constant(['07:32:00', '06:33:00.010', '06:34:00.000100']),
     )
 
   def test_time_add_invalid_time(self):

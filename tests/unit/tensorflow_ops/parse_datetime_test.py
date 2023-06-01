@@ -27,9 +27,7 @@ class ParseDatetimeTest(tf.test.TestCase):
             '%Y-%m-%d %H:%M:%S',
             tf.constant(['1998-10-18 13:45:55', '2023-01-01 13:45:55']),
         ),
-        tf.constant(
-            ['1998-10-18 13:45:55.000000', '2023-01-01 13:45:55.000000']
-        ),
+        tf.constant(['1998-10-18 13:45:55', '2023-01-01 13:45:55']),
     )
 
     self.assertAllEqual(
@@ -37,9 +35,7 @@ class ParseDatetimeTest(tf.test.TestCase):
             '%m/%d/%Y %I:%M:%S %p',
             tf.constant(['8/30/2018 2:23:38 pm', '03/01/2021 10:23:22 pm']),
         ),
-        tf.constant(
-            ['2018-08-30 14:23:38.000000', '2021-03-01 22:23:22.000000']
-        ),
+        tf.constant(['2018-08-30 14:23:38', '2021-03-01 22:23:22']),
     )
 
     self.assertAllEqual(
@@ -49,9 +45,7 @@ class ParseDatetimeTest(tf.test.TestCase):
                 ['Wednesday, December 19, 2018', 'Thursday, April 20, 2023']
             ),
         ),
-        tf.constant(
-            ['2018-12-19 00:00:00.000000', '2023-04-20 00:00:00.000000']
-        ),
+        tf.constant(['2018-12-19 00:00:00', '2023-04-20 00:00:00']),
     )
 
   def test_parse_datetime_invalid_format_string(self):

@@ -29,19 +29,19 @@ class TimeSubTest(tf.test.TestCase):
     )
     self.assertAllEqual(
         time_ops.time_sub(time, interval, 'MILLISECOND'),
-        tf.constant(['07:29:59.998000', '06:29:59.998000']),
+        tf.constant(['07:29:59.998', '06:29:59.998']),
     )
     self.assertAllEqual(
         time_ops.time_sub(time, interval, 'SECOND'),
-        tf.constant(['07:29:58.000000', '06:29:58.000000']),
+        tf.constant(['07:29:58', '06:29:58']),
     )
     self.assertAllEqual(
         time_ops.time_sub(time, interval, 'MINUTE'),
-        tf.constant(['07:28:00.000000', '06:28:00.000000']),
+        tf.constant(['07:28:00', '06:28:00']),
     )
     self.assertAllEqual(
         time_ops.time_sub(time, interval, 'HOUR'),
-        tf.constant(['05:30:00.000000', '04:30:00.000000']),
+        tf.constant(['05:30:00', '04:30:00']),
     )
 
   def test_time_sub_invalid_time(self):

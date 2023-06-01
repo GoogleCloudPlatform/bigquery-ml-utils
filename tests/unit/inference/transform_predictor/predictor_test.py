@@ -91,15 +91,33 @@ class PredictorTest(absltest.TestCase):
     self._validate_prediction_results(
         test_predictor.predict([
             {
-                'f1': '2023-01-10 12:34:56.7 +1234',
-                'f2': '2023-03-14 23:45:12.3 +1234',
+                'int64_': 4,
+                'numeric_': -8.14,
+                'big_numeric_': -10.14,
+                'float64_': 400.1,
+                'bool_': True,
+                'string_': 'hello',
+                'bytes_': 'ab',
+                'date_': '2014-08-26',
+                'datetime_': '2017-02-28 12:30:30.450',
+                'time_': '20:30:01',
+                'timestamp_': '2014-09-27 20:30:00.4 +0000',
             },
             {
-                'f1': '2023-01-10 15:34:56.7 +1234',
-                'f2': '2023-03-14 21:45:12.3 +1234',
+                'int64_': 6,
+                'numeric_': -4.14,
+                'big_numeric_': -20.14,
+                'float64_': 700.1,
+                'bool_': True,
+                'string_': 'afwera',
+                'bytes_': 'a',
+                'date_': '2014-08-26',
+                'datetime_': '2017-02-28 12:30:30.456789',
+                'time_': '20:30:01.123',
+                'timestamp_': '2015-02-28 20:30:30.4 +0000',
             },
         ]),
-        [[0.20000000000000004], [0.20000000000000004]],
+        [[12.076573446325138], [6.279761476054454]],
     )
 
   def test_boosted_tree_classifier(self):

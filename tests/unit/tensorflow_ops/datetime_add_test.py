@@ -31,68 +31,56 @@ class DatetimeAddTest(tf.test.TestCase):
             ['2023-01-10 12:34:56.700010', '2023-03-14 23:45:12.300020']
         ),
     )
-
     self.assertAllEqual(
         datetime_ops.datetime_add(datetime, interval, 'MILLISECOND'),
-        tf.constant(
-            ['2023-01-10 12:34:56.710000', '2023-03-14 23:45:12.320000']
-        ),
+        tf.constant(['2023-01-10 12:34:56.710', '2023-03-14 23:45:12.320']),
     )
-
     self.assertAllEqual(
         datetime_ops.datetime_add(datetime, interval, 'SECOND'),
-        tf.constant(
-            ['2023-01-10 12:35:06.700000', '2023-03-14 23:45:32.300000']
-        ),
+        tf.constant(['2023-01-10 12:35:06.700', '2023-03-14 23:45:32.300']),
     )
-
     self.assertAllEqual(
         datetime_ops.datetime_add(datetime, interval, 'minute'),
-        tf.constant(
-            ['2023-01-10 12:44:56.700000', '2023-03-15 00:05:12.300000']
-        ),
+        tf.constant(['2023-01-10 12:44:56.700', '2023-03-15 00:05:12.300']),
     )
-
     self.assertAllEqual(
         datetime_ops.datetime_add(datetime, interval, 'hour'),
-        tf.constant(
-            ['2023-01-10 22:34:56.700000', '2023-03-15 19:45:12.300000']
-        ),
+        tf.constant(['2023-01-10 22:34:56.700', '2023-03-15 19:45:12.300']),
     )
-
     self.assertAllEqual(
         datetime_ops.datetime_add(datetime, interval, 'day'),
-        tf.constant(
-            ['2023-01-20 12:34:56.700000', '2023-04-03 23:45:12.300000']
-        ),
+        tf.constant(['2023-01-20 12:34:56.700', '2023-04-03 23:45:12.300']),
     )
-
     self.assertAllEqual(
         datetime_ops.datetime_add(datetime, interval, 'week'),
-        tf.constant(
-            ['2023-03-21 12:34:56.700000', '2023-08-01 23:45:12.300000']
-        ),
+        tf.constant(['2023-03-21 12:34:56.700', '2023-08-01 23:45:12.300']),
     )
-
     self.assertAllEqual(
         datetime_ops.datetime_add(datetime, interval, 'month'),
-        tf.constant(
-            ['2023-11-10 12:34:56.700000', '2024-11-14 23:45:12.300000']
-        ),
+        tf.constant(['2023-11-10 12:34:56.700', '2024-11-14 23:45:12.300']),
     )
-
     self.assertAllEqual(
         datetime_ops.datetime_add(datetime, interval, 'quarter'),
-        tf.constant(
-            ['2025-07-10 12:34:56.700000', '2028-03-14 23:45:12.300000']
-        ),
+        tf.constant(['2025-07-10 12:34:56.700', '2028-03-14 23:45:12.300']),
     )
-
     self.assertAllEqual(
         datetime_ops.datetime_add(datetime, interval, 'year'),
-        tf.constant(
-            ['2033-01-10 12:34:56.700000', '2043-03-14 23:45:12.300000']
-        ),
+        tf.constant(['2033-01-10 12:34:56.700', '2043-03-14 23:45:12.300']),
+    )
+    # Test datetime can handle 3 formats of CAST AS STRING.
+    datetime = tf.constant([
+        '2023-01-10 12:34:56',
+        '2023-03-14 23:45:12.300',
+        '2022-05-14 10:45:12.300000',
+    ])
+    interval = tf.constant([10, 20, 30], dtype=tf.int64)
+    self.assertAllEqual(
+        datetime_ops.datetime_add(datetime, interval, 'hour'),
+        tf.constant([
+            '2023-01-10 22:34:56',
+            '2023-03-15 19:45:12.300',
+            '2022-05-15 16:45:12.300',
+        ]),
     )
 
   def test_datetime_add_invalid_datetime(self):

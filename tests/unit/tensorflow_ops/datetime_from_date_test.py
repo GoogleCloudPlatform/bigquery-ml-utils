@@ -26,9 +26,7 @@ class DatetimeFromDateTest(tf.test.TestCase):
         datetime_ops.datetime_from_date(
             tf.constant(['2012-01-01', '2023-04-14'])
         ),
-        tf.constant(
-            ['2012-01-01 00:00:00.000000', '2023-04-14 00:00:00.000000']
-        ),
+        tf.constant(['2012-01-01 00:00:00', '2023-04-14 00:00:00']),
     )
 
   def test_datetime_from_date_invalid(self):

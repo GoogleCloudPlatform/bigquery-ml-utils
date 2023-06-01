@@ -28,19 +28,19 @@ class TimeTruncTest(tf.test.TestCase):
     )
     self.assertAllEqual(
         time_ops.time_trunc(time, 'MILLISECOND'),
-        tf.constant(['07:31:15.123000', '06:22:23.123000'], dtype=tf.string),
+        tf.constant(['07:31:15.123', '06:22:23.123'], dtype=tf.string),
     )
     self.assertAllEqual(
         time_ops.time_trunc(time, 'SECOND'),
-        tf.constant(['07:31:15.000000', '06:22:23.000000'], dtype=tf.string),
+        tf.constant(['07:31:15', '06:22:23'], dtype=tf.string),
     )
     self.assertAllEqual(
         time_ops.time_trunc(time, 'MINUTE'),
-        tf.constant(['07:31:00.000000', '06:22:00.000000'], dtype=tf.string),
+        tf.constant(['07:31:00', '06:22:00'], dtype=tf.string),
     )
     self.assertAllEqual(
         time_ops.time_trunc(time, 'HOUR'),
-        tf.constant(['07:00:00.000000', '06:00:00.000000'], dtype=tf.string),
+        tf.constant(['07:00:00', '06:00:00'], dtype=tf.string),
     )
 
   def test_time_trunc_invalid_time(self):

@@ -28,9 +28,7 @@ class DatetimeFromTimestampTest(tf.test.TestCase):
                 ['2023-01-10 12:34:56.7 +1234', '2023-03-14 23:45:12.3 +1234']
             )
         ),
-        tf.constant(
-            ['2023-01-10 00:00:56.700000', '2023-03-14 11:11:12.300000']
-        ),
+        tf.constant(['2023-01-10 00:00:56.700', '2023-03-14 11:11:12.300']),
     )
 
   def test_datetime_from_timestamp_invalid(self):

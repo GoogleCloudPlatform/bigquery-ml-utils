@@ -33,9 +33,7 @@ class DatetimeFromComponentsTest(tf.test.TestCase):
         datetime_ops.datetime_from_components(
             year, month, day, hour, minute, second
         ),
-        tf.constant(
-            ['2014-11-01 10:14:01.000000', '2023-10-05 20:35:05.000000']
-        ),
+        tf.constant(['2014-11-01 10:14:01', '2023-10-05 20:35:05']),
     )
 
   def test_datetime_from_components_invalid(self):
