@@ -36,12 +36,14 @@ ALMOST_EQUAL_DELTA = 1e-5
 class PredictorTest(absltest.TestCase):
   """Test class for bigquery_ml_utils.inference.transform_predictor."""
 
-  def _validate_prediction_results(self, actual_result: list[Any],
-                                   expected_result: list[Any]) -> None:
+  def _validate_prediction_results(
+      self, actual_result: list[Any], expected_result: list[Any]
+  ) -> None:
     """Validates the prediction results.
 
     Args:
-      actual_result: List[dict[str, list]], list[list[float]] or list[float].
+      actual_result: List[dict[str, list or value]], list[list[float]] or
+        list[float].
       expected_result: Almost equal to the actual result within the given
         tolerance.
     """
@@ -49,18 +51,28 @@ class PredictorTest(absltest.TestCase):
     for actual_pred, expected_pred in zip(actual_result, expected_result):
       if isinstance(actual_pred, dict):
         self.assertLen(actual_pred, len(expected_pred))
+        print(actual_pred)
         for key, value in actual_pred.items():
-          if any(isinstance(i, float) for i in value):
+          if isinstance(value, list) and any(
+              isinstance(i, float) for i in value
+          ):
             self.assertSequenceAlmostEqual(
-                value, expected_pred[key], delta=ALMOST_EQUAL_DELTA)
+                value, expected_pred[key], delta=ALMOST_EQUAL_DELTA
+            )
+          elif isinstance(value, float):
+            self.assertAlmostEqual(
+                value, expected_pred[key], delta=ALMOST_EQUAL_DELTA
+            )
           else:
             self.assertEqual(value, expected_pred[key])
       elif isinstance(actual_pred, list):
         self.assertSequenceAlmostEqual(
-            actual_pred, expected_pred, delta=ALMOST_EQUAL_DELTA)
+            actual_pred, expected_pred, delta=ALMOST_EQUAL_DELTA
+        )
       else:
         self.assertAlmostEqual(
-            actual_pred, expected_pred, delta=ALMOST_EQUAL_DELTA)
+            actual_pred, expected_pred, delta=ALMOST_EQUAL_DELTA
+        )
 
   def test_linear_reg(self):
     model_path = str(
@@ -70,15 +82,20 @@ class PredictorTest(absltest.TestCase):
     )
     test_predictor = transform_predictor.Predictor.from_path(model_path)
     self._validate_prediction_results(
-        test_predictor.predict([{
-            'f1': 1,
-            'f2': 2.5,
-            'f3': 'aaa',
-        }, {
-            'f1': 2,
-            'f2': 3.5,
-            'f3': 'bbb',
-        }]), [[10.310742], [11.064549]])
+        test_predictor.predict([
+            {
+                'f1': 1,
+                'f2': 2.5,
+                'f3': 'aaa',
+            },
+            {
+                'f1': 2,
+                'f2': 3.5,
+                'f3': 'bbb',
+            },
+        ]),
+        [[10.310742], [11.064549]],
+    )
 
   def test_linear_reg_custom_op(self):
     model_path = str(
@@ -120,6 +137,84 @@ class PredictorTest(absltest.TestCase):
         [[12.076573446325138], [6.279761476054454]],
     )
 
+  def test_linear_reg_transform_only(self):
+    model_path = str(
+        importlib_resources.files('bigquery_ml_utils').joinpath(
+            'tests/data/inference/transform_predictor/transform_only'
+        )
+    )
+    test_predictor = transform_predictor.Predictor.from_path(model_path)
+    self._validate_prediction_results(
+        test_predictor.predict([
+            {
+                'int64_': 4,
+                'numeric_': -8.14,
+                'big_numeric_': -10.14,
+                'float64_': 400.1,
+                'bool_': True,
+                'string_': 'hello',
+                'bytes_': 'ab',
+                'date_': '2014-08-26',
+                'datetime_': '2017-02-28 12:30:30.450000',
+                'time_': '20:30:01',
+                'timestamp_': '2014-09-27 20:30:00.4 +0000',
+            },
+            {
+                'int64_': 4,
+                'numeric_': -8.14,
+                'big_numeric_': -10.14,
+                'float64_': 400.1,
+                'bool_': True,
+                'string_': 'hello',
+                'bytes_': 'ab',
+                'date_': '2014-08-26',
+                'datetime_': '2017-02-28 12:30:30.450000',
+                'time_': '20:30:01',
+                'timestamp_': '2014-09-27 20:30:00.4 +0000',
+            },
+        ]),
+        [
+            {
+                't_int64_': 0,
+                't_bool_': False,
+                't_float64_': 0.0,
+                't_date_': '2014-10-14',
+                't_datetime_': '2016-11-28 12:30:30.450',
+                't_time_': '20:00:00',
+                't_timestamp_': 7,
+                'int64_': 4,
+                'numeric_': -8.14,
+                'big_numeric_': -10.14,
+                'float64_': 400.1,
+                'bool_': True,
+                'string_': 'hello',
+                'bytes_': 'ab',
+                'date_': '2014-08-26',
+                'datetime_': '2017-02-28 12:30:30.450000',
+                'time_': '20:30:01',
+            },
+            {
+                't_int64_': 0,
+                't_bool_': False,
+                't_float64_': 0.0,
+                't_date_': '2014-10-14',
+                't_datetime_': '2016-11-28 12:30:30.450',
+                't_time_': '20:00:00',
+                't_timestamp_': 7,
+                'int64_': 4,
+                'numeric_': -8.14,
+                'big_numeric_': -10.14,
+                'float64_': 400.1,
+                'bool_': True,
+                'string_': 'hello',
+                'bytes_': 'ab',
+                'date_': '2014-08-26',
+                'datetime_': '2017-02-28 12:30:30.450000',
+                'time_': '20:30:01',
+            },
+        ],
+    )
+
   def test_boosted_tree_classifier(self):
     model_path = str(
         importlib_resources.files('bigquery_ml_utils').joinpath(
@@ -128,29 +223,45 @@ class PredictorTest(absltest.TestCase):
     )
     test_predictor = transform_predictor.Predictor.from_path(model_path)
     self._validate_prediction_results(
-        test_predictor.predict([{
-            'f1': 1,
-            'f2': 2.5,
-            'f3': 'aaa',
-            'f4': ['aaa', 'noise1'],
-        }, {
-            'f1': 2,
-            'f2': 3.5,
-            'f3': 'bbb',
-            'f4': ['ccc', 'noise2'],
-        }]), [{
-            'predicted_label_cls':
-                'aaa',
-            'label_cls_values': ['eee', 'ddd', 'ccc', 'bbb', 'aaa'],
-            'label_cls_probs':
-                [0.0522024, 0.0521628, 0.0521625, 0.0521627, 0.7913096]
-        }, {
-            'predicted_label_cls':
-                'ccc',
-            'label_cls_values': ['eee', 'ddd', 'ccc', 'bbb', 'aaa'],
-            'label_cls_probs':
-                [0.0522012, 0.0521616, 0.7913146, 0.0521615, 0.0521612]
-        }])
+        test_predictor.predict([
+            {
+                'f1': 1,
+                'f2': 2.5,
+                'f3': 'aaa',
+                'f4': ['aaa', 'noise1'],
+            },
+            {
+                'f1': 2,
+                'f2': 3.5,
+                'f3': 'bbb',
+                'f4': ['ccc', 'noise2'],
+            },
+        ]),
+        [
+            {
+                'predicted_label_cls': 'aaa',
+                'label_cls_values': ['eee', 'ddd', 'ccc', 'bbb', 'aaa'],
+                'label_cls_probs': [
+                    0.0522024,
+                    0.0521628,
+                    0.0521625,
+                    0.0521627,
+                    0.7913096,
+                ],
+            },
+            {
+                'predicted_label_cls': 'ccc',
+                'label_cls_values': ['eee', 'ddd', 'ccc', 'bbb', 'aaa'],
+                'label_cls_probs': [
+                    0.0522012,
+                    0.0521616,
+                    0.7913146,
+                    0.0521615,
+                    0.0521612,
+                ],
+            },
+        ],
+    )
 
   def test_dnn_classifier(self):
     model_path = str(
@@ -160,31 +271,63 @@ class PredictorTest(absltest.TestCase):
     )
     test_predictor = transform_predictor.Predictor.from_path(model_path)
     self._validate_prediction_results(
-        test_predictor.predict([{
-            'f1': 1,
-            'f2': 2.5,
-            'f3': 'aaa',
-            'f4': ['aaa', 'noise1'],
-        }, {
-            'f1': 2,
-            'f2': 3.5,
-            'f3': 'bbb',
-            'f4': ['ccc', 'noise2'],
-        }]), [{
-            'class_ids': [4],
-            'all_class_ids': [0, 1, 2, 3, 4],
-            'all_classes': ['eee', 'ddd', 'ccc', 'bbb', 'aaa'],
-            'probabilities': [0.000693, 0.004691, 0.003229, 0.006940, 0.984446],
-            'logits': [-4.728594, -2.81652, -3.189965, -2.4248600, 2.529902],
-            'classes': ['aaa']
-        }, {
-            'class_ids': [3],
-            'all_class_ids': [0, 1, 2, 3, 4],
-            'all_classes': ['eee', 'ddd', 'ccc', 'bbb', 'aaa'],
-            'probabilities': [0.000223, 0.000475, 0.001424, 0.996830, 0.001048],
-            'logits': [-4.663398, -3.908592, -2.810063, 3.7412872, -3.116024],
-            'classes': ['bbb']
-        }])
+        test_predictor.predict([
+            {
+                'f1': 1,
+                'f2': 2.5,
+                'f3': 'aaa',
+                'f4': ['aaa', 'noise1'],
+            },
+            {
+                'f1': 2,
+                'f2': 3.5,
+                'f3': 'bbb',
+                'f4': ['ccc', 'noise2'],
+            },
+        ]),
+        [
+            {
+                'class_ids': [4],
+                'all_class_ids': [0, 1, 2, 3, 4],
+                'all_classes': ['eee', 'ddd', 'ccc', 'bbb', 'aaa'],
+                'probabilities': [
+                    0.000693,
+                    0.004691,
+                    0.003229,
+                    0.006940,
+                    0.984446,
+                ],
+                'logits': [
+                    -4.728594,
+                    -2.81652,
+                    -3.189965,
+                    -2.4248600,
+                    2.529902,
+                ],
+                'classes': ['aaa'],
+            },
+            {
+                'class_ids': [3],
+                'all_class_ids': [0, 1, 2, 3, 4],
+                'all_classes': ['eee', 'ddd', 'ccc', 'bbb', 'aaa'],
+                'probabilities': [
+                    0.000223,
+                    0.000475,
+                    0.001424,
+                    0.996830,
+                    0.001048,
+                ],
+                'logits': [
+                    -4.663398,
+                    -3.908592,
+                    -2.810063,
+                    3.7412872,
+                    -3.116024,
+                ],
+                'classes': ['bbb'],
+            },
+        ],
+    )
 
   def test_dnn_classifier_different_signature(self):
     model_path = str(
@@ -250,7 +393,8 @@ class PredictorTest(absltest.TestCase):
     )
     test_predictor = transform_predictor.Predictor.from_path(model_path)
     with self.assertRaisesRegex(
-        ValueError, '"extra_feature" in not an input of the TRANSFORM.'):
+        ValueError, '"extra_feature" in not an input of the TRANSFORM.'
+    ):
       test_predictor.predict([{'extra_feature': 1}])
 
   def test_wrong_input_feature(self):
@@ -270,8 +414,10 @@ class PredictorTest(absltest.TestCase):
         )
     )
     test_predictor = transform_predictor.Predictor.from_path(model_path)
-    with self.assertRaisesRegex(tf.errors.InvalidArgumentError,
-                                'Ranks of all input tensors should match'):
+    with self.assertRaisesRegex(
+        tf.errors.InvalidArgumentError,
+        'Ranks of all input tensors should match',
+    ):
       test_predictor.predict([{
           'f1': [1, 2],
           'f2': 2.5,

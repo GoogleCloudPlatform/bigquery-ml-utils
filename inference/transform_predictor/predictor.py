@@ -75,6 +75,38 @@ class Predictor:
       transform_input[key] = tf.constant(value, input_signature[key].dtype)
     return infer(**transform_input)
 
+  def _convert_transform_result(self, transform_result):
+    """Converts the TRANSFORM result to a list.
+
+    Args:
+      transform_result: TRANSFORM result from the raw input.
+
+    Returns:
+      TRANSFORM results in a list. Each element in the list is the
+      TRANSFORM result of each raw input instance.
+    """
+    if len(transform_result) == 1:
+      for value in transform_result.values():
+        return value.numpy().tolist()
+
+    # Initialize the output as a list of dict.
+    output = [{} for _ in range(self._num_input)]
+
+    # Convert the transform_result in batch representation to a list, in which
+    # each element is the transform result of each raw input instance.
+    for key, value in transform_result.items():
+      if value.dtype == tf.string:
+        batch_result = value.numpy().astype(str).tolist()
+      else:
+        batch_result = value.numpy().tolist()
+
+      for i, value in enumerate(batch_result):
+        if isinstance(value, list):
+          output[i][key] = value.copy()
+        else:
+          output[i][key] = value
+    return output
+
   def _get_tf_model_result(self, transform_result):
     """Gets the model result from the TRANSFORM result for tensorflow models.
 
@@ -173,8 +205,9 @@ class Predictor:
     """
     if self._model_tensorflow is not None:
       return self._get_tf_model_result(transform_result)
-
-    return self._get_xgboost_model_result(transform_result)
+    if self._model_xgboost is not None:
+      return self._get_xgboost_model_result(transform_result)
+    return self._convert_transform_result(transform_result)
 
   def predict(self, raw_input, **kwargs):
     """Performs prediction.
@@ -205,7 +238,8 @@ class Predictor:
     if not tf.io.gfile.exists(os.path.join(model_dir, 'transform')):
       raise ValueError('TRANSFORM subdirectory is not found in the given path.')
     transform_savedmodel = tf.saved_model.load(
-        os.path.join(model_dir, 'transform'))
+        os.path.join(model_dir, 'transform')
+    )
 
     if tf.io.gfile.exists(os.path.join(model_dir, 'saved_model.pb')):
       model_tensorflow = tf.saved_model.load(model_dir)
@@ -215,4 +249,4 @@ class Predictor:
       model_xgboost = bqml_xgboost_predictor.Predictor.from_path(model_dir)
       return cls(transform_savedmodel, model_xgboost=model_xgboost)
 
-    raise ValueError('BQML trained model is not found in the given path.')
+    return cls(transform_savedmodel)
