@@ -156,6 +156,22 @@ def parse_time(format_string, time_string, name=None):
   )
 
 
+def safe_parse_time(format_string, time_string, name=None):
+  """Returns a time by safely parsing a string representation of time.
+
+  Equivalent SQL: CAST(time_string AS TIME [FORMAT format_string]).
+  Returns "12:34:56.123456" for unsuccessful parsing.
+
+  Args:
+    format_string: tf.Tensor of type string. Format of the string time.
+    time_string: tf.Tensor of type string. Time in any supported format.
+    name: An optional name for the op.
+  """
+  return gen_time_ops.safe_parse_time(
+      format_string=format_string, time_string=time_string, name=name
+  )
+
+
 def format_time(format_string, time, name=None):
   """Returns a time by parsing a string representation of time.
 

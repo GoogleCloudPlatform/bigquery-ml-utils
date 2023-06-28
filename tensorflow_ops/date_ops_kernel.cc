@@ -21,6 +21,7 @@
 #include "sql_utils/public/functions/date_time_util.h"
 #include "sql_utils/public/functions/datetime.pb.h"
 #include "sql_utils/public/functions/parse_date_time.h"
+#include "tensorflow_ops/constants.h"
 #include "tensorflow_ops/utils.h"
 #include "tensorflow/core/framework/op_kernel.h"
 #include "tensorflow/core/framework/op_requires.h"
@@ -34,7 +35,6 @@ using ::tensorflow::OpKernelConstruction;
 using ::tensorflow::OpKernelContext;
 using ::tensorflow::Tensor;
 using ::tensorflow::tstring;
-using ::tensorflow::errors::Internal;
 using ::tensorflow::errors::InvalidArgument;
 
 namespace bigquery_ml_utils {
@@ -518,6 +518,50 @@ class ParseDate : public OpKernel {
   }
 };
 
+class SafeParseDate : public OpKernel {
+ public:
+  explicit SafeParseDate(OpKernelConstruction* context) : OpKernel(context) {}
+
+  void Compute(OpKernelContext* context) override {
+    // Grab the format string tensor
+    const Tensor& format_tensor = context->input(0);
+    std::string format = format_tensor.flat<tstring>()(0);
+    // Grab the date tensor
+    const Tensor& date_tensor = context->input(1);
+    auto date = date_tensor.flat<tstring>();
+
+    // Create an output tensor with the shape of the date tensor
+    Tensor* output_tensor = NULL;
+    OP_REQUIRES_OK(context, context->allocate_output(0, date_tensor.shape(),
+                                                     &output_tensor));
+    auto output_flat = output_tensor->flat<tstring>();
+
+    const int N = date.size();
+    for (int i = 0; i < N; i++) {
+      // Parse the date.
+      int32_t date_in;
+      if (!functions::ParseStringToDate(format, date(i),
+                                        /*parse_version2=*/true, &date_in)
+               .ok()) {
+        // Set the NULL-equivalent output value for unsuccessful parsing
+        OP_REQUIRES_OK(
+            context,
+            ToTslStatus(name(), functions::ParseStringToDate(
+                                    kDateFormatString, kNullDate,
+                                    /*parse_version2=*/true, &date_in)));
+      }
+
+      // Format date to string.
+      std::string out;
+      OP_REQUIRES_OK(context, FormatOutputDate(date_in, name(), &out));
+
+      // Set the output value.
+      output_flat(i).reserve(out.size());
+      output_flat(i) = std::move(out);
+    }
+  }
+};
+
 // Register the kernels
 REGISTER_KERNEL_BUILDER(Name("ExtractFromDate").Device(DEVICE_CPU),
                         ExtractFromDate);
@@ -533,5 +577,7 @@ REGISTER_KERNEL_BUILDER(Name("DateDiff").Device(DEVICE_CPU), DateDiff);
 REGISTER_KERNEL_BUILDER(Name("DateTrunc").Device(DEVICE_CPU), DateTrunc);
 REGISTER_KERNEL_BUILDER(Name("FormatDate").Device(DEVICE_CPU), FormatDate);
 REGISTER_KERNEL_BUILDER(Name("ParseDate").Device(DEVICE_CPU), ParseDate);
+REGISTER_KERNEL_BUILDER(Name("SafeParseDate").Device(DEVICE_CPU),
+                        SafeParseDate);
 
 }  // namespace bigquery_ml_utils

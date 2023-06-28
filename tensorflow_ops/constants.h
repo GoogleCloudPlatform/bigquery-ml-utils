@@ -30,6 +30,12 @@ inline constexpr absl::string_view kTimeFormatString = "%H:%M:%E6S";
 // Timestamp string format for SavedModel input.
 inline constexpr absl::string_view kTimestampFormatString = "%F %H:%M:%E1S %z";
 
+inline constexpr absl::string_view kNullDate = "1970-01-01";
+inline constexpr absl::string_view kNullDatetime = "1970-01-01 00:00:00.000000";
+inline constexpr absl::string_view kNullTime = "12:34:56.123456";
+inline constexpr absl::string_view kNullTimestamp =
+    "1970-01-01 00:00:00.0 +0000";
+
 }  // namespace bigquery_ml_utils
 
 #endif  // THIRD_PARTY_PY_BIGQUERY_ML_UTILS_TENSORFLOW_OPS_CONSTANTS_H_

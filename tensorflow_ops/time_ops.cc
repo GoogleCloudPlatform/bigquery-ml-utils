@@ -123,6 +123,17 @@ REGISTER_OP("ParseTime")
       return ::tensorflow::OkStatus();
     });
 
+// Register SafeParseTime op with signature.
+// Output has the same shape of the time_string.
+REGISTER_OP("SafeParseTime")
+    .Input("format_string: string")
+    .Input("time_string: string")
+    .Output("output: string")
+    .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
+      c->set_output(0, c->input(1));
+      return ::tensorflow::OkStatus();
+    });
+
 // Register FormatTime op with signature.
 // Output has the same shape of the time.
 REGISTER_OP("FormatTime")

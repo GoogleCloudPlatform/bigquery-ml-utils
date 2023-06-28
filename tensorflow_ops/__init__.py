@@ -22,12 +22,16 @@ from bigquery_ml_utils.tensorflow_ops.date_ops import date_trunc
 from bigquery_ml_utils.tensorflow_ops.date_ops import extract_from_date
 from bigquery_ml_utils.tensorflow_ops.date_ops import format_date
 from bigquery_ml_utils.tensorflow_ops.date_ops import parse_date
+from bigquery_ml_utils.tensorflow_ops.date_ops import safe_parse_date
 from bigquery_ml_utils.tensorflow_ops.datetime_ops import extract_date_from_datetime
 from bigquery_ml_utils.tensorflow_ops.datetime_ops import extract_from_datetime
 from bigquery_ml_utils.tensorflow_ops.datetime_ops import extract_time_from_datetime
+from bigquery_ml_utils.tensorflow_ops.datetime_ops import parse_datetime
+from bigquery_ml_utils.tensorflow_ops.datetime_ops import safe_parse_datetime
 from bigquery_ml_utils.tensorflow_ops.time_ops import extract_from_time
 from bigquery_ml_utils.tensorflow_ops.time_ops import format_time
 from bigquery_ml_utils.tensorflow_ops.time_ops import parse_time
+from bigquery_ml_utils.tensorflow_ops.time_ops import safe_parse_time
 from bigquery_ml_utils.tensorflow_ops.time_ops import time_add
 from bigquery_ml_utils.tensorflow_ops.time_ops import time_diff
 from bigquery_ml_utils.tensorflow_ops.time_ops import time_from_components
@@ -38,6 +42,7 @@ from bigquery_ml_utils.tensorflow_ops.time_ops import time_trunc
 from bigquery_ml_utils.tensorflow_ops.timestamp_ops import extract_from_timestamp
 from bigquery_ml_utils.tensorflow_ops.timestamp_ops import format_timestamp
 from bigquery_ml_utils.tensorflow_ops.timestamp_ops import parse_timestamp
+from bigquery_ml_utils.tensorflow_ops.timestamp_ops import safe_parse_timestamp
 from bigquery_ml_utils.tensorflow_ops.timestamp_ops import string_from_timestamp
 from bigquery_ml_utils.tensorflow_ops.timestamp_ops import timestamp_add
 from bigquery_ml_utils.tensorflow_ops.timestamp_ops import timestamp_diff

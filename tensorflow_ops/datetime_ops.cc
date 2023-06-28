@@ -169,4 +169,15 @@ REGISTER_OP("ParseDatetime")
       return tensorflow::OkStatus();
     });
 
+// Register SafeParseDatetime op with signature.
+// Output has the same shape of the input datetime.
+REGISTER_OP("SafeParseDatetime")
+    .Input("format_string: string")
+    .Input("datetime_string: string")
+    .Output("output: string")
+    .SetShapeFn([](tensorflow::shape_inference::InferenceContext* c) {
+      c->set_output(0, c->input(1));
+      return tensorflow::OkStatus();
+    });
+
 }  // namespace bigquery_ml_utils

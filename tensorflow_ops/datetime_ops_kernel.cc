@@ -736,6 +736,56 @@ class ParseDatetime : public OpKernel {
   }
 };
 
+class SafeParseDatetime : public OpKernel {
+ public:
+  explicit SafeParseDatetime(OpKernelConstruction* context)
+      : OpKernel(context) {}
+
+  void Compute(OpKernelContext* context) override {
+    // Grab the format_string tensor.
+    const Tensor& format_string_tensor = context->input(0);
+    absl::string_view format_string = format_string_tensor.flat<tstring>()(0);
+
+    // Grab the datetime_string tensor.
+    const Tensor& datetime_string_tensor = context->input(1);
+    auto datetime_strings = datetime_string_tensor.flat<tstring>();
+
+    // Create an output tensor with the shape of the datetime_string tensor.
+    Tensor* output_tensor = nullptr;
+    OP_REQUIRES_OK(context,
+                   context->allocate_output(0, datetime_string_tensor.shape(),
+                                            &output_tensor));
+    auto output_flat = output_tensor->flat<tstring>();
+
+    const int N = datetime_strings.size();
+    for (int i = 0; i < N; i++) {
+      // Parse the datetime.
+      DatetimeValue datetime_value;
+      if (!functions::ParseStringToDatetime(
+               format_string, datetime_strings(i), functions::kMicroseconds,
+               /*parse_version2=*/true, &datetime_value)
+               .ok()) {
+        // Set the NULL-equivalent output value for unsuccessful parsing.
+        OP_REQUIRES_OK(
+            context,
+            ToTslStatus(name(), functions::ParseStringToDatetime(
+                                    kDatetimeFormatString, kNullDatetime,
+                                    functions::kMicroseconds,
+                                    /*parse_version2=*/true, &datetime_value)));
+      }
+
+      // Convert output_datetime to string.
+      std::string output_str;
+      OP_REQUIRES_OK(context,
+                     FormatOutputDatetime(datetime_value, name(), &output_str));
+
+      // Set the output value.
+      output_flat(i).reserve(output_str.size());
+      output_flat(i) = std::move(output_str);
+    }
+  }
+};
+
 // Register the kernels.
 REGISTER_KERNEL_BUILDER(Name("DatetimeFromComponents").Device(DEVICE_CPU),
                         DatetimeFromComponents);
@@ -760,5 +810,7 @@ REGISTER_KERNEL_BUILDER(Name("LastDayFromDatetime").Device(DEVICE_CPU),
                         LastDayFromDatetime);
 REGISTER_KERNEL_BUILDER(Name("ParseDatetime").Device(DEVICE_CPU),
                         ParseDatetime);
+REGISTER_KERNEL_BUILDER(Name("SafeParseDatetime").Device(DEVICE_CPU),
+                        SafeParseDatetime);
 
 }  // namespace bigquery_ml_utils

@@ -236,6 +236,30 @@ def parse_timestamp(
   )
 
 
+def safe_parse_timestamp(
+    format_string, timestamp_string, time_zone="UTC", name=None
+):
+  """Returns a timestamp by safely parsing a string.
+
+  Equivalent SQL: SAFE_CAST(timestamp_string AS TIMESTAMP [FORMAT format_string
+  AT TIME ZONE time_zone]). Returns '1970-01-01 00:00:00.0 +0000' for for
+  unsuccessful parsing.
+
+  Args:
+    format_string: tf.Tensor of type string. Format of the string timestamp.
+    timestamp_string: tf.Tensor of type string. Timestamp in any supported
+      format.
+    time_zone: A string represents the timezone. Case sensitive.
+    name: An optional name for the op.
+  """
+  return gen_timestamp_ops.safe_parse_timestamp(
+      format_string=format_string,
+      timestamp_string=timestamp_string,
+      time_zone=time_zone,
+      name=name,
+  )
+
+
 def timestamp_micros(timestamp_micro, name=None):
   """Returns a timestamp by interpreting timestamp_micro as the number of microseconds since 1970-01-01 00:00:00 UTC.
 

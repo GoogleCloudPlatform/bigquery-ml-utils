@@ -638,6 +638,57 @@ class ParseTimestamp : public OpKernel {
   }
 };
 
+class SafeParseTimestamp : public OpKernel {
+ public:
+  explicit SafeParseTimestamp(OpKernelConstruction* context)
+      : OpKernel(context) {}
+
+  void Compute(OpKernelContext* context) override {
+    // Grab the format string tensor
+    const Tensor& format_tensor = context->input(0);
+    std::string format = format_tensor.flat<tstring>()(0);
+    // Grab the timestamp tensor
+    const Tensor& timestamp_tensor = context->input(1);
+    auto timestamp = timestamp_tensor.flat<tstring>();
+    // Grab the time_zone tensor
+    const Tensor& time_zone_tensor = context->input(2);
+    std::string time_zone = time_zone_tensor.flat<tstring>()(0);
+    absl::TimeZone tz;
+
+    // Create an output tensor with the shape of the timestamp tensor
+    Tensor* output_tensor = NULL;
+    OP_REQUIRES_OK(context, context->allocate_output(
+                                0, timestamp_tensor.shape(), &output_tensor));
+    auto output_flat = output_tensor->flat<tstring>();
+
+    const int N = timestamp.size();
+    for (int i = 0; i < N; i++) {
+      // Safe parse the timestamp.
+      int64_t ts;
+      if (!functions::MakeTimeZone(time_zone, &tz).ok() ||
+          !functions::ParseStringToTimestamp(format, timestamp(i), time_zone,
+                                             /*parse_version2=*/true, &ts)
+               .ok()) {
+        // Set the NULL-equivalent output value for unsuccessful parsing.
+        OP_REQUIRES_OK(
+            context,
+            ToTslStatus(name(), functions::ParseStringToTimestamp(
+                                    kTimestampFormatString, kNullTimestamp,
+                                    absl::UTCTimeZone(),
+                                    /*parse_version2=*/true, &ts)));
+      }
+
+      // Format timestamp to string.
+      std::string out;
+      OP_REQUIRES_OK(context, FormatOutputTimestamp(ts, name(), &out));
+
+      // Set the output value.
+      output_flat(i).reserve(out.size());
+      output_flat(i) = std::move(out);
+    }
+  }
+};
+
 ::tsl::Status TimestampFromIntOperator(int64_t in, int64_t scale,
                                        absl::string_view function_name,
                                        int64_t* out) {
@@ -923,6 +974,8 @@ REGISTER_KERNEL_BUILDER(Name("FormatTimestamp").Device(DEVICE_CPU),
                         FormatTimestamp);
 REGISTER_KERNEL_BUILDER(Name("ParseTimestamp").Device(DEVICE_CPU),
                         ParseTimestamp);
+REGISTER_KERNEL_BUILDER(Name("SafeParseTimestamp").Device(DEVICE_CPU),
+                        SafeParseTimestamp);
 REGISTER_KERNEL_BUILDER(Name("TimestampMicros").Device(DEVICE_CPU),
                         TimestampMicros);
 REGISTER_KERNEL_BUILDER(Name("TimestampMillis").Device(DEVICE_CPU),

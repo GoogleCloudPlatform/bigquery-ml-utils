@@ -237,3 +237,21 @@ def parse_datetime(format_string, datetime_string, name=None):
   return gen_datetime_ops.parse_datetime(
       format_string=format_string, datetime_string=datetime_string, name=name
   )
+
+
+def safe_parse_datetime(format_string, datetime_string, name=None):
+  """Returns the safely parsed DATETIME value based on the format_string.
+
+  Equivalent SQL:
+
+    CAST(datetime_string AS DATETIME [FORMAT format_string]). Returns
+  "1970-01-01 00:00:00.000000" for unsuccessful parsing.
+
+  Args:
+    format_string: A string represents the format of the datetime value.
+    datetime_string: tf.Tensor of type string.
+    name: An optional name for the op.
+  """
+  return gen_datetime_ops.safe_parse_datetime(
+      format_string=format_string, datetime_string=datetime_string, name=name
+  )

@@ -22,6 +22,7 @@
 #include "sql_utils/public/functions/date_time_util.h"
 #include "sql_utils/public/functions/datetime.pb.h"
 #include "sql_utils/public/functions/parse_date_time.h"
+#include "tensorflow_ops/constants.h"
 #include "tensorflow_ops/utils.h"
 #include "tensorflow/core/framework/op_kernel.h"
 #include "tensorflow/core/framework/op_requires.h"
@@ -451,12 +452,56 @@ class ParseTime : public OpKernel {
 
     const int N = time_string.size();
     for (int i = 0; i < N; i++) {
-      // Extract time from datetime.
+      // Parse time.
       TimeValue out_time;
       OP_REQUIRES_OK(context, ToTslStatus(name(), functions::ParseStringToTime(
                                                       format, time_string(i),
                                                       functions::kMicroseconds,
                                                       &out_time)));
+
+      // Format time to string.
+      std::string out;
+      OP_REQUIRES_OK(context, FormatOutputTime(out_time, name(), &out));
+
+      // Set the output value.
+      output_flat(i).reserve(out.size());
+      output_flat(i) = std::move(out);
+    }
+  }
+};
+
+class SafeParseTime : public OpKernel {
+ public:
+  explicit SafeParseTime(OpKernelConstruction* context) : OpKernel(context) {}
+
+  void Compute(OpKernelContext* context) override {
+    // Grab the format tensor
+    const Tensor& format_tensor = context->input(0);
+    std::string format = format_tensor.flat<tstring>()(0);
+    // Grab the time tensor
+    const Tensor& time_string_tensor = context->input(1);
+    auto time_string = time_string_tensor.flat<tstring>();
+
+    // Create an output tensor with the shape of the time tensor
+    Tensor* output_tensor = NULL;
+    OP_REQUIRES_OK(context, context->allocate_output(
+                                0, time_string_tensor.shape(), &output_tensor));
+    auto output_flat = output_tensor->flat<tstring>();
+
+    const int N = time_string.size();
+    for (int i = 0; i < N; i++) {
+      // Parse time.
+      TimeValue out_time;
+      if (!functions::ParseStringToTime(format, time_string(i),
+                                        functions::kMicroseconds, &out_time)
+               .ok()) {
+        // Set the NULL-equivalent output value for unsuccessful parsing.
+        OP_REQUIRES_OK(
+            context,
+            ToTslStatus(name(), functions::ParseStringToTime(
+                                    kTimeFormatString, kNullTime,
+                                    functions::kMicroseconds, &out_time)));
+      }
 
       // Format time to string.
       std::string out;
@@ -520,6 +565,8 @@ REGISTER_KERNEL_BUILDER(Name("TimeTrunc").Device(DEVICE_CPU), TimeTrunc);
 REGISTER_KERNEL_BUILDER(Name("ExtractFromTime").Device(DEVICE_CPU),
                         ExtractFromTime);
 REGISTER_KERNEL_BUILDER(Name("ParseTime").Device(DEVICE_CPU), ParseTime);
+REGISTER_KERNEL_BUILDER(Name("SafeParseTime").Device(DEVICE_CPU),
+                        SafeParseTime);
 REGISTER_KERNEL_BUILDER(Name("FormatTime").Device(DEVICE_CPU), FormatTime);
 
 }  // namespace bigquery_ml_utils
