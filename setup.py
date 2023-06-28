@@ -43,7 +43,7 @@ class BinaryDistribution(Distribution):
 
 setup(
     name='bigquery_ml_utils',
-    version='0.1.12',
+    version='1.0.0',
     description='BigQuery ML Utils',
     long_description=_LONG_DESCRIPTION,
     long_description_content_type='text/markdown',
@@ -52,7 +52,13 @@ setup(
     url='https://github.com/GoogleCloudPlatform/bigquery-ml-utils',
     license='Apache 2.0',
     packages=find_packages(exclude=['tests', 'notebooks']),
-    install_requires=['absl-py', 'xgboost', 'numpy', 'tensorflow ~= 2.11.0'],
+    install_requires=[
+        'absl-py',
+        'xgboost',
+        'numpy',
+        'tensorflow ~= 2.11.0',
+        'tzdata',
+    ],
     include_package_data=True,
     zip_safe=False,
     distclass=BinaryDistribution,
