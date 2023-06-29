@@ -144,7 +144,7 @@ def extract_from_time(time, part, name=None):
 def parse_time(format_string, time_string, name=None):
   """Returns a time by parsing a string representation of time.
 
-  Equivalent SQL: TIME_TRUNC(time_expression, time_part)
+  Equivalent SQL: PARSE_TIME(format_string, time_string)
 
   Args:
     format_string: tf.Tensor of type string. Format of the string time.
@@ -159,7 +159,7 @@ def parse_time(format_string, time_string, name=None):
 def safe_parse_time(format_string, time_string, name=None):
   """Returns a time by safely parsing a string representation of time.
 
-  Equivalent SQL: CAST(time_string AS TIME [FORMAT format_string]).
+  Equivalent SQL: SAFE.PARSE_TIME(format_string, time_string).
   Returns "12:34:56.123456" for unsuccessful parsing.
 
   Args:

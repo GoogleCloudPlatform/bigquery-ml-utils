@@ -242,9 +242,7 @@ def parse_datetime(format_string, datetime_string, name=None):
 def safe_parse_datetime(format_string, datetime_string, name=None):
   """Returns the safely parsed DATETIME value based on the format_string.
 
-  Equivalent SQL:
-
-    CAST(datetime_string AS DATETIME [FORMAT format_string]). Returns
+  Equivalent SQL: SAFE.PARSE_DATETIME(format_string, datetime_string). Returns
   "1970-01-01 00:00:00.000000" for unsuccessful parsing.
 
   Args:

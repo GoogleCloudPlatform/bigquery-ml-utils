@@ -241,9 +241,9 @@ def safe_parse_timestamp(
 ):
   """Returns a timestamp by safely parsing a string.
 
-  Equivalent SQL: SAFE_CAST(timestamp_string AS TIMESTAMP [FORMAT format_string
-  AT TIME ZONE time_zone]). Returns '1970-01-01 00:00:00.0 +0000' for for
-  unsuccessful parsing.
+  Equivalent SQL:
+  SAFE.PARSE_TIMESTAMP(format_string, timestamp_string[, time_zone]).
+  Returns '1970-01-01 00:00:00.0 +0000' for unsuccessful parsing.
 
   Args:
     format_string: tf.Tensor of type string. Format of the string timestamp.

@@ -194,8 +194,8 @@ def parse_date(format_string, date_string, name=None):
 def safe_parse_date(format_string, date_string, name=None):
   """Returns a date by safely parsing a string.
 
-  Equivalent SQL: CAST(date_string AS DATE [FORMAT format_string]). Returns
-  "1970-01-01" for unsuccessful parsing.
+  Equivalent SQL: SAFE.PARSE_TIMESTAMP(format_string, date_string[, time_zone]).
+  Returns "1970-01-01" for unsuccessful parsing.
 
   Args:
     format_string: tf.Tensor of type string. Format of the string date.
