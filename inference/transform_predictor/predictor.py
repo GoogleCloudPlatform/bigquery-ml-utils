@@ -21,10 +21,11 @@ from typing import Any, Optional
 from bigquery_ml_utils.inference.xgboost_predictor import predictor as bqml_xgboost_predictor
 import tensorflow as tf
 from bigquery_ml_utils.tensorflow_ops.load_module import load_module
-from bigquery_ml_utils.tensorflow_ops.load_module import load_module
 
-gen_timestamp_ops = load_module("_timestamp_ops.so")
+gen_date_ops = load_module("_date_ops.so")
 gen_datetime_ops = load_module("_datetime_ops.so")
+gen_time_ops = load_module("_time_ops.so")
+gen_timestamp_ops = load_module("_timestamp_ops.so")
 
 
 class Predictor:

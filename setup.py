@@ -43,7 +43,7 @@ class BinaryDistribution(Distribution):
 
 setup(
     name='bigquery_ml_utils',
-    version='1.0.0',
+    version='1.0.1',
     description='BigQuery ML Utils',
     long_description=_LONG_DESCRIPTION,
     long_description_content_type='text/markdown',
