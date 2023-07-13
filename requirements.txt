@@ -4,3 +4,5 @@ protobuf
 absl-py
 xgboost
 tzdata
+tensorflow-hub
+tensorflow-text

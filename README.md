@@ -75,3 +75,27 @@ The following example returns the same result as `TIMESTAMP_ADD(timestamp_expres
 >>> result = timestamp_ops.timestamp_add(timestamp, interval, 'MINUTE')
 tf.Tensor([b'2008-12-25 18:50:00.0 +0000' b'2023-11-11 19:30:00.0 +0000'], shape=(2,), dtype=string)
 ```
+
+### Model Generator
+
+#### Text Embedding Model Generator
+
+The Text Embedding Model Generator automatically loads a text embedding model
+from Tensorflow hub and integrates a signature such that the resulting model can
+be immediately integrated within BQML. Currently, the NNLM and BERT embedding
+models can be selected.
+
+##### NNLM Text Embedding Model
+
+The [NNLM](https://tfhub.dev/google/nnlm-en-dim50-with-normalization/2) model
+has a model size of <150MB and is recommended for phrases, news, tweets,
+reviews, etc. NNLM does not carry any default signatures because it is designed
+to be utilized as a Keras layer; however, the Text Embedding Model Generator
+takes care of this.
+
+##### BERT Text Embedding Model
+
+The BERT model has a model size of ~200MB and is recommended for phrases, news,
+tweets, reviews, paragraphs, etc. The [BERT](https://tfhub.dev/tensorflow/bert_en_cased_L-12_H-768_A-12/4) model does not carry any default signatures
+because it is designed to be utilized as a Keras layer. The Text Embedding Model
+Generator takes care of this and also integrates a [text preprocessing layer](https://tfhub.dev/tensorflow/bert_en_cased_preprocess/3) for BERT.

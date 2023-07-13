@@ -36,6 +36,7 @@ sh_binary(
         "__init__.py",
         "setup.py",
         "//inference",
+        "//model_generator",
         "//tensorflow_ops",
     ],
 )

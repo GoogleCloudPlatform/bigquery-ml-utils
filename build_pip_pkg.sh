@@ -49,6 +49,7 @@ function main() {
   mkdir "${TMPDIR}"/bigquery_ml_utils
   cp ${PIP_FILE_PREFIX}__init__.py "${TMPDIR}"/bigquery_ml_utils
   rsync -avm -L ${PIP_FILE_PREFIX}inference "${TMPDIR}"/bigquery_ml_utils
+  rsync -avm -L ${PIP_FILE_PREFIX}model_generator "${TMPDIR}"/bigquery_ml_utils
   rsync -avm -L ${PIP_FILE_PREFIX}tensorflow_ops "${TMPDIR}"/bigquery_ml_utils
 
   # Read PYTHON_BIN_PATH that is set by configure.py.

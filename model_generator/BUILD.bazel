@@ -1,4 +1,4 @@
-# Copyright 2022 Google LLC
+# Copyright 2023 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,6 +12,25 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from bigquery_ml_utils.inference import transform_predictor
-from bigquery_ml_utils.inference import xgboost_predictor
-from bigquery_ml_utils.model_generator import text_embedding_generator
+package(
+    default_visibility = ["//visibility:public"],
+)
+
+licenses(["notice"])
+
+# Export for the PIP package.
+exports_files(
+    [
+        "__init__.py",
+    ],
+)
+
+py_library(
+    name = "model_generator",
+    srcs = glob(
+        include = [
+          "text_embedding_generator.py",
+          "__init__.py",
+        ],
+    ),
+)
