@@ -76,6 +76,15 @@ The following example returns the same result as `TIMESTAMP_ADD(timestamp_expres
 tf.Tensor([b'2008-12-25 18:50:00.0 +0000' b'2023-11-11 19:30:00.0 +0000'], shape=(2,), dtype=string)
 ```
 
+Note: `/usr/share/zoneinfo` is needed for parsing time zone which might not be
+available in your OS. You will need to install `tzdata` to generate it. For
+example, add the following code in your Dockerfile.
+
+```
+RUN apt-get update && DEBIAN_FRONTEND="noninteractive" \
+    TZ="America/Los_Angeles" apt-get install -y tzdata
+```
+
 ### Model Generator
 
 #### Text Embedding Model Generator
