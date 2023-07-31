@@ -28,6 +28,8 @@ from bigquery_ml_utils.tensorflow_ops.datetime_ops import extract_from_datetime
 from bigquery_ml_utils.tensorflow_ops.datetime_ops import extract_time_from_datetime
 from bigquery_ml_utils.tensorflow_ops.datetime_ops import parse_datetime
 from bigquery_ml_utils.tensorflow_ops.datetime_ops import safe_parse_datetime
+from bigquery_ml_utils.tensorflow_ops.time_ops import cast_to_time_from_string
+from bigquery_ml_utils.tensorflow_ops.time_ops import cast_to_time_from_time
 from bigquery_ml_utils.tensorflow_ops.time_ops import extract_from_time
 from bigquery_ml_utils.tensorflow_ops.time_ops import format_time
 from bigquery_ml_utils.tensorflow_ops.time_ops import parse_time

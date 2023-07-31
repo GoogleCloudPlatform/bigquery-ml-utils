@@ -15,10 +15,12 @@
  */
 
 #include <cstdint>
+#include <string>
 
 #include "absl/container/flat_hash_set.h"
 #include "absl/strings/string_view.h"
 #include "absl/strings/substitute.h"
+#include "sql_utils/public/functions/cast_date_time.h"
 #include "sql_utils/public/functions/date_time_util.h"
 #include "sql_utils/public/functions/datetime.pb.h"
 #include "sql_utils/public/functions/parse_date_time.h"
@@ -161,6 +163,89 @@ class TimeFromDatetime : public OpKernel {
       // Format time to string.
       std::string out;
       OP_REQUIRES_OK(context, FormatOutputTime(time, name(), &out));
+
+      // Set the output value.
+      output_flat(i).reserve(out.size());
+      output_flat(i) = std::move(out);
+    }
+  }
+};
+
+class CastToTimeFromString : public OpKernel {
+ public:
+  explicit CastToTimeFromString(OpKernelConstruction* context)
+      : OpKernel(context) {}
+
+  void Compute(OpKernelContext* context) override {
+    // Grab the time_string tensor
+    const Tensor& time_string_tensor = context->input(0);
+    auto time_string = time_string_tensor.flat<tstring>();
+    // Grab the format tensor
+    const Tensor& format_tensor = context->input(1);
+    std::string format = format_tensor.flat<tstring>()(0);
+    // Grab the with_format tensor
+    const Tensor& with_format_tensor = context->input(2);
+    bool with_format = with_format_tensor.flat<bool>()(0);
+
+    // Create an output tensor with the shape of the time tensor
+    Tensor* output_tensor = NULL;
+    OP_REQUIRES_OK(context, context->allocate_output(
+                                0, time_string_tensor.shape(), &output_tensor));
+    auto output_flat = output_tensor->flat<tstring>();
+
+    const int N = time_string.size();
+    for (int i = 0; i < N; i++) {
+      // Convert string to time.
+      TimeValue time;
+      if (!with_format) {
+        // Convert string without format
+        OP_REQUIRES_OK(
+            context, ToTslStatus(name(), functions::ConvertStringToTime(
+                                             time_string(i),
+                                             functions::kMicroseconds, &time)));
+      } else {
+        // Convert string with format
+        OP_REQUIRES_OK(
+            context, ToTslStatus(name(), functions::CastStringToTime(
+                                             format, time_string(i),
+                                             functions::kMicroseconds, &time)));
+      }
+      // Format time to string.
+      std::string out;
+      OP_REQUIRES_OK(context, FormatOutputTime(time, name(), &out));
+
+      // Set the output value.
+      output_flat(i).reserve(out.size());
+      output_flat(i) = std::move(out);
+    }
+  }
+};
+
+class CastToTimeFromTime : public OpKernel {
+ public:
+  explicit CastToTimeFromTime(OpKernelConstruction* context)
+      : OpKernel(context) {}
+
+  void Compute(OpKernelContext* context) override {
+    // Grab the time tensor
+    const Tensor& time_tensor = context->input(0);
+    auto time = time_tensor.flat<tstring>();
+
+    // Create an output tensor with the shape of the time tensor
+    Tensor* output_tensor = NULL;
+    OP_REQUIRES_OK(context, context->allocate_output(0, time_tensor.shape(),
+                                                     &output_tensor));
+    auto output_flat = output_tensor->flat<tstring>();
+
+    const int N = time.size();
+    for (int i = 0; i < N; i++) {
+      // Parse the time.
+      TimeValue time_value;
+      OP_REQUIRES_OK(context, ParseInputTime(time(i), name(), &time_value));
+
+      // Format time to string.
+      std::string out;
+      OP_REQUIRES_OK(context, FormatOutputTime(time_value, name(), &out));
 
       // Set the output value.
       output_flat(i).reserve(out.size());
@@ -558,6 +643,10 @@ REGISTER_KERNEL_BUILDER(Name("TimeFromTimestamp").Device(DEVICE_CPU),
                         TimeFromTimestamp);
 REGISTER_KERNEL_BUILDER(Name("TimeFromDatetime").Device(DEVICE_CPU),
                         TimeFromDatetime);
+REGISTER_KERNEL_BUILDER(Name("CastToTimeFromString").Device(DEVICE_CPU),
+                        CastToTimeFromString);
+REGISTER_KERNEL_BUILDER(Name("CastToTimeFromTime").Device(DEVICE_CPU),
+                        CastToTimeFromTime);
 REGISTER_KERNEL_BUILDER(Name("TimeAdd").Device(DEVICE_CPU), TimeAdd);
 REGISTER_KERNEL_BUILDER(Name("TimeSub").Device(DEVICE_CPU), TimeSub);
 REGISTER_KERNEL_BUILDER(Name("TimeDiff").Device(DEVICE_CPU), TimeDiff);

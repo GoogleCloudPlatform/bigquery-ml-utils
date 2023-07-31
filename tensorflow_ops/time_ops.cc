@@ -54,6 +54,28 @@ REGISTER_OP("TimeFromDatetime")
       return ::tensorflow::OkStatus();
     });
 
+// Register CastToTimeFromString op with signature.
+// Output has the same shape of the string.
+REGISTER_OP("CastToTimeFromString")
+    .Input("time_string: string")
+    .Input("format_string: string")
+    .Input("with_format: bool")
+    .Output("output: string")
+    .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
+      c->set_output(0, c->input(0));
+      return ::tensorflow::OkStatus();
+    });
+
+// Register CastToTimeFromTime op with signature.
+// Output has the same shape of the time.
+REGISTER_OP("CastToTimeFromTime")
+    .Input("time: string")
+    .Output("output: string")
+    .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
+      c->set_output(0, c->input(0));
+      return ::tensorflow::OkStatus();
+    });
+
 // Register TimeAdd op with signature.
 // Output has the same shape of the time.
 REGISTER_OP("TimeAdd")
