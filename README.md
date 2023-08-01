@@ -102,6 +102,16 @@ reviews, etc. NNLM does not carry any default signatures because it is designed
 to be utilized as a Keras layer; however, the Text Embedding Model Generator
 takes care of this.
 
+##### SWIVEL Text Embedding Model
+
+The [SWIVEL](https://tfhub.dev/google/tf2-preview/gnews-swivel-20dim/1) model
+has a model size of <150MB and is recommended for phrases, news, tweets,
+reviews, etc. SWIVEL does not require pre-processing because the embedding model
+already satisfies BQML imported model requirements. However, in order to align
+signatures for NNLM, SWIVEL, and BERT, the Text Embedding Model Generator
+establishes the same input label for SWIVEL.
+
+
 ##### BERT Text Embedding Model
 
 The BERT model has a model size of ~200MB and is recommended for phrases, news,

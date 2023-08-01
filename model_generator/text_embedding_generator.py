@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""This file supports preproccesing procedure for text Embedding models."""
+"""This file supports preproccesing procedure for text embedding models."""
 
 import enum
 
@@ -23,30 +23,33 @@ import tensorflow_text as text
 
 @enum.unique
 class TextEmbeddingModelType(str, enum.Enum):
-  """The different text Embedding model types that require signature addition."""
+  """The different text embedding model types that require signature addition."""
 
   NNLM = "nnlm"
+  SWIVEL = "swivel"
   BERT = "bert"
 
 
 @enum.unique
 class TextEmbeddingModelLinks(str, enum.Enum):
-  """The different text Embedding model tensorflow hub links."""
+  """The different text embedding model tensorflow hub links."""
 
   NNLM = "https://tfhub.dev/google/nnlm-en-dim50-with-normalization/2"
+  SWIVEL = "https://tfhub.dev/google/tf2-preview/gnews-swivel-20dim/1"
   BERT_PREPROCESS = "https://tfhub.dev/tensorflow/bert_en_cased_preprocess/3"
   BERT_ENCODER = "https://tfhub.dev/tensorflow/bert_en_cased_L-12_H-768_A-12/4"
 
 
 class TextEmbeddingModelGenerator:
-  """Class to chain Embedding models by integrating signature addition.
+  """Class to chain embedding models by integrating signature addition.
 
-  It performs preprocessing for the NNLM and BERT model types.
+  It performs preprocessing for the NNLM, SWIVEL, and BERT model types.
   """
 
   def __init__(
       self,
       nnlm_link=TextEmbeddingModelLinks.NNLM,
+      swivel_link=TextEmbeddingModelLinks.SWIVEL,
       bert_preprocess_link=TextEmbeddingModelLinks.BERT_PREPROCESS,
       bert_encoder_link=TextEmbeddingModelLinks.BERT_ENCODER,
   ):
@@ -54,6 +57,7 @@ class TextEmbeddingModelGenerator:
 
     Args:
       nnlm_link: Path (local or hub) that links to the NNLM model.
+      swivel_link: Path (local or hub) that links to the SWIVEL model.
       bert_preprocess_link: Path (local or hub) that links to BERT preprocess
         model.
       bert_encoder_link: Path (local or hub) that links to BERT encoder model.
@@ -62,6 +66,7 @@ class TextEmbeddingModelGenerator:
       A 'Predictor' instance.
     """
     self._nnlm_link = nnlm_link
+    self._swivel_link = swivel_link
     self._bert_preprocess_link = bert_preprocess_link
     self._bert_encoder_link = bert_encoder_link
 
@@ -78,12 +83,14 @@ class TextEmbeddingModelGenerator:
     model = None
     if model_type.lower() == TextEmbeddingModelType.NNLM:
       model = self._generate_nnlm()
+    elif model_type.lower() == TextEmbeddingModelType.SWIVEL:
+      model = self._generate_swivel()
     elif model_type.lower() == TextEmbeddingModelType.BERT:
       model = self._generate_bert()
     else:
       raise ValueError(
           f'"{model_type}" is not a valid model type. Please choose one from'
-          ' (NNLM, BERT)'
+          ' (NNLM, SWIVEL, BERT)'
       )
     tf.saved_model.save(
         model, folder_path, signatures=self._construct_model_signature(model)
@@ -99,6 +106,20 @@ class TextEmbeddingModelGenerator:
         shape=(), dtype=tf.string, name="embedding_input"
     )
     preprocessor = hub.KerasLayer(self._nnlm_link)
+    outputs = preprocessor(text_input)
+    model = tf.keras.Model(text_input, outputs)
+    return model
+
+  def _generate_swivel(self) -> tf.keras.Model:
+    """Generate the SWIVEL model from Tensorflow hub.
+
+    Returns:
+      Generated SWIVEL model.
+    """
+    text_input = tf.keras.layers.Input(
+        shape=(), dtype=tf.string, name="embedding_input"
+    )
+    preprocessor = hub.KerasLayer(self._swivel_link)
     outputs = preprocessor(text_input)
     model = tf.keras.Model(text_input, outputs)
     return model
@@ -124,7 +145,7 @@ class TextEmbeddingModelGenerator:
     """Constructs model signature in order to override output tensor name.
 
     Args:
-      model: NNLM or BERT tf.keras.Model
+      model: NNLM, SWIVEL, or BERT tf.keras.Model
 
     Returns:
       Constructed signature.
