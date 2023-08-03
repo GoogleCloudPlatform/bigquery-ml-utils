@@ -84,18 +84,6 @@ def cast_to_time_from_string(time_string, format_string=None, name=None):
   )
 
 
-def cast_to_time_from_time(time, name=None):
-  """Returns a time by casting a time.
-
-  Equivalent SQL: CAST(time AS TIME)
-
-  Args:
-    time: tf.Tensor of type string. Time in "%H:%M:%E6S" format.
-    name: An optional name for the op.
-  """
-  return gen_time_ops.cast_to_time_from_time(time=time, name=name)
-
-
 def time_add(time, interval, part, name=None):
   """Returns a time by adding interval to the time..
 

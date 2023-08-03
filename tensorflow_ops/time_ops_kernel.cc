@@ -221,39 +221,6 @@ class CastToTimeFromString : public OpKernel {
   }
 };
 
-class CastToTimeFromTime : public OpKernel {
- public:
-  explicit CastToTimeFromTime(OpKernelConstruction* context)
-      : OpKernel(context) {}
-
-  void Compute(OpKernelContext* context) override {
-    // Grab the time tensor
-    const Tensor& time_tensor = context->input(0);
-    auto time = time_tensor.flat<tstring>();
-
-    // Create an output tensor with the shape of the time tensor
-    Tensor* output_tensor = NULL;
-    OP_REQUIRES_OK(context, context->allocate_output(0, time_tensor.shape(),
-                                                     &output_tensor));
-    auto output_flat = output_tensor->flat<tstring>();
-
-    const int N = time.size();
-    for (int i = 0; i < N; i++) {
-      // Parse the time.
-      TimeValue time_value;
-      OP_REQUIRES_OK(context, ParseInputTime(time(i), name(), &time_value));
-
-      // Format time to string.
-      std::string out;
-      OP_REQUIRES_OK(context, FormatOutputTime(time_value, name(), &out));
-
-      // Set the output value.
-      output_flat(i).reserve(out.size());
-      output_flat(i) = std::move(out);
-    }
-  }
-};
-
 ::tsl::Status TimeAddOperator(TimeValue& time, int64_t interval,
                               functions::DateTimestampPart& time_part,
                               absl::string_view function_name, TimeValue* out) {
@@ -645,8 +612,6 @@ REGISTER_KERNEL_BUILDER(Name("TimeFromDatetime").Device(DEVICE_CPU),
                         TimeFromDatetime);
 REGISTER_KERNEL_BUILDER(Name("CastToTimeFromString").Device(DEVICE_CPU),
                         CastToTimeFromString);
-REGISTER_KERNEL_BUILDER(Name("CastToTimeFromTime").Device(DEVICE_CPU),
-                        CastToTimeFromTime);
 REGISTER_KERNEL_BUILDER(Name("TimeAdd").Device(DEVICE_CPU), TimeAdd);
 REGISTER_KERNEL_BUILDER(Name("TimeSub").Device(DEVICE_CPU), TimeSub);
 REGISTER_KERNEL_BUILDER(Name("TimeDiff").Device(DEVICE_CPU), TimeDiff);

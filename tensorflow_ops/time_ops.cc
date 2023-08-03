@@ -66,16 +66,6 @@ REGISTER_OP("CastToTimeFromString")
       return ::tensorflow::OkStatus();
     });
 
-// Register CastToTimeFromTime op with signature.
-// Output has the same shape of the time.
-REGISTER_OP("CastToTimeFromTime")
-    .Input("time: string")
-    .Output("output: string")
-    .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
-      c->set_output(0, c->input(0));
-      return ::tensorflow::OkStatus();
-    });
-
 // Register TimeAdd op with signature.
 // Output has the same shape of the time.
 REGISTER_OP("TimeAdd")
