@@ -17,6 +17,7 @@ from bigquery_ml_utils.tensorflow_ops.date_ops import date_diff
 from bigquery_ml_utils.tensorflow_ops.date_ops import date_from_components
 from bigquery_ml_utils.tensorflow_ops.date_ops import date_from_datetime
 from bigquery_ml_utils.tensorflow_ops.date_ops import date_from_timestamp
+from bigquery_ml_utils.tensorflow_ops.date_ops import date_from_unix_date
 from bigquery_ml_utils.tensorflow_ops.date_ops import date_sub
 from bigquery_ml_utils.tensorflow_ops.date_ops import date_trunc
 from bigquery_ml_utils.tensorflow_ops.date_ops import extract_from_date

@@ -66,6 +66,16 @@ REGISTER_OP("DateFromDatetime")
       return tensorflow::OkStatus();
     });
 
+// Register DateFromUnixDate op with signature.
+// Output has the same shape of the num_days.
+REGISTER_OP("DateFromUnixDate")
+    .Input("num_days: int64")
+    .Output("output: string")
+    .SetShapeFn([](tensorflow::shape_inference::InferenceContext* c) {
+      c->set_output(0, c->input(0));
+      return tensorflow::OkStatus();
+    });
+
 // Register DateAdd op with signature.
 // Output has the same shape of the input date.
 REGISTER_OP("DateAdd")

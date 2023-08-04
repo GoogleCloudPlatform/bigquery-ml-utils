@@ -16,12 +16,14 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <utility>
 
 #include "absl/container/flat_hash_set.h"
 #include "absl/strings/substitute.h"
 #include "sql_utils/public/functions/date_time_util.h"
 #include "sql_utils/public/functions/datetime.pb.h"
 #include "sql_utils/public/functions/parse_date_time.h"
+#include "sql_utils/public/types/timestamp_util.h"
 #include "tensorflow_ops/constants.h"
 #include "tensorflow_ops/utils.h"
 #include "tensorflow/core/framework/op_kernel.h"
@@ -29,6 +31,8 @@
 #include "tensorflow/core/framework/tensor.h"
 #include "tensorflow/core/framework/types.h"
 #include "tensorflow/core/platform/tstring.h"
+#include "tensorflow/tsl/platform/errors.h"
+#include "tensorflow/tsl/platform/status.h"
 
 using ::tensorflow::DEVICE_CPU;
 using ::tensorflow::OpKernel;
@@ -37,6 +41,7 @@ using ::tensorflow::OpKernelContext;
 using ::tensorflow::Tensor;
 using ::tensorflow::tstring;
 using ::tensorflow::errors::InvalidArgument;
+using ::tensorflow::errors::OutOfRange;
 
 namespace bigquery_ml_utils {
 
@@ -209,6 +214,54 @@ class DateFromDatetime : public OpKernel {
       OP_REQUIRES_OK(context,
                      ToTslStatus(name(), functions::ExtractFromDatetime(
                                              functions::DATE, dt, &date)));
+
+      // Format date to string.
+      std::string out;
+      OP_REQUIRES_OK(context, FormatOutputDate(date, name(), &out));
+
+      // Set the output value.
+      output_flat(i).reserve(out.size());
+      output_flat(i) = std::move(out);
+    }
+  }
+};
+
+::tsl::Status DateFromIntOperator(int64_t in, int32_t* out) {
+  if (in > types::kDateMax || in < types::kDateMin) {
+    std::string date_min;
+    functions::ConvertDateToString(types::kDateMin, &date_min).IgnoreError();
+    std::string date_max;
+    functions::ConvertDateToString(types::kDateMax, &date_max).IgnoreError();
+    return OutOfRange(
+        absl::Substitute("DATE value is out of allowed range: from $0 to $1.",
+                         date_min, date_max));
+  }
+
+  *out = static_cast<int32_t>(in);
+  return ::tsl::OkStatus();
+}
+
+class DateFromUnixDate : public OpKernel {
+ public:
+  explicit DateFromUnixDate(OpKernelConstruction* context)
+      : OpKernel(context) {}
+
+  void Compute(OpKernelContext* context) override {
+    // Grab the num_days tensor
+    const Tensor& num_days_tensor = context->input(0);
+    auto num_days = num_days_tensor.flat<int64_t>();
+
+    // Create an output tensor with the shape of the num_days tensor
+    Tensor* output_tensor = NULL;
+    OP_REQUIRES_OK(context, context->allocate_output(0, num_days_tensor.shape(),
+                                                     &output_tensor));
+    auto output_flat = output_tensor->flat<tstring>();
+
+    const int N = num_days.size();
+    for (int i = 0; i < N; i++) {
+      // Convert num_days to date
+      int32_t date;
+      OP_REQUIRES_OK(context, DateFromIntOperator(num_days(i), &date));
 
       // Format date to string.
       std::string out;
@@ -603,6 +656,8 @@ REGISTER_KERNEL_BUILDER(Name("DateFromTimestamp").Device(DEVICE_CPU),
                         DateFromTimestamp);
 REGISTER_KERNEL_BUILDER(Name("DateFromDatetime").Device(DEVICE_CPU),
                         DateFromDatetime);
+REGISTER_KERNEL_BUILDER(Name("DateFromUnixDate").Device(DEVICE_CPU),
+                        DateFromUnixDate);
 REGISTER_KERNEL_BUILDER(Name("DateAdd").Device(DEVICE_CPU), DateAdd);
 REGISTER_KERNEL_BUILDER(Name("DateSub").Device(DEVICE_CPU), DateSub);
 REGISTER_KERNEL_BUILDER(Name("DateDiff").Device(DEVICE_CPU), DateDiff);

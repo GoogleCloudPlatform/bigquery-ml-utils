@@ -77,6 +77,18 @@ def date_from_datetime(datetime, name=None):
   return gen_date_ops.date_from_datetime(datetime=datetime, name=name)
 
 
+def date_from_unix_date(num_days, name=None):
+  """Returns a date from the number of days since 1970-01-01.
+
+  Equivalent SQL: DATE_FROM_UNIX_DATE(int64_expression)
+
+  Args:
+    num_days: tf.Tensor of type int64. The number of days since 1970-01-01.
+    name: An optional name for the op.
+  """
+  return gen_date_ops.date_from_unix_date(num_days=num_days, name=name)
+
+
 def date_add(date, interval, part, name=None):
   """Returns a date by adding interval to the date.
 
