@@ -186,6 +186,20 @@ def format_date(format_string, date, name=None):
   )
 
 
+def last_day_from_date(date, part="MONTH", name=None):
+  """Returns the last day from a date.
+
+  Equivalent SQL: LAST_DAY(date[, part])
+
+  Args:
+    date: tf.Tensor of type string. Date in "%F" format.
+    part: A string represents the datetime part. Can be WEEK, WEEK(WEEKDAY),
+      ISOWEEK, MONTH, QUARTER, YEAR, ISOYEAR. It is case insensitive.
+    name: An optional name for the op.
+  """
+  return gen_date_ops.last_day_from_date(date=date, part=part, name=name)
+
+
 def parse_date(format_string, date_string, name=None):
   """Returns a date by parsing a string.
 

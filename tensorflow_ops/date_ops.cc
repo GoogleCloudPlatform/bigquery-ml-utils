@@ -134,6 +134,17 @@ REGISTER_OP("FormatDate")
       return ::tensorflow::OkStatus();
     });
 
+// Register LastDay op with signature.
+// Output has the same shape of the input date.
+REGISTER_OP("LastDayFromDate")
+    .Input("date: string")
+    .Input("part: string")
+    .Output("output: string")
+    .SetShapeFn([](tensorflow::shape_inference::InferenceContext* c) {
+      c->set_output(0, c->input(0));
+      return tensorflow::OkStatus();
+    });
+
 // Register ParseDate op with signature.
 // Output has the same shape of the input date_string.
 REGISTER_OP("ParseDate")

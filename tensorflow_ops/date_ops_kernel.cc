@@ -534,6 +534,65 @@ class FormatDate : public OpKernel {
   }
 };
 
+class LastDayFromDate : public OpKernel {
+ public:
+  explicit LastDayFromDate(OpKernelConstruction* context) : OpKernel(context) {}
+
+  void Compute(OpKernelContext* context) override {
+    // Grab the date tensor.
+    const Tensor& date_tensor = context->input(0);
+    auto date = date_tensor.flat<tstring>();
+
+    // Grab the part tensor.
+    const Tensor& part_tensor = context->input(1);
+    std::string part = part_tensor.flat<tstring>()(0);
+    functions::DateTimestampPart part_enum;
+    static auto* supported_parts =
+        new absl::flat_hash_set<functions::DateTimestampPart>({
+            functions::WEEK,
+            functions::WEEK_MONDAY,
+            functions::WEEK_TUESDAY,
+            functions::WEEK_WEDNESDAY,
+            functions::WEEK_THURSDAY,
+            functions::WEEK_FRIDAY,
+            functions::WEEK_SATURDAY,
+            functions::ISOWEEK,
+            functions::MONTH,
+            functions::QUARTER,
+            functions::YEAR,
+            functions::ISOYEAR,
+        });
+    OP_REQUIRES_OK(context, ParseInputDateTimestampPart(
+                                part, name(), &part_enum, *supported_parts));
+
+    // Create an output tensor with the shape of the date tensor.
+    Tensor* output_tensor = nullptr;
+    OP_REQUIRES_OK(context, context->allocate_output(0, date_tensor.shape(),
+                                                     &output_tensor));
+    auto output_flat = output_tensor->flat<tstring>();
+
+    const int N = date.size();
+    for (int i = 0; i < N; i++) {
+      // Parse the date.
+      int32_t date_value;
+      OP_REQUIRES_OK(context, ParseInputDate(date(i), name(), &date_value));
+
+      // Extract LAST_DAY from the datetime value.
+      int32_t date_int;
+      OP_REQUIRES_OK(
+          context, ToTslStatus(name(), functions::LastDayOfDate(
+                                           date_value, part_enum, &date_int)));
+
+      // Set the output value.
+      std::string output_str;
+      OP_REQUIRES_OK(context, FormatOutputDate(date_int, name(), &output_str));
+
+      output_flat(i).reserve(output_str.size());
+      output_flat(i) = std::move(output_str);
+    }
+  }
+};
+
 class ParseDate : public OpKernel {
  public:
   explicit ParseDate(OpKernelConstruction* context) : OpKernel(context) {}
@@ -663,6 +722,8 @@ REGISTER_KERNEL_BUILDER(Name("DateSub").Device(DEVICE_CPU), DateSub);
 REGISTER_KERNEL_BUILDER(Name("DateDiff").Device(DEVICE_CPU), DateDiff);
 REGISTER_KERNEL_BUILDER(Name("DateTrunc").Device(DEVICE_CPU), DateTrunc);
 REGISTER_KERNEL_BUILDER(Name("FormatDate").Device(DEVICE_CPU), FormatDate);
+REGISTER_KERNEL_BUILDER(Name("LastDayFromDate").Device(DEVICE_CPU),
+                        LastDayFromDate);
 REGISTER_KERNEL_BUILDER(Name("ParseDate").Device(DEVICE_CPU), ParseDate);
 REGISTER_KERNEL_BUILDER(Name("SafeParseDate").Device(DEVICE_CPU),
                         SafeParseDate);
