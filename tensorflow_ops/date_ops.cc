@@ -146,4 +146,14 @@ REGISTER_OP("SafeParseDate")
       return ::tensorflow::OkStatus();
     });
 
+// Register UnixDate op with signature.
+// Output has the same shape of the input date.
+REGISTER_OP("UnixDate")
+    .Input("date: string")
+    .Output("output: int64")
+    .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
+      c->set_output(0, c->input(0));
+      return ::tensorflow::OkStatus();
+    });
+
 }  // namespace bigquery_ml_utils

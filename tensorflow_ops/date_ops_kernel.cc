@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+#include <cstddef>
 #include <cstdint>
 #include <string>
 
@@ -562,6 +563,37 @@ class SafeParseDate : public OpKernel {
   }
 };
 
+class UnixDate : public OpKernel {
+ public:
+  explicit UnixDate(OpKernelConstruction* context) : OpKernel(context) {}
+
+  void Compute(OpKernelContext* context) override {
+    // Grab the date tensor
+    const Tensor& date_string_tensor = context->input(0);
+    auto date_string = date_string_tensor.flat<tstring>();
+
+    // Create an output tensor with the shape of the date tensor
+    Tensor* output_tensor = NULL;
+    OP_REQUIRES_OK(context, context->allocate_output(
+                                0, date_string_tensor.shape(), &output_tensor));
+    auto output_flat = output_tensor->flat<int64_t>();
+
+    const int N = date_string.size();
+    for (int i = 0; i < N; i++) {
+      // Parse the date.
+      int32_t date;
+      OP_REQUIRES_OK(context, ParseInputDate(date_string(i), name(), &date));
+
+      // Convert date to days.
+      int64_t out;
+      out = static_cast<int64_t>(date);
+
+      // Set the output value.
+      output_flat(i) = out;
+    }
+  }
+};
+
 // Register the kernels
 REGISTER_KERNEL_BUILDER(Name("ExtractFromDate").Device(DEVICE_CPU),
                         ExtractFromDate);
@@ -579,5 +611,6 @@ REGISTER_KERNEL_BUILDER(Name("FormatDate").Device(DEVICE_CPU), FormatDate);
 REGISTER_KERNEL_BUILDER(Name("ParseDate").Device(DEVICE_CPU), ParseDate);
 REGISTER_KERNEL_BUILDER(Name("SafeParseDate").Device(DEVICE_CPU),
                         SafeParseDate);
+REGISTER_KERNEL_BUILDER(Name("UnixDate").Device(DEVICE_CPU), UnixDate);
 
 }  // namespace bigquery_ml_utils

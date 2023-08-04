@@ -207,3 +207,18 @@ def safe_parse_date(format_string, date_string, name=None):
       date_string=date_string,
       name=name,
   )
+
+
+def unix_date(date, name=None):
+  """Returns the number of days since 1970-01-01 by converting a date.
+
+  Equivalent SQL: UNIX_DATE(date_expression)
+
+  Args:
+    date: tf.Tensor of type string. Date in "%F" format.
+    name: An optional name for the op.
+  """
+  return gen_date_ops.unix_date(
+      date=date,
+      name=name,
+  )
