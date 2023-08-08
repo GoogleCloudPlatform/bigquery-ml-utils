@@ -197,17 +197,17 @@ class CastToTimeFromString : public OpKernel {
     for (int i = 0; i < N; i++) {
       // Convert string to time.
       TimeValue time;
-      if (!with_format) {
-        // Convert string without format
-        OP_REQUIRES_OK(
-            context, ToTslStatus(name(), functions::ConvertStringToTime(
-                                             time_string(i),
-                                             functions::kMicroseconds, &time)));
-      } else {
+      if (with_format) {
         // Convert string with format
         OP_REQUIRES_OK(
             context, ToTslStatus(name(), functions::CastStringToTime(
                                              format, time_string(i),
+                                             functions::kMicroseconds, &time)));
+      } else {
+        // Convert string without format
+        OP_REQUIRES_OK(
+            context, ToTslStatus(name(), functions::ConvertStringToTime(
+                                             time_string(i),
                                              functions::kMicroseconds, &time)));
       }
       // Format time to string.
