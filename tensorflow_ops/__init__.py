@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from bigquery_ml_utils.tensorflow_ops.date_ops import cast_to_date_from_string
 from bigquery_ml_utils.tensorflow_ops.date_ops import date_add
 from bigquery_ml_utils.tensorflow_ops.date_ops import date_diff
 from bigquery_ml_utils.tensorflow_ops.date_ops import date_from_components

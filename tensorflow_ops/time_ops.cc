@@ -55,7 +55,7 @@ REGISTER_OP("TimeFromDatetime")
     });
 
 // Register CastToTimeFromString op with signature.
-// Output has the same shape of the string.
+// Output has the same shape of the time_string.
 REGISTER_OP("CastToTimeFromString")
     .Input("time_string: string")
     .Input("format_string: string")

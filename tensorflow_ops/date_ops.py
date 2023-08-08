@@ -89,6 +89,28 @@ def date_from_unix_date(num_days, name=None):
   return gen_date_ops.date_from_unix_date(num_days=num_days, name=name)
 
 
+def cast_to_date_from_string(date_string, format_string=None, name=None):
+  """Returns a date by casting a string.
+
+  Equivalent SQL: CAST(string AS DATE [FORMAT format_string])
+
+  Args:
+    date_string: tf.Tensor of type string. The string must conform to the
+      supported date literal format, and is independent of time zone. If the
+      string expression is invalid or represents a time that is outside of the
+      supported min/max range, then an error is produced.
+    format_string: tf.Tensor of type string. A string which contains format
+      elements.
+    name: An optional name for the op.
+  """
+  return gen_date_ops.cast_to_date_from_string(
+      date_string=date_string,
+      format_string="" if format_string is None else format_string,
+      with_format=format_string is not None,
+      name=name,
+  )
+
+
 def date_add(date, interval, part, name=None):
   """Returns a date by adding interval to the date.
 

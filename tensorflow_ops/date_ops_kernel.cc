@@ -20,6 +20,8 @@
 
 #include "absl/container/flat_hash_set.h"
 #include "absl/strings/substitute.h"
+#include "absl/time/time.h"
+#include "sql_utils/public/functions/cast_date_time.h"
 #include "sql_utils/public/functions/date_time_util.h"
 #include "sql_utils/public/functions/datetime.pb.h"
 #include "sql_utils/public/functions/parse_date_time.h"
@@ -215,6 +217,55 @@ class DateFromDatetime : public OpKernel {
                      ToTslStatus(name(), functions::ExtractFromDatetime(
                                              functions::DATE, dt, &date)));
 
+      // Format date to string.
+      std::string out;
+      OP_REQUIRES_OK(context, FormatOutputDate(date, name(), &out));
+
+      // Set the output value.
+      output_flat(i).reserve(out.size());
+      output_flat(i) = std::move(out);
+    }
+  }
+};
+
+class CastToDateFromString : public OpKernel {
+ public:
+  explicit CastToDateFromString(OpKernelConstruction* context)
+      : OpKernel(context) {}
+
+  void Compute(OpKernelContext* context) override {
+    // Grab the date_string tensor
+    const Tensor& date_string_tensor = context->input(0);
+    auto date_string = date_string_tensor.flat<tstring>();
+    // Grab the format tensor
+    const Tensor& format_tensor = context->input(1);
+    std::string format = format_tensor.flat<tstring>()(0);
+    // Grab the with_format tensor
+    const Tensor& with_format_tensor = context->input(2);
+    bool with_format = with_format_tensor.flat<bool>()(0);
+
+    // Create an output tensor with the shape of the date tensor
+    Tensor* output_tensor = NULL;
+    OP_REQUIRES_OK(context, context->allocate_output(
+                                0, date_string_tensor.shape(), &output_tensor));
+    auto output_flat = output_tensor->flat<tstring>();
+
+    const int N = date_string.size();
+    for (int i = 0; i < N; i++) {
+      // Convert string to date.
+      int32_t date;
+      if (with_format) {
+        // Convert string with format
+        int32_t current_date = functions::CurrentDate(absl::UTCTimeZone());
+        OP_REQUIRES_OK(context, ToTslStatus(name(), functions::CastStringToDate(
+                                                        format, date_string(i),
+                                                        current_date, &date)));
+      } else {
+        // Convert string without format
+        OP_REQUIRES_OK(context,
+                       ToTslStatus(name(), functions::ConvertStringToDate(
+                                               date_string(i), &date)));
+      }
       // Format date to string.
       std::string out;
       OP_REQUIRES_OK(context, FormatOutputDate(date, name(), &out));
@@ -715,6 +766,8 @@ REGISTER_KERNEL_BUILDER(Name("DateFromTimestamp").Device(DEVICE_CPU),
                         DateFromTimestamp);
 REGISTER_KERNEL_BUILDER(Name("DateFromDatetime").Device(DEVICE_CPU),
                         DateFromDatetime);
+REGISTER_KERNEL_BUILDER(Name("CastToDateFromString").Device(DEVICE_CPU),
+                        CastToDateFromString);
 REGISTER_KERNEL_BUILDER(Name("DateFromUnixDate").Device(DEVICE_CPU),
                         DateFromUnixDate);
 REGISTER_KERNEL_BUILDER(Name("DateAdd").Device(DEVICE_CPU), DateAdd);

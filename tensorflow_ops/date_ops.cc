@@ -66,6 +66,18 @@ REGISTER_OP("DateFromDatetime")
       return tensorflow::OkStatus();
     });
 
+// Register CastToDateFromString op with signature.
+// Output has the same shape of the date_string.
+REGISTER_OP("CastToDateFromString")
+    .Input("date_string: string")
+    .Input("format_string: string")
+    .Input("with_format: bool")
+    .Output("output: string")
+    .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
+      c->set_output(0, c->input(0));
+      return ::tensorflow::OkStatus();
+    });
+
 // Register DateFromUnixDate op with signature.
 // Output has the same shape of the num_days.
 REGISTER_OP("DateFromUnixDate")
