@@ -86,6 +86,30 @@ def datetime_from_timestamp(timestamp, time_zone="UTC", name=None):
   )
 
 
+def cast_to_datetime_from_string(
+    datetime_string, format_string=None, name=None
+):
+  """Returns a datetime by casting a string.
+
+  Equivalent SQL: CAST(string AS DATETIME [FORMAT format_string])
+
+  Args:
+    datetime_string: tf.Tensor of type string. The string must conform to the
+      supported datetime literal format, and is independent of time zone. If the
+      string expression is invalid or represents a datetime that is outside of
+      the supported min/max range, then an error is produced.
+    format_string: tf.Tensor of type string. A string which contains format
+      elements.
+    name: An optional name for the op.
+  """
+  return gen_datetime_ops.cast_to_datetime_from_string(
+      datetime_string=datetime_string,
+      format_string="" if format_string is None else format_string,
+      with_format=format_string is not None,
+      name=name,
+  )
+
+
 def datetime_add(datetime, interval, part, name=None):
   """Returns the added DATETIME with the interval of part.
 

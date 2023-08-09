@@ -69,6 +69,18 @@ REGISTER_OP("DatetimeFromTimestamp")
       return tensorflow::OkStatus();
     });
 
+// Register CastToDatetimeFromString op with signature.
+// Output has the same shape of the datetime_string.
+REGISTER_OP("CastToDatetimeFromString")
+    .Input("datetime_string: string")
+    .Input("format_string: string")
+    .Input("with_format: bool")
+    .Output("output: string")
+    .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
+      c->set_output(0, c->input(0));
+      return ::tensorflow::OkStatus();
+    });
+
 // Register DatetimeAdd op with signature.
 // Output has the same shape of the inputs.
 REGISTER_OP("DatetimeAdd")
