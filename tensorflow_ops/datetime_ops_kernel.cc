@@ -13,13 +13,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+#include <cstddef>
 #include <cstdint>
 #include <string>
+#include <utility>
 
 #include "absl/container/flat_hash_set.h"
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
-#include "absl/strings/substitute.h"
 #include "absl/time/time.h"
 #include "sql_utils/public/civil_time.h"
 #include "sql_utils/public/functions/date_time_util.h"
@@ -693,6 +694,50 @@ class LastDayFromDatetime : public OpKernel {
   }
 };
 
+class FormatDatetime : public OpKernel {
+ public:
+  explicit FormatDatetime(OpKernelConstruction* context) : OpKernel(context) {}
+
+  void Compute(OpKernelContext* context) override {
+    // Grab the format string tensor
+    const Tensor& format_tensor = context->input(0);
+    std::string format = format_tensor.flat<tstring>()(0);
+    // Grab the datetime tensor
+    const Tensor& datetime_tensor = context->input(1);
+    auto datetime = datetime_tensor.flat<tstring>();
+
+    // Create an output tensor with the shape of the datetime tensor
+    Tensor* output_tensor = NULL;
+    OP_REQUIRES_OK(context, context->allocate_output(0, datetime_tensor.shape(),
+                                                     &output_tensor));
+    auto output_flat = output_tensor->flat<tstring>();
+
+    const int N = datetime.size();
+    for (int i = 0; i < N; i++) {
+      // Parse the datetime.
+      DatetimeValue datetime_value;
+      OP_REQUIRES_OK(context,
+                     ParseInputDatetime(datetime(i), name(), &datetime_value));
+
+      // Format the datetime string.
+      functions::FormatDateTimestampOptions format_options = {
+          .expand_Q = true,
+          .expand_J = true,
+      };
+      std::string out;
+      OP_REQUIRES_OK(
+          context,
+          ToTslStatus(name(),
+                      functions::FormatDatetimeToStringWithOptions(
+                          format, datetime_value, format_options, &out)));
+
+      // Set the output value.
+      output_flat(i).reserve(out.size());
+      output_flat(i) = std::move(out);
+    }
+  }
+};
+
 class ParseDatetime : public OpKernel {
  public:
   explicit ParseDatetime(OpKernelConstruction* context) : OpKernel(context) {}
@@ -808,6 +853,8 @@ REGISTER_KERNEL_BUILDER(Name("ExtractTimeFromDatetime").Device(DEVICE_CPU),
                         ExtractTimeFromDatetime);
 REGISTER_KERNEL_BUILDER(Name("LastDayFromDatetime").Device(DEVICE_CPU),
                         LastDayFromDatetime);
+REGISTER_KERNEL_BUILDER(Name("FormatDatetime").Device(DEVICE_CPU),
+                        FormatDatetime);
 REGISTER_KERNEL_BUILDER(Name("ParseDatetime").Device(DEVICE_CPU),
                         ParseDatetime);
 REGISTER_KERNEL_BUILDER(Name("SafeParseDatetime").Device(DEVICE_CPU),

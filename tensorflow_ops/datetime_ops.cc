@@ -158,6 +158,17 @@ REGISTER_OP("LastDayFromDatetime")
       return tensorflow::OkStatus();
     });
 
+// Register FormatDatetime op with signature.
+// Output has the same shape of the input datetime.
+REGISTER_OP("FormatDatetime")
+    .Input("format_string: string")
+    .Input("datetime: string")
+    .Output("output: string")
+    .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
+      c->set_output(0, c->input(1));
+      return ::tensorflow::OkStatus();
+    });
+
 // Register ParseDatetime op with signature.
 // Output has the same shape of the input datetime.
 REGISTER_OP("ParseDatetime")

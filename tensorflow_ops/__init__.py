@@ -30,6 +30,7 @@ from bigquery_ml_utils.tensorflow_ops.date_ops import unix_date
 from bigquery_ml_utils.tensorflow_ops.datetime_ops import extract_date_from_datetime
 from bigquery_ml_utils.tensorflow_ops.datetime_ops import extract_from_datetime
 from bigquery_ml_utils.tensorflow_ops.datetime_ops import extract_time_from_datetime
+from bigquery_ml_utils.tensorflow_ops.datetime_ops import format_datetime
 from bigquery_ml_utils.tensorflow_ops.datetime_ops import last_day_from_datetime
 from bigquery_ml_utils.tensorflow_ops.datetime_ops import parse_datetime
 from bigquery_ml_utils.tensorflow_ops.datetime_ops import safe_parse_datetime

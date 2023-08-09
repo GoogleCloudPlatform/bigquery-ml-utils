@@ -223,6 +223,22 @@ def last_day_from_datetime(datetime, part="MONTH", name=None):
   )
 
 
+def format_datetime(format_string, datetime, name=None):
+  """Returns the datetime string based on the format_string.
+
+  Equivalent SQL: FORMAT_DATETIME(format_string, datetime_expression)
+
+  Args:
+    format_string: tf.Tensor of type string. A string represents the format of
+      the datetime value.
+    datetime: tf.Tensor of type string. Datetime in "%F %H:%M:%E6S" format.
+    name: An optional name for the op.
+  """
+  return gen_datetime_ops.format_datetime(
+      format_string=format_string, datetime=datetime, name=name
+  )
+
+
 def parse_datetime(format_string, datetime_string, name=None):
   """Returns the parsed DATETIME value based on the format_string.
 
