@@ -1,0 +1,49 @@
+{
+	"feature_names" : 
+	[
+		"product_data_storage",
+		"product_travel_expense",
+		"product_payroll",
+		"product_accounting",
+		"csat_score",
+		"articles_viewed",
+		"smartphone_notifications_viewed",
+		"marketing_emails_clicked",
+		"social_media_ads_viewed",
+		"minutes_customer_support",
+		"company_size",
+		"us_region"
+	],
+	"features" : 
+	{
+		"articles_viewed" : {},
+		"company_size" : 
+		{
+			"encode_type" : "categorical_one_hot"
+		},
+		"csat_score" : {},
+		"marketing_emails_clicked" : {},
+		"minutes_customer_support" : {},
+		"product_accounting" : 
+		{
+			"encode_type" : "categorical_one_hot"
+		},
+		"product_data_storage" : {},
+		"product_payroll" : 
+		{
+			"encode_type" : "categorical_one_hot"
+		},
+		"product_travel_expense" : 
+		{
+			"encode_type" : "categorical_one_hot"
+		},
+		"smartphone_notifications_viewed" : {},
+		"social_media_ads_viewed" : {},
+		"us_region" : 
+		{
+			"encode_type" : "categorical_one_hot"
+		}
+	},
+	"label_col" : "survival_time",
+	"model_type" : "boosted_tree_aft"
+}

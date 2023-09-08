@@ -341,6 +341,85 @@ class PredictorTest(absltest.TestCase):
         np.array(encoded, dtype=float), mock_xgb.DMatrix.call_args[0][0]
     )
 
+  def test_boosted_tree_cox(self):
+    model_path = str(
+        importlib_resources.files('bigquery_ml_utils').joinpath(
+            'tests/data/inference/xgboost_predictor/boosted_tree_cox_model'
+        )
+    )
+    test_predictor = xgboost_predictor.Predictor.from_path(model_path)
+    predict_output = test_predictor.predict([
+        {
+            'product_data_storage': 2048,
+            'product_travel_expense': 'Free-Trial',
+            'product_payroll': 'Active',
+            'product_accounting': 'No',
+            'csat_score': 9,
+            'articles_viewed': 4,
+            'smartphone_notifications_viewed': 0,
+            'marketing_emails_clicked': 14,
+            'social_media_ads_viewed': 1,
+            'minutes_customer_support': 8.3,
+            'company_size': '10-50',
+            'us_region': 'West North Central',
+        },
+        {
+            'product_data_storage': 2048,
+            'product_travel_expense': 'Free-Trial',
+            'product_payroll': 'Free-Trial',
+            'product_accounting': 'Active',
+            'csat_score': 9,
+            'articles_viewed': 4,
+            'smartphone_notifications_viewed': 2,
+            'marketing_emails_clicked': 12,
+            'social_media_ads_viewed': 1,
+            'minutes_customer_support': 0.0,
+            'company_size': '100-250',
+            'us_region': 'South Atlantic',
+        },
+    ])
+    self.assertSequenceAlmostEqual([1.3199291229248047, 1.4520472288131714],
+                                   predict_output)
+
+  def test_boosted_tree_aft(self):
+    model_path = str(
+        importlib_resources.files('bigquery_ml_utils').joinpath(
+            'tests/data/inference/xgboost_predictor/boosted_tree_aft_model'
+        )
+    )
+    test_predictor = xgboost_predictor.Predictor.from_path(model_path)
+    predict_output = test_predictor.predict([
+        {
+            'product_data_storage': 2048,
+            'product_travel_expense': 'Free-Trial',
+            'product_payroll': 'Active',
+            'product_accounting': 'No',
+            'csat_score': 9,
+            'articles_viewed': 4,
+            'smartphone_notifications_viewed': 0,
+            'marketing_emails_clicked': 14,
+            'social_media_ads_viewed': 1,
+            'minutes_customer_support': 8.3,
+            'company_size': '10-50',
+            'us_region': 'West North Central',
+        },
+        {
+            'product_data_storage': 2048,
+            'product_travel_expense': 'Free-Trial',
+            'product_payroll': 'Free-Trial',
+            'product_accounting': 'Active',
+            'csat_score': 9,
+            'articles_viewed': 4,
+            'smartphone_notifications_viewed': 2,
+            'marketing_emails_clicked': 12,
+            'social_media_ads_viewed': 1,
+            'minutes_customer_support': 0.0,
+            'company_size': '100-250',
+            'us_region': 'South Atlantic',
+        },
+    ])
+    self.assertSequenceAlmostEqual([3.8022050857543945, 4.4091620445251465],
+                                   predict_output)
 
 if __name__ == '__main__':
   absltest.main()

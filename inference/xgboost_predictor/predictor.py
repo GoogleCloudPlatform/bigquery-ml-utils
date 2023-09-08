@@ -87,7 +87,8 @@ class Predictor(object):
     if 'model_type' not in self._model_metadata or self._model_metadata[
         'model_type'] not in [
             'boosted_tree_regressor', 'boosted_tree_classifier',
-            'random_forest_regressor', 'random_forest_classifier'
+            'random_forest_regressor', 'random_forest_classifier',
+            'boosted_tree_cox', 'boosted_tree_aft'
         ]:
       raise ValueError('Invalid model_type in model_metadata')
     self._model_type = self._model_metadata['model_type']
@@ -318,7 +319,7 @@ class Predictor(object):
         final_outputs.append(final_output)
       return final_outputs
     else:
-      # Boosted tree or random forest regressor.
+      # Boosted tree/random forest regressor, and boosted tree survival models.
       return self._model.predict(prediction_input).tolist()
 
   @classmethod

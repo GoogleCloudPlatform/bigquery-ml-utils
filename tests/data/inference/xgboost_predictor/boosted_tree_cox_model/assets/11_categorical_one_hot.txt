@@ -1,0 +1,10 @@
+_null_filler
+East North Central
+East South Central
+Middle Atlantic
+Mountain
+New England
+Pacific
+South Atlantic
+West North Central
+West South Central
