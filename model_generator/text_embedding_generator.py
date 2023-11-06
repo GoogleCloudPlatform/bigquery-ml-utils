@@ -18,7 +18,6 @@ import enum
 
 import tensorflow as tf
 import tensorflow_hub as hub
-import tensorflow_text as text
 
 
 @enum.unique
@@ -80,7 +79,6 @@ class TextEmbeddingModelGenerator:
     Returns:
       Generated model with default signature.
     """
-    model = None
     if model_type.lower() == TextEmbeddingModelType.NNLM:
       model = self._generate_nnlm()
     elif model_type.lower() == TextEmbeddingModelType.SWIVEL:
@@ -103,7 +101,7 @@ class TextEmbeddingModelGenerator:
       Generated NNLM model.
     """
     text_input = tf.keras.layers.Input(
-        shape=(), dtype=tf.string, name="embedding_input"
+        shape=(), dtype=tf.string, name="content"
     )
     preprocessor = hub.KerasLayer(self._nnlm_link)
     outputs = preprocessor(text_input)
@@ -117,7 +115,7 @@ class TextEmbeddingModelGenerator:
       Generated SWIVEL model.
     """
     text_input = tf.keras.layers.Input(
-        shape=(), dtype=tf.string, name="embedding_input"
+        shape=(), dtype=tf.string, name="content"
     )
     preprocessor = hub.KerasLayer(self._swivel_link)
     outputs = preprocessor(text_input)
@@ -131,7 +129,7 @@ class TextEmbeddingModelGenerator:
       Generated BERT model.
     """
     text_input = tf.keras.layers.Input(
-        shape=(), dtype=tf.string, name="embedding_input"
+        shape=(), dtype=tf.string, name="content"
     )
     preprocessor = hub.KerasLayer(self._bert_preprocess_link)
     encoder_inputs = preprocessor(text_input)
@@ -152,12 +150,10 @@ class TextEmbeddingModelGenerator:
     """
     @tf.function
     def export_model_wapper(embedding_model, **feature_specs):
-      return {"embedding": embedding_model(feature_specs)}
+      return {"text_embedding": embedding_model(feature_specs)}
 
     tensor_spec = {
-        "embedding_input": tf.TensorSpec(
-            shape=(None,), dtype=tf.string, name="embedding_input"
-        )
+        "content": tf.TensorSpec(shape=(None,), dtype=tf.string, name="content")
     }
     signature = {
         "serving_default": export_model_wapper.get_concrete_function(
