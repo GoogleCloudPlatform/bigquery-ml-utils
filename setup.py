@@ -56,7 +56,7 @@ setup(
         'absl-py',
         'xgboost',
         'numpy',
-        'tensorflow ~= 2.11.0',
+        'tensorflow',
         'tensorflow-hub',
         'tensorflow-text',
         'tzdata',
