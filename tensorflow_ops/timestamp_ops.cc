@@ -30,7 +30,7 @@ REGISTER_OP("ExtractFromTimestamp")
     .Output("part_out: int64")
     .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
       c->set_output(0, c->input(1));
-      return ::tensorflow::OkStatus();
+      return absl::OkStatus();
     });
 
 // Register StringFromTimestamp op with signature.
@@ -41,7 +41,7 @@ REGISTER_OP("StringFromTimestamp")
     .Output("output: string")
     .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
       c->set_output(0, c->input(0));
-      return ::tensorflow::OkStatus();
+      return absl::OkStatus();
     });
 
 // Register TimestampFromString op with signature.
@@ -53,7 +53,7 @@ REGISTER_OP("TimestampFromString")
     .Output("output: string")
     .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
       c->set_output(0, c->input(0));
-      return ::tensorflow::OkStatus();
+      return absl::OkStatus();
     });
 
 // Register TimestampFromDate op with signature.
@@ -64,7 +64,7 @@ REGISTER_OP("TimestampFromDate")
     .Output("output: string")
     .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
       c->set_output(0, c->input(0));
-      return ::tensorflow::OkStatus();
+      return absl::OkStatus();
     });
 
 // Register TimestampFromDatetime op with signature.
@@ -75,7 +75,7 @@ REGISTER_OP("TimestampFromDatetime")
     .Output("output: string")
     .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
       c->set_output(0, c->input(0));
-      return ::tensorflow::OkStatus();
+      return absl::OkStatus();
     });
 
 // Register TimestampAdd op with signature.
@@ -87,7 +87,7 @@ REGISTER_OP("TimestampAdd")
     .Output("output: string")
     .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
       c->set_output(0, c->input(0));
-      return ::tensorflow::OkStatus();
+      return absl::OkStatus();
     });
 
 // Register TimestampSub op with signature.
@@ -99,7 +99,7 @@ REGISTER_OP("TimestampSub")
     .Output("output: string")
     .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
       c->set_output(0, c->input(0));
-      return ::tensorflow::OkStatus();
+      return absl::OkStatus();
     });
 
 // Register TimestampDiff op with signature.
@@ -111,7 +111,7 @@ REGISTER_OP("TimestampDiff")
     .Output("output: int64")
     .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
       c->set_output(0, c->input(0));
-      return ::tensorflow::OkStatus();
+      return absl::OkStatus();
     });
 
 // Register TimestampTrunc op with signature.
@@ -123,7 +123,7 @@ REGISTER_OP("TimestampTrunc")
     .Output("output: string")
     .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
       c->set_output(0, c->input(0));
-      return ::tensorflow::OkStatus();
+      return absl::OkStatus();
     });
 
 // Register FormatTimestamp op with signature.
@@ -135,7 +135,7 @@ REGISTER_OP("FormatTimestamp")
     .Output("output: string")
     .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
       c->set_output(0, c->input(1));
-      return ::tensorflow::OkStatus();
+      return absl::OkStatus();
     });
 
 // Register ParseTimestamp op with signature.
@@ -147,7 +147,7 @@ REGISTER_OP("ParseTimestamp")
     .Output("output: string")
     .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
       c->set_output(0, c->input(1));
-      return ::tensorflow::OkStatus();
+      return absl::OkStatus();
     });
 
 // Register SafeParseTimestamp op with signature.
@@ -159,7 +159,7 @@ REGISTER_OP("SafeParseTimestamp")
     .Output("output: string")
     .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
       c->set_output(0, c->input(1));
-      return ::tensorflow::OkStatus();
+      return absl::OkStatus();
     });
 
 // Register TimestampMicros op with signature.
@@ -169,7 +169,7 @@ REGISTER_OP("TimestampMicros")
     .Output("output: string")
     .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
       c->set_output(0, c->input(0));
-      return ::tensorflow::OkStatus();
+      return absl::OkStatus();
     });
 
 // Register TimestampMillis op with signature.
@@ -179,7 +179,7 @@ REGISTER_OP("TimestampMillis")
     .Output("output: string")
     .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
       c->set_output(0, c->input(0));
-      return ::tensorflow::OkStatus();
+      return absl::OkStatus();
     });
 
 // Register TimestampSeconds op with signature.
@@ -189,7 +189,7 @@ REGISTER_OP("TimestampSeconds")
     .Output("output: string")
     .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
       c->set_output(0, c->input(0));
-      return ::tensorflow::OkStatus();
+      return absl::OkStatus();
     });
 
 // Register UnixMicros op with signature.
@@ -199,7 +199,7 @@ REGISTER_OP("UnixMicros")
     .Output("output: int64")
     .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
       c->set_output(0, c->input(0));
-      return ::tensorflow::OkStatus();
+      return absl::OkStatus();
     });
 
 // Register UnixMillis op with signature.
@@ -209,7 +209,7 @@ REGISTER_OP("UnixMillis")
     .Output("output: int64")
     .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
       c->set_output(0, c->input(0));
-      return ::tensorflow::OkStatus();
+      return absl::OkStatus();
     });
 
 // Register UnixSeconds op with signature.
@@ -219,7 +219,7 @@ REGISTER_OP("UnixSeconds")
     .Output("output: int64")
     .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
       c->set_output(0, c->input(0));
-      return ::tensorflow::OkStatus();
+      return absl::OkStatus();
     });
 
 }  // namespace bigquery_ml_utils

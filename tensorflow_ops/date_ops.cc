@@ -30,7 +30,7 @@ REGISTER_OP("ExtractFromDate")
     .Output("part_out: int64")
     .SetShapeFn([](tensorflow::shape_inference::InferenceContext* c) {
       c->set_output(0, c->input(0));
-      return tensorflow::OkStatus();
+      return absl::OkStatus();
     });
 
 // Register DateFromComponents op with signature.
@@ -42,7 +42,7 @@ REGISTER_OP("DateFromComponents")
     .Output("output: string")
     .SetShapeFn([](tensorflow::shape_inference::InferenceContext* c) {
       c->set_output(0, c->input(0));
-      return tensorflow::OkStatus();
+      return absl::OkStatus();
     });
 
 // Register DateFromTimestamp op with signature.
@@ -53,7 +53,7 @@ REGISTER_OP("DateFromTimestamp")
     .Output("output: string")
     .SetShapeFn([](tensorflow::shape_inference::InferenceContext* c) {
       c->set_output(0, c->input(0));
-      return tensorflow::OkStatus();
+      return absl::OkStatus();
     });
 
 // Register DateFromDatetime op with signature.
@@ -63,7 +63,7 @@ REGISTER_OP("DateFromDatetime")
     .Output("output: string")
     .SetShapeFn([](tensorflow::shape_inference::InferenceContext* c) {
       c->set_output(0, c->input(0));
-      return tensorflow::OkStatus();
+      return absl::OkStatus();
     });
 
 // Register CastToDateFromString op with signature.
@@ -75,7 +75,7 @@ REGISTER_OP("CastToDateFromString")
     .Output("output: string")
     .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
       c->set_output(0, c->input(0));
-      return ::tensorflow::OkStatus();
+      return absl::OkStatus();
     });
 
 // Register DateFromUnixDate op with signature.
@@ -85,7 +85,7 @@ REGISTER_OP("DateFromUnixDate")
     .Output("output: string")
     .SetShapeFn([](tensorflow::shape_inference::InferenceContext* c) {
       c->set_output(0, c->input(0));
-      return tensorflow::OkStatus();
+      return absl::OkStatus();
     });
 
 // Register DateAdd op with signature.
@@ -97,7 +97,7 @@ REGISTER_OP("DateAdd")
     .Output("output: string")
     .SetShapeFn([](tensorflow::shape_inference::InferenceContext* c) {
       c->set_output(0, c->input(0));
-      return tensorflow::OkStatus();
+      return absl::OkStatus();
     });
 
 // Register DateSub op with signature.
@@ -109,7 +109,7 @@ REGISTER_OP("DateSub")
     .Output("output: string")
     .SetShapeFn([](tensorflow::shape_inference::InferenceContext* c) {
       c->set_output(0, c->input(0));
-      return tensorflow::OkStatus();
+      return absl::OkStatus();
     });
 
 // Register DateDiff op with signature.
@@ -121,7 +121,7 @@ REGISTER_OP("DateDiff")
     .Output("output: int64")
     .SetShapeFn([](tensorflow::shape_inference::InferenceContext* c) {
       c->set_output(0, c->input(0));
-      return tensorflow::OkStatus();
+      return absl::OkStatus();
     });
 
 // Register DateTrunc op with signature.
@@ -132,7 +132,7 @@ REGISTER_OP("DateTrunc")
     .Output("output: string")
     .SetShapeFn([](tensorflow::shape_inference::InferenceContext* c) {
       c->set_output(0, c->input(0));
-      return tensorflow::OkStatus();
+      return absl::OkStatus();
     });
 
 // Register FormatDate op with signature.
@@ -143,7 +143,7 @@ REGISTER_OP("FormatDate")
     .Output("output: string")
     .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
       c->set_output(0, c->input(1));
-      return ::tensorflow::OkStatus();
+      return absl::OkStatus();
     });
 
 // Register LastDay op with signature.
@@ -154,7 +154,7 @@ REGISTER_OP("LastDayFromDate")
     .Output("output: string")
     .SetShapeFn([](tensorflow::shape_inference::InferenceContext* c) {
       c->set_output(0, c->input(0));
-      return tensorflow::OkStatus();
+      return absl::OkStatus();
     });
 
 // Register ParseDate op with signature.
@@ -165,7 +165,7 @@ REGISTER_OP("ParseDate")
     .Output("output: string")
     .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
       c->set_output(0, c->input(1));
-      return ::tensorflow::OkStatus();
+      return absl::OkStatus();
     });
 
 // Register SafeParseDate op with signature.
@@ -176,7 +176,7 @@ REGISTER_OP("SafeParseDate")
     .Output("output: string")
     .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
       c->set_output(0, c->input(1));
-      return ::tensorflow::OkStatus();
+      return absl::OkStatus();
     });
 
 // Register UnixDate op with signature.
@@ -186,7 +186,7 @@ REGISTER_OP("UnixDate")
     .Output("output: int64")
     .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
       c->set_output(0, c->input(0));
-      return ::tensorflow::OkStatus();
+      return absl::OkStatus();
     });
 
 }  // namespace bigquery_ml_utils
