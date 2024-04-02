@@ -2,17 +2,18 @@
 
 BigQuery supports remote models, such as Vertex AI LLMs, to perform remote inference operations on both structured and unstructured data. When using remote inference, the user needs to be aware of quotas and limits. If these limits are exceeded, it can result in retryable errors for a subset of rows. This often requires reprocessing.
 
-In cases when a retryable error has occurred for some rows, we provide SQL scripts to iterate through the inference call until all rows have been successfully annotated.
+In cases when a retryable error has occurred for some rows, we provide SQL scripts to iterate through the inference call until all rows have been successfully labeled.
 
 There are two scripts based whether the input data is in an object table or a native BigQuery table. 
 
 ## Object table script
-The object table script creates a target table to store successful annotations. To do this, it calls the inference in a loop. In the first iteration, a small LIMIT is set on the inference call to quickly create a table with the desired schema. The number of rows to process for each inference call can be modified through the batch_size parameter.
+The object table script creates a target table to store successful ML inference results. To do this, it calls the inference in a loop. In the first iteration, a small LIMIT is set on the inference call to quickly create a table with the desired schema. The number of rows to process for each inference call can be modified through the `batch_size` parameter.
 
 This script applies to the following models:
 - ML.ANNOTATE_IMAGE
 - ML.PROCESS_DOCUMENT
 - ML.TRANSCRIBE
+- ML.GENERATE_TEXT
 
 For the object SQL script, you need to update the following parameters at the top of the [object table script](object_table_inference_loop_generic.sql):
 
@@ -45,9 +46,9 @@ We provide an example using ML.ANNOTATE_IMAGE under the [object table example sc
 
 ## Structured table script
 
-This script creates a target table to track all successful annotations and loops through the inference call until all rows are annotated. 
+This script creates a target table to track all successful ML inferences and loops through the inference call until all rows are labeled. 
 
-To find the rows that need to be annotated at each iteration, you need to refer to the candidate key of the table, the `key_columns` parameter in the script.
+To find the rows that need to be labeled at each iteration, you need to refer to the candidate key of the table, the `key_columns` parameter in the script.
 
 This script applies to the following models:
 - ML.GENERATE_EMBEDDINGS
@@ -74,11 +75,7 @@ DECLARE ml_model DEFAULT /* ml model name */;
 DECLARE ml_function DEFAULT /* ml function name */;
 
 -- The ML query to use for the ML operation, requires the unique key
-DECLARE
-  ml_query
-    DEFAULT
-      FORMAT(
-        "SELECT %s, text AS content FROM `%s`", ARRAY_TO_STRING(key_columns, ','), source_table);
+DECLARE ml_query DEFAULT "SELECT *, /* ML operation dependent field */ FROM `" || source_table || "`";
 
 -- The ML options to use for the ML operation
 DECLARE ml_options DEFAULT /* ml function options */;

@@ -11,14 +11,8 @@ DECLARE key_columns DEFAULT ARRAY[/* key columns */];
 DECLARE ml_model DEFAULT /* ml model name */;
 -- The name of the ML function to use for the ML operation
 DECLARE ml_function DEFAULT /* ml function name */;
-
 -- The ML query to use for the ML operation, requires the unique key
-DECLARE
-  ml_query
-    DEFAULT
-      FORMAT(
-        "SELECT %s, text AS content FROM `%s`", ARRAY_TO_STRING(key_columns, ','), source_table);
-
+DECLARE ml_query DEFAULT "SELECT *, /* ML operation dependent field */ FROM `" || source_table || "`";
 -- The ML options to use for the ML operation
 DECLARE ml_options DEFAULT /* ml function options */;
 -- Name of the status column as output by the above ML operation
