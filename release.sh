@@ -41,23 +41,17 @@ function main() {
   SUPPORTED_PY_VERSIONS=( 7 8 9 10 )
   BAZEL_FILE=/usr/bin/bazel
 
-  USAGE='release.sh -t -v PKG_VERSION -d WHEEL_DIST'
+  USAGE='release.sh -t -d WHEEL_DIST'
   TEST_MODE=false
 
   while getopts 'tv:d:' arg; do
     case "${arg}" in
       t) TEST_MODE=true ;;
-      v) PKG_VERSION="${OPTARG}" ;;
       d) WHEEL_DIST="${OPTARG}" ;;
       *) echo "$USAGE" >&2; return 1 ;;
     esac
   done
 
-  if [[ -z ${PKG_VERSION} ]]; then
-    echo "ERROR: No PKG_VERSION provided" >&2
-    echo "$USAGE" >&2
-    exit 1
-  fi
   if [[ -z ${WHEEL_DIST} ]]; then
     echo "ERROR: No WHEEL_DIST provided" >&2
     echo "$USAGE" >&2
@@ -100,7 +94,7 @@ function main() {
       exit 1
     fi
 
-    echo "=== Building bigquery-ml-utils pip package $PKG_VERSION"
+    echo "=== Building bigquery-ml-utils pip package"
     bazel clean --expunge && bazel build build_pip_pkg
     bazel-bin/build_pip_pkg artifacts
     deactivate
