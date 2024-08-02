@@ -14,9 +14,12 @@ DECLARE key_columns DEFAULT ARRAY["filename"];
 -- *** Updating the fields below is optional ***
 -- The number of rows to process per each query
 DECLARE batch_size DEFAULT 80000;
+-- The time to wait before the script terminates
 DECLARE termination_time_secs DEFAULT(23 * 60 * 60);
--- An optional filter condition to apply to the source table.
+-- An optional filter condition to apply to the source table
 DECLARE filter_clause DEFAULT "TRUE";
+-- The columns to project from the source table
+DECLARE projection_columns DEFAULT ARRAY["*"];
 -- *** End of section ***
 
 -- *** Updating the fields below should be quite rare ***
@@ -25,7 +28,7 @@ DECLARE
   ml_query
     DEFAULT
       FORMAT(
-        "SELECT %s, %s AS content FROM `%s` WHERE %s", ARRAY_TO_STRING(key_columns, ','), content_column, source_table, filter_clause);
+        "SELECT %s, %s AS content FROM `%s` WHERE %s", ARRAY_TO_STRING(projection_columns, ','), content_column, source_table, filter_clause);
 
 -- The ML options to use for the ML operation
 DECLARE ml_options DEFAULT "STRUCT(TRUE AS flatten_json_output)";
