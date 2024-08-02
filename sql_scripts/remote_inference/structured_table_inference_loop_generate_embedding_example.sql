@@ -1,4 +1,4 @@
--- Update the required fields below --
+-- *** Update the required fields below ***
 -- The name of the source table
 DECLARE source_table DEFAULT "bigquery-public-data.bbc_news.fulltext";
 -- The name of the target table
@@ -9,13 +9,15 @@ DECLARE ml_model DEFAULT "target_dataset.embedding_model";
 DECLARE content_column DEFAULT "body";
 -- The unique key columns
 DECLARE key_columns DEFAULT ARRAY["filename"];
+-- *** End of section ***
 
--- Updating the fields below is optional --
+-- *** Updating the fields below is optional ***
 -- The number of rows to process per each query
 DECLARE batch_size DEFAULT 80000;
 DECLARE termination_time_secs DEFAULT(23 * 60 * 60);
+-- *** End of section ***
 
--- Updating the fields below should be quite rare --
+-- *** Updating the fields below should be quite rare ***
 -- The ML query to use for the ML operation, requires the unique key
 DECLARE
   ml_query
@@ -34,6 +36,7 @@ SELECT
   STRING_AGG("S." || KEY || " = T." || KEY, " AND ")
 FROM
   UNNEST(key_columns) AS KEY );
+-- *** End of section ***
 
 -- Create the target table first if it does not exist
 EXECUTE IMMEDIATE
