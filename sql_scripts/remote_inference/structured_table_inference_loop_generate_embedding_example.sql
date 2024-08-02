@@ -76,7 +76,7 @@ REPEAT
 DROP TABLE IF EXISTS _SESSION.embedding_batch;
 
 -- Identify new rows in the source table to generate embeddings
--- For throughput reasons, Materialize these rows into a temp table before calling GENERATE_EMBEDDING()
+-- For throughput reasons, materialize these rows into a temp table before calling GENERATE_EMBEDDING()
 EXECUTE
   IMMEDIATE
     FORMAT(
