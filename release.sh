@@ -2,8 +2,14 @@
 set -e
 
 local_install() {
-  echo "=== Installing Python 3.$TEST_PY_VERSION"
-  sudo apt update && sudo apt install python3.$TEST_PY_VERSION rsync wget
+  echo "=== Setting up pyenv"
+  git clone https://github.com/pyenv/pyenv.git ~/.pyenv
+  export PYENV_ROOT="$HOME/.pyenv"
+  export PATH="$PYENV_ROOT/bin:$PATH"
+
+  echo "=== Installing Python 3.10"
+  pyenv install 3.10
+  pyenv global 3.10
 
   echo "=== Setting up Bazelisk"
   sudo wget "https://github.com/bazelbuild/bazelisk/releases/download/v1.16.0/bazelisk-linux-amd64" -O $BAZEL_FILE
@@ -11,20 +17,23 @@ local_install() {
 }
 
 docker_install() {
-  echo "=== Installing Python 3.8 and Python 3.9"
-  dnf update && dnf install python38 python39 rsync wget yum-utils make gcc openssl-devel bzip2-devel libffi-devel zlib-devel -y
+  echo "=== Setting up pyenv"
+  git clone https://github.com/pyenv/pyenv.git ~/.pyenv
+  export PYENV_ROOT="$HOME/.pyenv"
+  export PATH="$PYENV_ROOT/bin:$PATH"
 
   echo "=== Installing Python 3.7"
-  wget https://www.python.org/ftp/python/3.7.12/Python-3.7.12.tgz && tar xzf Python-3.7.12.tgz
-  pushd Python-3.7.12 && ./configure --with-system-ffi --with-computed-gotos --enable-loadable-sqlite-extensions
-  make -j ${nproc} && make altinstall
-  popd
+  pyenv install 3.7
+
+  echo "=== Installing Python 3.8"
+  pyenv install 3.8
+
+  echo "=== Installing Python 3.9"
+  pyenv install 3.9
 
   echo "=== Installing Python 3.10"
-  wget https://www.python.org/ftp/python/3.10.5/Python-3.10.5.tgz && tar xzf Python-3.10.5.tgz
-  pushd Python-3.10.5 && ./configure --with-system-ffi --with-computed-gotos --enable-loadable-sqlite-extensions
-  make -j ${nproc} && make altinstall
-  popd
+  pyenv install 3.10
+  pyenv global 3.10
 
   echo "=== Setting up Bazelisk to pick up Bazel version in .bazelversion"
   wget "https://github.com/bazelbuild/bazelisk/releases/download/v1.16.0/bazelisk-linux-amd64" -O $BAZEL_FILE
@@ -71,9 +80,9 @@ function main() {
   for V in "${SUPPORTED_PY_VERSIONS[@]}"
   do
     echo "=== Switching to Python 3.$V"
-    PY_V=python3."$V"
-    ${PY_V} -m pip install --upgrade pip
-    ${PY_V} -m pip install virtualenv && ${PY_V} -m virtualenv ~/.virtualenvs/env3$V && source ~/.virtualenvs/env3$V/bin/activate
+    pyenv global 3.$V
+    python3 -m pip install --upgrade pip
+    python3 -m pip install virtualenv && python3 -m virtualenv ~/.virtualenvs/env3$V && source ~/.virtualenvs/env3$V/bin/activate
 
     # Retry in case newly installed tf is not recognized right away.
     echo "=== Generating .bazelrc"
