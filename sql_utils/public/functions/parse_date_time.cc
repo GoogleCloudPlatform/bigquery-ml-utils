@@ -20,6 +20,7 @@
 #include <time.h>
 
 #include <cctype>
+#include <cmath>
 #include <cstdint>
 #include <limits>
 #include <optional>
@@ -31,7 +32,6 @@
 #include "absl/strings/str_format.h"
 #include "absl/time/time.h"
 #include "sql_utils/base/logging.h"
-#include "sql_utils/base/mathutil.h"
 #include "sql_utils/base/ret_check.h"
 #include "sql_utils/base/status_macros.h"
 #include "sql_utils/common/errors.h"
@@ -58,8 +58,8 @@ using parse_date_time_utils::ParseSubSeconds;
 constexpr int64_t kNumMillisPerSecond = 1000;
 
 std::string TimeZoneOffsetToString(int minutes_offset) {
-  const int timezone_hour = bigquery_ml_utils_base::MathUtil::Abs(minutes_offset) / 60;
-  const int timezone_minute = bigquery_ml_utils_base::MathUtil::Abs(minutes_offset) % 60;
+  const int timezone_hour = std::abs(minutes_offset) / 60;
+  const int timezone_minute = std::abs(minutes_offset) % 60;
   std::string offset_string;
   absl::StrAppendFormat(&offset_string, "%c%02d:%02d",
                         (minutes_offset < 0 ? '-' : '+'), timezone_hour,
