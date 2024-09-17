@@ -24,7 +24,6 @@
 
 #include "absl/base/attributes.h"
 #include "sql_utils/base/logging.h"
-#include "sql_utils/base/mathlimits.h"
 
 namespace bigquery_ml_utils_base {
 
@@ -58,7 +57,7 @@ class MathUtil {
   // rounding_value must be greater than zero.
   template <typename IntType>
   static IntType RoundUpTo(IntType input_value, IntType rounding_value) {
-    static_assert(MathLimits<IntType>::kIsInteger,
+    static_assert(std::numeric_limits<IntType>::is_integer,
                   "RoundUpTo() operation type is not integer");
     SQL_DCHECK_GE(input_value, 0);
     SQL_DCHECK_GT(rounding_value, 0);
@@ -111,12 +110,12 @@ class MathUtil {
 template<typename IntegralType, bool ceil>
 IntegralType MathUtil::CeilOrFloorOfRatio(IntegralType numerator,
                                           IntegralType denominator) {
-  static_assert(MathLimits<IntegralType>::kIsInteger,
+  static_assert(std::numeric_limits<IntegralType>::is_integer,
                 "CeilOfRatio is only defined for integral types");
   SQL_DCHECK_NE(0, denominator) << "Division by zero is not supported.";
-  SQL_DCHECK(!MathLimits<IntegralType>::kIsSigned ||
-         numerator != MathLimits<IntegralType>::kMin ||
-         denominator != -1)
+  SQL_DCHECK(!std::numeric_limits<IntegralType>::is_signed ||
+             numerator != std::numeric_limits<IntegralType>::lowest() ||
+             denominator != -1)
       << "Dividing " << numerator << "by -1 is not supported: it would SIGFPE";
 
   const IntegralType rounded_toward_zero = numerator / denominator;
