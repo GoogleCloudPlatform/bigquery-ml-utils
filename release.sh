@@ -72,7 +72,8 @@ function main() {
   do
     echo "=== Switching to Python 3.$V"
     PY_V=python3."$V"
-    ${PY_V} -m venv ~/.virtualenvs/env3$V && source ~/.virtualenvs/env3$V/bin/activate
+    ${PY_V} -m pip install --upgrade pip
+    ${PY_V} -m pip install virtualenv && ${PY_V} -m virtualenv ~/.virtualenvs/env3$V && source ~/.virtualenvs/env3$V/bin/activate
 
     # Retry in case newly installed tf is not recognized right away.
     echo "=== Generating .bazelrc"
