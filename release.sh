@@ -1,32 +1,9 @@
 #!/bin/bash
 set -e
 
-local_install() {
-  echo "=== Installing Python 3.$TEST_PY_VERSION"
-  sudo apt update && sudo apt install python3.$TEST_PY_VERSION rsync wget
-
-  echo "=== Setting up Bazelisk"
-  sudo wget "https://github.com/bazelbuild/bazelisk/releases/download/v1.16.0/bazelisk-linux-amd64" -O $BAZEL_FILE
-  sudo chmod +x $BAZEL_FILE
-}
-
 docker_install() {
-  echo "=== Installing Python 3.8 and Python 3.9"
-  dnf update && dnf install python38 python39 rsync wget yum-utils make gcc openssl-devel bzip2-devel libffi-devel zlib-devel -y
-
-  echo "=== Installing Python 3.7"
-  wget https://www.python.org/ftp/python/3.7.12/Python-3.7.12.tgz && tar xzf Python-3.7.12.tgz
-  pushd Python-3.7.12 && ./configure --with-system-ffi --with-computed-gotos --enable-loadable-sqlite-extensions
-  make -j ${nproc} && make altinstall
-  popd
-
-  echo "=== Installing Python 3.10"
-  wget https://www.python.org/ftp/python/3.10.5/Python-3.10.5.tgz && tar xzf Python-3.10.5.tgz
-  pushd Python-3.10.5 && ./configure --with-system-ffi --with-computed-gotos --enable-loadable-sqlite-extensions
-  make -j ${nproc} && make altinstall
-  popd
-
   echo "=== Setting up Bazelisk to pick up Bazel version in .bazelversion"
+  dnf -y install wget rsync
   wget "https://github.com/bazelbuild/bazelisk/releases/download/v1.16.0/bazelisk-linux-amd64" -O $BAZEL_FILE
   chmod +x $BAZEL_FILE
 
@@ -35,18 +12,14 @@ docker_install() {
 }
 
 function main() {
-  # Python 3.10.
-  TEST_PY_VERSION=10
   # Python 3.7 ~ 3.10.
   SUPPORTED_PY_VERSIONS=( 7 8 9 10 )
   BAZEL_FILE=/usr/bin/bazel
 
-  USAGE='release.sh -t -d WHEEL_DIST'
-  TEST_MODE=false
+  USAGE='release.sh -d WHEEL_DIST'
 
-  while getopts 'tv:d:' arg; do
+  while getopts 'd:' arg; do
     case "${arg}" in
-      t) TEST_MODE=true ;;
       d) WHEEL_DIST="${OPTARG}" ;;
       *) echo "$USAGE" >&2; return 1 ;;
     esac
@@ -58,22 +31,14 @@ function main() {
     exit 1
   fi
 
-  if [[ $TEST_MODE == true ]]
-  then
-    echo "=== Setting up local test environment"
-    SUPPORTED_PY_VERSIONS=( $TEST_PY_VERSION )
-    local_install
-  else
-    echo "=== Setting up manylinxu release environment"
-    docker_install
-  fi
+  echo "=== Setting up manylinux release environment"
+  docker_install
 
   for V in "${SUPPORTED_PY_VERSIONS[@]}"
   do
     echo "=== Switching to Python 3.$V"
     PY_V=python3."$V"
-    ${PY_V} -m pip install --upgrade pip
-    ${PY_V} -m pip install virtualenv && ${PY_V} -m virtualenv ~/.virtualenvs/env3$V && source ~/.virtualenvs/env3$V/bin/activate
+    ${PY_V} -m venv ~/.virtualenvs/env3$V && source ~/.virtualenvs/env3$V/bin/activate
 
     # Retry in case newly installed tf is not recognized right away.
     echo "=== Generating .bazelrc"
@@ -100,13 +65,8 @@ function main() {
     deactivate
   done
 
-  if [[ $TEST_MODE == true ]]
-  then
-    cp -r artifacts/* $WHEEL_DIST
-  else
-    echo "=== Repairing the wheels to be manylinux compatible"
-    auditwheel repair --exclude libtensorflow_framework.so.2 --plat manylinux_2_17_x86_64 -w $WHEEL_DIST artifacts/*.whl
-  fi
+  echo "=== Repairing the wheels to be manylinux compatible"
+  auditwheel repair --exclude libtensorflow_framework.so.2 --plat manylinux_2_17_x86_64 -w $WHEEL_DIST artifacts/*.whl
 
   echo "=== Generated bigquery-ml-utils wheels in $WHEEL_DIST"
 }
