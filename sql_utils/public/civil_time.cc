@@ -19,9 +19,12 @@
 #include <cstdint>
 #include <string>
 
+#include "absl/base/casts.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
 #include "absl/strings/strip.h"
+#include "absl/time/civil_time.h"
+#include "sql_utils/base/logging.h"
 #include "sql_utils/base/mathutil.h"
 
 namespace {
@@ -91,7 +94,8 @@ void UnpackHMS(uint64_t bit_field, int64_t* h, int64_t* m, int64_t* s) {
 // into adjacent fields. Hours are wrapped around the 24 hour clock, so
 // hour 24 -> hour 0, hour 25 -> hour 1, hour -1 -> hour 23, etc.
 void NormalizeTime(int32_t* h, int32_t* m, int32_t* s, int64_t* ns) {
-  int64_t carry_seconds = bigquery_ml_utils_base::MathUtil::FloorOfRatio(*ns, kNanosPerSecond);
+  int64_t carry_seconds =
+      bigquery_ml_utils_base::MathUtil::FloorOfRatio(*ns, kNanosPerSecond);
   absl::CivilSecond cs(1970, 1, 1, *h, *m, *s);
   cs += carry_seconds;
   *h = cs.hour();
@@ -107,7 +111,8 @@ void NormalizeTime(int32_t* h, int32_t* m, int32_t* s, int64_t* ns) {
 // each part into adjacent fields.
 void NormalizeDatetime(int64_t* y, int32_t* mo, int32_t* d, int32_t* h,
                        int32_t* m, int32_t* s, int64_t* ns) {
-  int64_t carry_seconds = bigquery_ml_utils_base::MathUtil::FloorOfRatio(*ns, kNanosPerSecond);
+  int64_t carry_seconds =
+      bigquery_ml_utils_base::MathUtil::FloorOfRatio(*ns, kNanosPerSecond);
   absl::CivilSecond cs(*y, *mo, *d, *h, *m, *s);
   cs += carry_seconds;
   *y = cs.year();
