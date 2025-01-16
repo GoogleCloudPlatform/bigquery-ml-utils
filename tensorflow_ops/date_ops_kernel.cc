@@ -28,13 +28,13 @@
 #include "sql_utils/public/types/timestamp_util.h"
 #include "tensorflow_ops/constants.h"
 #include "tensorflow_ops/utils.h"
+#include "tensorflow/compiler/xla/tsl/platform/errors.h"
+#include "tensorflow/compiler/xla/tsl/platform/status.h"
 #include "tensorflow/core/framework/op_kernel.h"
 #include "tensorflow/core/framework/op_requires.h"
 #include "tensorflow/core/framework/tensor.h"
 #include "tensorflow/core/framework/types.h"
 #include "tensorflow/core/platform/tstring.h"
-#include "tensorflow/tsl/platform/errors.h"
-#include "tensorflow/tsl/platform/status.h"
 
 using ::tensorflow::DEVICE_CPU;
 using ::tensorflow::OpKernel;
