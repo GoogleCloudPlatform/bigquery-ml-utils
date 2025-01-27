@@ -138,16 +138,15 @@ ParseWithCandidatesResult ParseStringWithCandidates(
 // absl::string_view::npos otherwise.
 size_t ParseMonthNames(absl::string_view timestamp_string, bool abbreviated,
                        int* month) {
-  absl::Span<const absl::string_view> month_names;
-
-  if (abbreviated) {
-    month_names = {"JAN", "FEB", "MAR", "APR", "MAY", "JUN",
-                   "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"};
-  } else {
-    month_names = {"JANUARY",   "FEBRUARY", "MARCH",    "APRIL",
-                   "MAY",       "JUNE",     "JULY",     "AUGUST",
-                   "SEPTEMBER", "OCTOBER",  "NOVEMBER", "DECEMBER"};
-  }
+  static constexpr absl::string_view abbreviated_month_names[] = {
+      "JAN", "FEB", "MAR", "APR", "MAY", "JUN",
+      "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"};
+  static constexpr absl::string_view full_month_names[] = {
+      "JANUARY", "FEBRUARY", "MARCH",     "APRIL",   "MAY",      "JUNE",
+      "JULY",    "AUGUST",   "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER"};
+  absl::Span<const absl::string_view> month_names =
+      abbreviated ? absl::Span<const absl::string_view>(abbreviated_month_names)
+                  : absl::Span<const absl::string_view>(full_month_names);
 
   ParseWithCandidatesResult parsing_result =
       ParseStringWithCandidates(timestamp_string, month_names,
