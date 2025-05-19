@@ -35,6 +35,34 @@ http_archive(
     ],
 )
 
+http_archive(
+    name = "com_googlesource_code_re2",
+    sha256 = "b90430b2a9240df4459108b3e291be80ae92c68a47bc06ef2dc419c5724de061",
+    strip_prefix = "re2-a276a8c738735a0fe45a6ee590fe2df69bcf4502",
+    urls = [
+        "https://storage.googleapis.com/mirror.tensorflow.org/github.com/google/re2/archive/a276a8c738735a0fe45a6ee590fe2df69bcf4502.tar.gz",
+        "https://github.com/google/re2/archive/a276a8c738735a0fe45a6ee590fe2df69bcf4502.tar.gz",
+    ],
+)
+
+http_archive(
+    name = "com_google_googletest",
+    sha256 = "bc1cc26d1120f5a7e9eb450751c0b24160734e46a02823a573f3c6b6c0a574a7",
+    strip_prefix = "googletest-e2c06aa2497e330bab1c1a03d02f7c5096eb5b0b",
+    urls = [
+        "https://github.com/google/googletest/archive/e2c06aa2497e330bab1c1a03d02f7c5096eb5b0b.zip",
+    ],
+)
+
+http_archive(
+    name = "com_google_googleapis",
+    sha256 = "249d83abc5d50bf372c35c49d77f900bff022b2c21eb73aa8da1458b6ac401fc",
+    strip_prefix = "googleapis-6b3fdcea8bc5398be4e7e9930c693f0ea09316a0",
+    urls = [
+        "https://github.com/googleapis/googleapis/archive/6b3fdcea8bc5398be4e7e9930c693f0ea09316a0.tar.gz",
+    ],
+)
+
 # Required by icu.
 http_archive(
     name = "rules_foreign_cc",
