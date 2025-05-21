@@ -6,6 +6,6 @@
   "features":{
     "f1":{"encode_type":"ohe"},
     "f2":{"encode_type":"mhe"},
-    "f3":{"mean": 10, "min": 1, "max":100, "std": 10}
+    "f3":{}
   }
 }

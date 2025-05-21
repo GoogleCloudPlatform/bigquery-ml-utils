@@ -108,6 +108,8 @@ class Predictor(object):
       feature_name = self._feature_names[feature_index]
       self._feature_name_to_index_map[feature_name] = feature_index
       feature_metadata = self._model_metadata['features'][feature_name]
+      if 'mean' in feature_metadata:
+        continue
       if ('encode_type' not in feature_metadata) or (not feature_metadata[
           'encode_type']) or (feature_metadata[
               'encode_type'] == 'numerical_identity'):
@@ -273,9 +275,17 @@ class Predictor(object):
           encoded_row.extend(np.array(col).astype(np.float64))
         else:
           # Numerical feature.
-          # Treat empty string as 0 as XAI use empty string as baseline.
+          # Empty string will have the mean value based on the model metadata.
           if col == '':
-            encoded_row.append(0.0)
+            if 'mean' not in self._model_metadata['features'][feature_name]:
+              # Compatibility with the legacy cases when the exported model is
+              # does not contain the mean value.
+              encoded_row.append(0.0)
+            else:
+              feature_mean = self._model_metadata['features'][feature_name][
+                  'mean'
+              ]
+              encoded_row.append(feature_mean)
           else:
             try:
               encoded_row.append(float(col))

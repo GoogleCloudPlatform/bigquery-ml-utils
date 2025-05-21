@@ -45,17 +45,15 @@ class PredictorTest(absltest.TestCase):
         )
     )
     test_predictor = xgboost_predictor.Predictor.from_path(model_path)
-    predict_output = test_predictor.predict([{
-        'f1': 'b',
-        'f3': 3,
-        'f2': ['a']
-    }, {
-        'f1': 'f',
-        'f2': ['c', 'a', 'a', 'f'],
-        'f3': 0
-    }])
-    self.assertSequenceAlmostEqual([1.0370053052902222, 1.9364699125289917],
-                                   predict_output)
+    predict_output = test_predictor.predict([
+        {'f1': 'b', 'f3': 3, 'f2': ['a']},
+        {'f1': 'f', 'f2': ['c', 'a', 'a', 'f'], 'f3': 0},
+        {'f1': 'f', 'f2': ['c', 'a', 'a', 'f'], 'f3': ''},
+    ])
+    self.assertSequenceAlmostEqual(
+        [1.0370053052902222, 1.9364699125289917, -9.593025207519531],
+        predict_output,
+    )
 
   def test_boosted_tree_classifier(self):
     model_path = str(
@@ -64,31 +62,54 @@ class PredictorTest(absltest.TestCase):
         )
     )
     test_predictor = xgboost_predictor.Predictor.from_path(model_path)
-    predict_output = test_predictor.predict([{
-        'f1': 'b',
-        'f3': 3,
-        'f2': ['a']
-    }, {
-        'f1': 'f',
-        'f2': ['c', 'a', 'a', 'f'],
-        'f3': 0
-    }, {
-        'f1': 'f',
-        'f2': ['c', 'a', 'a', 'f'],
-        'f3': ''
-    }])
+    predict_output = test_predictor.predict([
+        {'f1': 'b', 'f3': 3, 'f2': ['a']},
+        {'f1': 'f', 'f2': ['c', 'a', 'a', 'f'], 'f3': 0},
+        {'f1': 'f', 'f2': ['c', 'a', 'a', 'f'], 'f3': ''},
+    ])
     self.assertEqual('2', predict_output[0]['predicted_label'])
     self.assertEqual('2', predict_output[1]['predicted_label'])
     self.assertEqual(['3', '2', '1'], predict_output[0]['label_values'])
     self.assertSequenceAlmostEqual(
         [0.23010218143463135, 0.5752021670341492, 0.1946956366300583],
-        predict_output[0]['label_probs'])
+        predict_output[0]['label_probs'],
+    )
     self.assertSequenceAlmostEqual(
         [0.19618307054042816, 0.47606906294822693, 0.3277478516101837],
-        predict_output[1]['label_probs'])
+        predict_output[1]['label_probs'],
+    )
+    self.assertSequenceAlmostEqual(
+        [0.22035041451454163, 0.5255150198936462, 0.25413453578948975],
+        predict_output[2]['label_probs'],
+    )
+
+  def test_boosted_tree_classifier_missing_encoding(self):
+    model_path = str(
+        importlib_resources.files('bigquery_ml_utils').joinpath(
+            'tests/data/inference/xgboost_predictor/boosted_tree_classifier_model_missing_encoding'
+        )
+    )
+    test_predictor = xgboost_predictor.Predictor.from_path(model_path)
+    predict_output = test_predictor.predict([
+        {'f1': 'b', 'f3': 3, 'f2': ['a']},
+        {'f1': 'f', 'f2': ['c', 'a', 'a', 'f'], 'f3': 0},
+        {'f1': 'f', 'f2': ['c', 'a', 'a', 'f'], 'f3': ''},
+    ])
+    self.assertEqual('2', predict_output[0]['predicted_label'])
+    self.assertEqual('2', predict_output[1]['predicted_label'])
+    self.assertEqual(['3', '2', '1'], predict_output[0]['label_values'])
+    self.assertSequenceAlmostEqual(
+        [0.23010218143463135, 0.5752021670341492, 0.19469568133354187],
+        predict_output[0]['label_probs'],
+    )
     self.assertSequenceAlmostEqual(
         [0.19618307054042816, 0.47606906294822693, 0.3277478516101837],
-        predict_output[2]['label_probs'])
+        predict_output[1]['label_probs'],
+    )
+    self.assertSequenceAlmostEqual(
+        [0.19618308544158936, 0.47606906294822693, 0.3277478516101837],
+        predict_output[2]['label_probs'],
+    )
 
   def test_random_forest_regressor(self):
     model_path = str(
@@ -97,17 +118,12 @@ class PredictorTest(absltest.TestCase):
         )
     )
     test_predictor = xgboost_predictor.Predictor.from_path(model_path)
-    predict_output = test_predictor.predict([{
-        'f1': 'a',
-        'f3': 6,
-        'f2': 'a'
-    }, {
-        'f1': 'b',
-        'f2': 'b',
-        'f3': 0
-    }])
-    self.assertSequenceAlmostEqual([0.974166214466095, 1.5916662216186523],
-                                   predict_output)
+    predict_output = test_predictor.predict(
+        [{'f1': 'a', 'f3': 6, 'f2': 'a'}, {'f1': 'b', 'f2': 'b', 'f3': 0}]
+    )
+    self.assertSequenceAlmostEqual(
+        [0.974166214466095, 1.5916662216186523], predict_output
+    )
 
   def test_random_forest_classifier(self):
     model_path = str(
@@ -116,24 +132,20 @@ class PredictorTest(absltest.TestCase):
         )
     )
     test_predictor = xgboost_predictor.Predictor.from_path(model_path)
-    predict_output = test_predictor.predict([{
-        'f1': 'a',
-        'f3': 6,
-        'f2': 'a'
-    }, {
-        'f1': 'b',
-        'f2': 'b',
-        'f3': 0
-    }])
+    predict_output = test_predictor.predict(
+        [{'f1': 'a', 'f3': 6, 'f2': 'a'}, {'f1': 'b', 'f2': 'b', 'f3': 0}]
+    )
     self.assertEqual('3', predict_output[0]['predicted_label'])
     self.assertEqual('3', predict_output[1]['predicted_label'])
     self.assertEqual(['3', '2', '1'], predict_output[0]['label_values'])
     self.assertSequenceAlmostEqual(
         [0.3333333432674408, 0.3333333432674408, 0.3333333432674408],
-        predict_output[0]['label_probs'])
+        predict_output[0]['label_probs'],
+    )
     self.assertSequenceAlmostEqual(
         [0.3333333432674408, 0.3333333432674408, 0.3333333432674408],
-        predict_output[1]['label_probs'])
+        predict_output[1]['label_probs'],
+    )
 
   def test_target_encode(self):
     model_path = str(
@@ -142,56 +154,48 @@ class PredictorTest(absltest.TestCase):
         )
     )
     test_predictor = xgboost_predictor.Predictor.from_path(model_path)
-    predict_output = test_predictor.predict([{
-        'f1': 'b',
-        'f3': 'c',
-        'f2': ['a']
-    }, {
-        'f1': 'f',
-        'f2': ['c', 'a', 'a', 'f'],
-        'f3': 'a'
-    }])
+    predict_output = test_predictor.predict([
+        {'f1': 'b', 'f3': 'c', 'f2': ['a']},
+        {'f1': 'f', 'f2': ['c', 'a', 'a', 'f'], 'f3': 'a'},
+    ])
     self.assertEqual('2', predict_output[0]['predicted_label'])
     self.assertEqual('2', predict_output[1]['predicted_label'])
     self.assertEqual(['3', '2', '1'], predict_output[0]['label_values'])
     self.assertSequenceAlmostEqual(
         [0.19618307054042816, 0.47606906294822693, 0.3277478516101837],
-        predict_output[0]['label_probs'])
+        predict_output[0]['label_probs'],
+    )
     self.assertSequenceAlmostEqual(
         [0.19618307054042816, 0.47606906294822693, 0.3277478516101837],
-        predict_output[1]['label_probs'])
+        predict_output[1]['label_probs'],
+    )
 
   @mock.patch('bigquery_ml_utils.inference.xgboost_predictor.predictor.xgb')
   def test_target_encode_encoded_input(self, mock_xgb):
     mock_xgb.DMatrix.return_value = xgb.DMatrix(
-        np.array([[1.0], [1.0]]), missing=None)
+        np.array([[1.0], [1.0]]), missing=None
+    )
     model_path = str(
         importlib_resources.files('bigquery_ml_utils').joinpath(
             'tests/data/inference/xgboost_predictor/target_encode_model'
         )
     )
     test_predictor = xgboost_predictor.Predictor.from_path(model_path)
-    _ = test_predictor.predict([{
-        'f1': 'b',
-        'f3': 'c',
-        'f2': ['d']
-    }, {
-        'f1': 'f',
-        'f2': ['c', 'a', 'a', 'f'],
-        'f3': 'a'
-    }, {
-        'f1': 'f',
-        'f2': ['d'],
-        'f3': 'a'
-    }, {
-        'f1': 'd',
-        'f2': ['d'],
-        'f3': 'a'
-    }])
-    encoded = [[0.3, 0.7, 1.0, None, 3.0], [None, None, 0.45, 0.3, 1.0],
-               [None, None, 1.0, None, 1.0], [1.0, None, 1.0, None, 1.0]]
+    _ = test_predictor.predict([
+        {'f1': 'b', 'f3': 'c', 'f2': ['d']},
+        {'f1': 'f', 'f2': ['c', 'a', 'a', 'f'], 'f3': 'a'},
+        {'f1': 'f', 'f2': ['d'], 'f3': 'a'},
+        {'f1': 'd', 'f2': ['d'], 'f3': 'a'},
+    ])
+    encoded = [
+        [0.3, 0.7, 1.0, None, 3.0],
+        [None, None, 0.45, 0.3, 1.0],
+        [None, None, 1.0, None, 1.0],
+        [1.0, None, 1.0, None, 1.0],
+    ]
     np.testing.assert_array_equal(
-        np.array(encoded, dtype=float), mock_xgb.DMatrix.call_args[0][0])
+        np.array(encoded, dtype=float), mock_xgb.DMatrix.call_args[0][0]
+    )
 
   def test_sparse_feature_model(self):
     model_path = str(
@@ -200,17 +204,13 @@ class PredictorTest(absltest.TestCase):
         )
     )
     test_predictor = xgboost_predictor.Predictor.from_path(model_path)
-    predict_output = test_predictor.predict([{
-        'f1': 'b',
-        'f3': 3,
-        'f2': [(1, 1.0)]
-    }, {
-        'f1': 'f',
-        'f2': [(1, 1.0), (2, 1.0), (3, 1.0)],
-        'f3': 0
-    }])
-    self.assertSequenceAlmostEqual([1.0370053052902222, 1.9364699125289917],
-                                   predict_output)
+    predict_output = test_predictor.predict([
+        {'f1': 'b', 'f3': 3, 'f2': [(1, 1.0)]},
+        {'f1': 'f', 'f2': [(1, 1.0), (2, 1.0), (3, 1.0)], 'f3': 0},
+    ])
+    self.assertSequenceAlmostEqual(
+        [1.0370053052902222, 1.9364699125289917], predict_output
+    )
 
   def test_sparse_feature_model_2(self):
     model_path = str(
@@ -219,15 +219,16 @@ class PredictorTest(absltest.TestCase):
         )
     )
     test_predictor = xgboost_predictor.Predictor.from_path(model_path)
-    predict_output = test_predictor.predict([{
-        'f1': 'b',
-        'f2': [(1, 1.0), (4, 3.0)]
-    }, {
-        'f1': 'f',
-        'f2': [(1, 1.0), (2, 1.0), (3, 1.0)],
-    }])
-    self.assertSequenceAlmostEqual([1.0370053052902222, 1.9364699125289917],
-                                   predict_output)
+    predict_output = test_predictor.predict([
+        {'f1': 'b', 'f2': [(1, 1.0), (4, 3.0)]},
+        {
+            'f1': 'f',
+            'f2': [(1, 1.0), (2, 1.0), (3, 1.0)],
+        },
+    ])
+    self.assertSequenceAlmostEqual(
+        [1.0370053052902222, 1.9364699125289917], predict_output
+    )
 
   def test_sparse_feature_model_3(self):
     model_path = str(
@@ -236,50 +237,43 @@ class PredictorTest(absltest.TestCase):
         )
     )
     test_predictor = xgboost_predictor.Predictor.from_path(model_path)
-    predict_output = test_predictor.predict([{
-        'f1': 1.0,
-        'f2': 'a',
-        'f3': ['a', 'b'],
-        'f4': [(1, 1.0), (3, 2.0)]
-    }, {
-        'f1': 2.0,
-        'f2': 'b',
-        'f3': ['a', 'c'],
-        'f4': [(1, 2.0)]
-    }])
+    predict_output = test_predictor.predict([
+        {'f1': 1.0, 'f2': 'a', 'f3': ['a', 'b'], 'f4': [(1, 1.0), (3, 2.0)]},
+        {'f1': 2.0, 'f2': 'b', 'f3': ['a', 'c'], 'f4': [(1, 2.0)]},
+    ])
     self.assertEqual('1', predict_output[0]['predicted_label'])
-    self.assertSequenceAlmostEqual([0.11146856844425201, 0.8885313868522644],
-                                   predict_output[0]['label_probs'])
+    self.assertSequenceAlmostEqual(
+        [0.11146856844425201, 0.8885313868522644],
+        predict_output[0]['label_probs'],
+    )
     self.assertEqual('1', predict_output[1]['predicted_label'])
-    self.assertSequenceAlmostEqual([0.23098896443843842, 0.7690110802650452],
-                                   predict_output[1]['label_probs'])
+    self.assertSequenceAlmostEqual(
+        [0.23098896443843842, 0.7690110802650452],
+        predict_output[1]['label_probs'],
+    )
 
   @mock.patch('bigquery_ml_utils.inference.xgboost_predictor.predictor.xgb')
   def test_sparse_feature_model_3_encoded_input(self, mock_xgb):
     mock_xgb.DMatrix.return_value = xgb.DMatrix(
-        np.array([[1.0], [1.0]]), missing=None)
+        np.array([[1.0], [1.0]]), missing=None
+    )
     model_path = str(
         importlib_resources.files('bigquery_ml_utils').joinpath(
             'tests/data/inference/xgboost_predictor/sparse_feature_model_3'
         )
     )
     test_predictor = xgboost_predictor.Predictor.from_path(model_path)
-    _ = test_predictor.predict([{
-        'f1': 1.0,
-        'f2': 'a',
-        'f3': ['a', 'b'],
-        'f4': [(1, 1.0), (3, 2.0)]
-    }, {
-        'f1': 2.0,
-        'f2': 'b',
-        'f3': ['a', 'c'],
-        'f4': [(1, 2.0)]
-    }])
-    encoded = [[
-        1.0, 1.0, None, 1.0, 1.0, None, None, None, None, 1.0, None, 2.0
-    ], [2.0, 2.0, None, 1.0, None, 1.0, None, None, None, 2.0, None, None]]
+    _ = test_predictor.predict([
+        {'f1': 1.0, 'f2': 'a', 'f3': ['a', 'b'], 'f4': [(1, 1.0), (3, 2.0)]},
+        {'f1': 2.0, 'f2': 'b', 'f3': ['a', 'c'], 'f4': [(1, 2.0)]},
+    ])
+    encoded = [
+        [1.0, 1.0, None, 1.0, 1.0, None, None, None, None, 1.0, None, 2.0],
+        [2.0, 2.0, None, 1.0, None, 1.0, None, None, None, 2.0, None, None],
+    ]
     np.testing.assert_array_equal(
-        np.array(encoded, dtype=float), mock_xgb.DMatrix.call_args[0][0])
+        np.array(encoded, dtype=float), mock_xgb.DMatrix.call_args[0][0]
+    )
 
   def test_boosted_tree_regressor_mixed_features(self):
     model_path = str(
@@ -378,8 +372,9 @@ class PredictorTest(absltest.TestCase):
             'us_region': 'South Atlantic',
         },
     ])
-    self.assertSequenceAlmostEqual([1.3199291229248047, 1.4520472288131714],
-                                   predict_output)
+    self.assertSequenceAlmostEqual(
+        [1.3199291229248047, 1.4520472288131714], predict_output
+    )
 
   def test_boosted_tree_aft(self):
     model_path = str(
@@ -418,8 +413,10 @@ class PredictorTest(absltest.TestCase):
             'us_region': 'South Atlantic',
         },
     ])
-    self.assertSequenceAlmostEqual([3.8022050857543945, 4.4091620445251465],
-                                   predict_output)
+    self.assertSequenceAlmostEqual(
+        [3.8022050857543945, 4.4091620445251465], predict_output
+    )
+
 
 if __name__ == '__main__':
   absltest.main()
