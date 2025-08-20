@@ -19,6 +19,7 @@
 #include <utility>
 
 #include "absl/container/flat_hash_set.h"
+#include "absl/status/status.h"
 #include "absl/strings/substitute.h"
 #include "absl/time/time.h"
 #include "sql_utils/public/functions/cast_date_time.h"
@@ -289,7 +290,7 @@ class CastToDateFromString : public OpKernel {
   }
 
   *out = static_cast<int32_t>(in);
-  return ::tsl::OkStatus();
+  return absl::OkStatus();
 }
 
 class DateFromUnixDate : public OpKernel {

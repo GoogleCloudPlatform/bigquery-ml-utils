@@ -44,7 +44,7 @@ namespace bigquery_ml_utils {
     return InvalidArgument(
         absl::Substitute("Unsupported part in $0: $1", function_name, part));
   }
-  return ::tsl::OkStatus();
+  return absl::OkStatus();
 }
 
 ::tsl::Status ParseInputDate(absl::string_view date,
@@ -118,7 +118,7 @@ namespace bigquery_ml_utils {
 ::tsl::Status ToTslStatus(absl::string_view function_name,
                           const absl::Status& status) {
   if (status.ok()) {
-    return ::tsl::OkStatus();
+    return absl::OkStatus();
   }
 
   return ::tsl::Status(static_cast<tensorflow::errors::Code>(status.code()),

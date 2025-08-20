@@ -722,7 +722,7 @@ class SafeParseTimestamp : public OpKernel {
         "Timestamp value in $0 is out of allowed range: from $1 to $2.",
         function_name, ts_min, ts_max));
   }
-  return ::tsl::OkStatus();
+  return absl::OkStatus();
 }
 
 class TimestampMicros : public OpKernel {
@@ -845,7 +845,7 @@ class TimestampSeconds : public OpKernel {
   if (in < 0 && in % scale != 0) {
     (*out)--;
   }
-  return ::tsl::OkStatus();
+  return absl::OkStatus();
 }
 
 class UnixMicros : public OpKernel {
