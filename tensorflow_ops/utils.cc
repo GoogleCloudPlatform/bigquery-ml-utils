@@ -121,7 +121,7 @@ namespace bigquery_ml_utils {
     return absl::OkStatus();
   }
 
-  return ::tsl::Status(static_cast<tensorflow::errors::Code>(status.code()),
+  return ::tsl::Status(static_cast<::absl::StatusCode>(status.code()),
                        absl::Substitute("Error in $0 with status: $1",
                                         function_name, status.ToString()));
 }
