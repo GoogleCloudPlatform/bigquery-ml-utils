@@ -20,7 +20,7 @@ nvidia-nccl-cu12==2.26.5
 oauthlib==3.2.2
 opt_einsum==3.4.0
 packaging==25.0
-protobuf==3.19.6
+protobuf==4.25.8
 pyasn1==0.6.1
 pyasn1_modules==0.4.2
 requests==2.32.3
