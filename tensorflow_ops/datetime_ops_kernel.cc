@@ -97,9 +97,9 @@ class DatetimeFromComponents : public OpKernel {
       DatetimeValue datetime_value;
       OP_REQUIRES_OK(
           context,
-          ToTslStatus(name(), functions::ConstructDatetime(
-                                  years(i), months(i), days(i), hours(i),
-                                  minutes(i), seconds(i), &datetime_value)));
+          ToStatus(name(), functions::ConstructDatetime(
+                               years(i), months(i), days(i), hours(i),
+                               minutes(i), seconds(i), &datetime_value)));
 
       // Convert output_datetime to string.
       std::string output_str;
@@ -137,9 +137,9 @@ class DatetimeFromDate : public OpKernel {
 
       // Parse the datetime.
       DatetimeValue datetime_value;
-      OP_REQUIRES_OK(context, ToTslStatus(name(), functions::ConstructDatetime(
-                                                      date_int, TimeValue(),
-                                                      &datetime_value)));
+      OP_REQUIRES_OK(context, ToStatus(name(), functions::ConstructDatetime(
+                                                   date_int, TimeValue(),
+                                                   &datetime_value)));
 
       // Convert output_datetime to string.
       std::string output_str;
@@ -190,9 +190,9 @@ class DatetimeFromDateAndTime : public OpKernel {
 
       // Construct the datetime.
       DatetimeValue datetime_value;
-      OP_REQUIRES_OK(context, ToTslStatus(name(), functions::ConstructDatetime(
-                                                      date_int, time_value,
-                                                      &datetime_value)));
+      OP_REQUIRES_OK(context, ToStatus(name(), functions::ConstructDatetime(
+                                                   date_int, time_value,
+                                                   &datetime_value)));
 
       // Convert output_datetime to string.
       std::string output_str;
@@ -221,8 +221,8 @@ class DatetimeFromTimestamp : public OpKernel {
     absl::string_view timezone_str = timezone_tensor.flat<tstring>()(0);
     // Parse and validate the timezone.
     absl::TimeZone timezone;
-    OP_REQUIRES_OK(context, ToTslStatus(name(), functions::MakeTimeZone(
-                                                    timezone_str, &timezone)));
+    OP_REQUIRES_OK(context, ToStatus(name(), functions::MakeTimeZone(
+                                                 timezone_str, &timezone)));
 
     // Create an output tensor with the shape of the Timestamp tensor.
     Tensor* output_tensor = nullptr;
@@ -239,10 +239,10 @@ class DatetimeFromTimestamp : public OpKernel {
 
       // Construct the datetime.
       DatetimeValue datetime_value;
-      OP_REQUIRES_OK(
-          context, ToTslStatus(name(), functions::ConvertTimestampToDatetime(
-                                           absl::FromUnixMicros(timestamp_int),
-                                           timezone, &datetime_value)));
+      OP_REQUIRES_OK(context,
+                     ToStatus(name(), functions::ConvertTimestampToDatetime(
+                                          absl::FromUnixMicros(timestamp_int),
+                                          timezone, &datetime_value)));
 
       // Convert output_datetime to string.
       std::string output_str;
@@ -287,17 +287,17 @@ class CastToDatetimeFromString : public OpKernel {
         // Convert string with format
         int32_t current_date = functions::CurrentDate(absl::UTCTimeZone());
         OP_REQUIRES_OK(context,
-                       ToTslStatus(name(), functions::CastStringToDatetime(
-                                               format, datetime_string(i),
-                                               functions::kMicroseconds,
-                                               current_date, &datetime)));
+                       ToStatus(name(), functions::CastStringToDatetime(
+                                            format, datetime_string(i),
+                                            functions::kMicroseconds,
+                                            current_date, &datetime)));
       } else {
         // Convert string without format
         OP_REQUIRES_OK(
             context,
-            ToTslStatus(name(), functions::ConvertStringToDatetime(
-                                    datetime_string(i),
-                                    functions::kMicroseconds, &datetime)));
+            ToStatus(name(), functions::ConvertStringToDatetime(
+                                 datetime_string(i), functions::kMicroseconds,
+                                 &datetime)));
       }
       // Format datetime to string.
       std::string out;
@@ -354,10 +354,10 @@ class DatetimeAdd : public OpKernel {
 
       // Add the part of the internal to the datetime.
       DatetimeValue output_datetime;
-      OP_REQUIRES_OK(context, ToTslStatus(name(), functions::AddDatetime(
-                                                      datetime_value, part_enum,
-                                                      input_interval(i),
-                                                      &output_datetime)));
+      OP_REQUIRES_OK(
+          context, ToStatus(name(), functions::AddDatetime(
+                                        datetime_value, part_enum,
+                                        input_interval(i), &output_datetime)));
 
       // Convert output_datetime to string.
       std::string output_str;
@@ -424,9 +424,9 @@ class DatetimeDiff : public OpKernel {
       // Get the diff of datetime_a and datetime_b in part.
       int64_t output;
       OP_REQUIRES_OK(context,
-                     ToTslStatus(name(), functions::DiffDatetimes(
-                                             datetime_a_value, datetime_b_value,
-                                             part_enum, &output)));
+                     ToStatus(name(), functions::DiffDatetimes(
+                                          datetime_a_value, datetime_b_value,
+                                          part_enum, &output)));
 
       // Set the output value.
       output_flat(i) = output;
@@ -478,10 +478,10 @@ class DatetimeSub : public OpKernel {
 
       // Add the part of the internal to the datetime.
       DatetimeValue output_datetime;
-      OP_REQUIRES_OK(context, ToTslStatus(name(), functions::SubDatetime(
-                                                      datetime_value, part_enum,
-                                                      input_interval(i),
-                                                      &output_datetime)));
+      OP_REQUIRES_OK(
+          context, ToStatus(name(), functions::SubDatetime(
+                                        datetime_value, part_enum,
+                                        input_interval(i), &output_datetime)));
 
       // Convert output_datetime to string.
       std::string output_str;
@@ -534,9 +534,9 @@ class DatetimeTrunc : public OpKernel {
                                                  &datetime_value));
 
       DatetimeValue output_datetime;
-      OP_REQUIRES_OK(context, ToTslStatus(name(), functions::TruncateDatetime(
-                                                      datetime_value, part_enum,
-                                                      &output_datetime)));
+      OP_REQUIRES_OK(context, ToStatus(name(), functions::TruncateDatetime(
+                                                   datetime_value, part_enum,
+                                                   &output_datetime)));
 
       // Convert output_datetime to string.
       std::string output_str;
@@ -595,8 +595,8 @@ class ExtractFromDatetime : public OpKernel {
       // Extract part from the datetime.
       int32_t out;
       OP_REQUIRES_OK(context,
-                     ToTslStatus(name(), functions::ExtractFromDatetime(
-                                             part_enum, datetime_value, &out)));
+                     ToStatus(name(), functions::ExtractFromDatetime(
+                                          part_enum, datetime_value, &out)));
 
       // Set the output value.
       output_flat(i) = static_cast<int64_t>(out);
@@ -629,15 +629,13 @@ class ExtractDateFromDatetime : public OpKernel {
 
       // Extract DATE from the datetime.
       int32_t out;
-      OP_REQUIRES_OK(
-          context,
-          ToTslStatus(name(), functions::ExtractFromDatetime(
-                                  functions::DATE, datetime_value, &out)));
+      OP_REQUIRES_OK(context, ToStatus(name(), functions::ExtractFromDatetime(
+                                                   functions::DATE,
+                                                   datetime_value, &out)));
 
       std::string output_str;
-      OP_REQUIRES_OK(context,
-                     ToTslStatus(name(), functions::ConvertDateToString(
-                                             out, &output_str)));
+      OP_REQUIRES_OK(context, ToStatus(name(), functions::ConvertDateToString(
+                                                   out, &output_str)));
 
       // Set the output value.
       output_flat(i).reserve(output_str.size());
@@ -672,14 +670,14 @@ class ExtractTimeFromDatetime : public OpKernel {
       // Extract TIME from the datetime value.
       TimeValue time_value;
       OP_REQUIRES_OK(context,
-                     ToTslStatus(name(), functions::ExtractTimeFromDatetime(
-                                             datetime_value, &time_value)));
+                     ToStatus(name(), functions::ExtractTimeFromDatetime(
+                                          datetime_value, &time_value)));
 
       std::string output_str;
-      OP_REQUIRES_OK(
-          context, ToTslStatus(name(), functions::ConvertTimeToString(
-                                           time_value, functions::kMicroseconds,
-                                           &output_str)));
+      OP_REQUIRES_OK(context,
+                     ToStatus(name(), functions::ConvertTimeToString(
+                                          time_value, functions::kMicroseconds,
+                                          &output_str)));
 
       // Set the output value.
       output_flat(i).reserve(output_str.size());
@@ -735,9 +733,9 @@ class LastDayFromDatetime : public OpKernel {
 
       // Extract LAST_DAY from the datetime value.
       int32_t date_int;
-      OP_REQUIRES_OK(context, ToTslStatus(name(), functions::LastDayOfDatetime(
-                                                      datetime_value, part_enum,
-                                                      &date_int)));
+      OP_REQUIRES_OK(
+          context, ToStatus(name(), functions::LastDayOfDatetime(
+                                        datetime_value, part_enum, &date_int)));
 
       // Set the output value.
       std::string output_str;
@@ -782,9 +780,8 @@ class FormatDatetime : public OpKernel {
       std::string out;
       OP_REQUIRES_OK(
           context,
-          ToTslStatus(name(),
-                      functions::FormatDatetimeToStringWithOptions(
-                          format, datetime_value, format_options, &out)));
+          ToStatus(name(), functions::FormatDatetimeToStringWithOptions(
+                               format, datetime_value, format_options, &out)));
 
       // Set the output value.
       output_flat(i).reserve(out.size());
@@ -819,10 +816,10 @@ class ParseDatetime : public OpKernel {
       DatetimeValue datetime_value;
       OP_REQUIRES_OK(
           context,
-          ToTslStatus(name(), functions::ParseStringToDatetime(
-                                  format_string, datetime_strings(i),
-                                  functions::kMicroseconds,
-                                  /*parse_version2=*/true, &datetime_value)));
+          ToStatus(name(), functions::ParseStringToDatetime(
+                               format_string, datetime_strings(i),
+                               functions::kMicroseconds,
+                               /*parse_version2=*/true, &datetime_value)));
 
       // Convert output_datetime to string.
       std::string output_str;
@@ -868,10 +865,10 @@ class SafeParseDatetime : public OpKernel {
         // Set the NULL-equivalent output value for unsuccessful parsing.
         OP_REQUIRES_OK(
             context,
-            ToTslStatus(name(), functions::ParseStringToDatetime(
-                                    kDatetimeFormatString, kNullDatetime,
-                                    functions::kMicroseconds,
-                                    /*parse_version2=*/true, &datetime_value)));
+            ToStatus(name(), functions::ParseStringToDatetime(
+                                 kDatetimeFormatString, kNullDatetime,
+                                 functions::kMicroseconds,
+                                 /*parse_version2=*/true, &datetime_value)));
       }
 
       // Convert output_datetime to string.

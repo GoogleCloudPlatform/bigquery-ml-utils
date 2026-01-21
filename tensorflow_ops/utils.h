@@ -17,51 +17,56 @@
 #ifndef THIRD_PARTY_PY_BIGQUERY_ML_UTILS_TENSORFLOW_OPS_UTILS_H_
 #define THIRD_PARTY_PY_BIGQUERY_ML_UTILS_TENSORFLOW_OPS_UTILS_H_
 
+#include <cstdint>
+#include <string>
+
 #include "absl/container/flat_hash_set.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
+#include "absl/time/time.h"
 #include "sql_utils/public/civil_time.h"
 #include "sql_utils/public/functions/datetime.pb.h"
 #include "sql_utils/public/interval_value.h"
-#include "tensorflow/core/framework/op_kernel.h"
 
 namespace bigquery_ml_utils {
 
-::tsl::Status ParseInputDateTimestampPart(
+absl::Status ParseInputDateTimestampPart(
     absl::string_view part, absl::string_view function_name,
     functions::DateTimestampPart* out,
     const absl::flat_hash_set<functions::DateTimestampPart>& supported_parts =
         {});
 
-::tsl::Status ParseInputDate(absl::string_view date,
-                             absl::string_view function_name, int32_t* out);
+absl::Status ParseInputDate(absl::string_view date,
+                            absl::string_view function_name, int32_t* out);
 
-::tsl::Status ParseInputDatetime(absl::string_view datetime,
-                                 absl::string_view function_name,
-                                 DatetimeValue* out);
+absl::Status ParseInputDatetime(absl::string_view datetime,
+                                absl::string_view function_name,
+                                DatetimeValue* out);
 
-::tsl::Status ParseInputTime(absl::string_view time,
-                             absl::string_view function_name, TimeValue* out);
+absl::Status ParseInputTime(absl::string_view time,
+                            absl::string_view function_name, TimeValue* out);
 
-::tsl::Status ParseInputTimestamp(absl::string_view timestamp,
-                                  const absl::TimeZone& time_zone,
+absl::Status ParseInputTimestamp(absl::string_view timestamp,
+                                 const absl::TimeZone& time_zone,
+                                 absl::string_view function_name, int64_t* out);
+
+absl::Status FormatOutputDatetime(const DatetimeValue& dt,
                                   absl::string_view function_name,
-                                  int64_t* out);
+                                  std::string* out);
 
-::tsl::Status FormatOutputDatetime(const DatetimeValue& dt,
-                                   absl::string_view function_name,
+absl::Status FormatOutputDate(int32_t d, absl::string_view function_name,
+                              std::string* out);
+
+absl::Status FormatOutputTime(const TimeValue& time,
+                              absl::string_view function_name,
+                              std::string* out);
+
+absl::Status FormatOutputTimestamp(int64_t ts, absl::string_view function_name,
                                    std::string* out);
 
-::tsl::Status FormatOutputDate(int32_t d, absl::string_view function_name,
-                               std::string* out);
-
-::tsl::Status FormatOutputTime(const TimeValue& time,
-                               absl::string_view function_name,
-                               std::string* out);
-
-::tsl::Status FormatOutputTimestamp(int64_t ts, absl::string_view function_name,
-                                    std::string* out);
-
-::tsl::Status ToTslStatus(absl::string_view function_name,
-                          const absl::Status& status);
+absl::Status ToStatus(absl::string_view function_name,
+                      const absl::Status& status);
 
 // Create an IntervalValue based on number of DateTimestampPart.
 absl::StatusOr<IntervalValue> GetIntervalValue(
