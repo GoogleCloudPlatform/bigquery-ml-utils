@@ -32,6 +32,7 @@
 #include "tensorflow_ops/constants.h"
 #include "tensorflow/tsl/platform/errors.h"
 #include "tensorflow/tsl/platform/status.h"
+#include "tensorflow/core/platform/errors.h"
 
 using ::tsl::errors::InvalidArgument;
 
@@ -52,7 +53,7 @@ namespace bigquery_ml_utils {
     return InvalidArgument(
         absl::Substitute("Unsupported part in $0: $1", function_name, part));
   }
-  return absl::OkStatus();
+  return ::tsl::OkStatus();
 }
 
 ::tsl::Status ParseInputDate(absl::string_view date,
@@ -126,10 +127,10 @@ namespace bigquery_ml_utils {
 ::tsl::Status ToTslStatus(absl::string_view function_name,
                           const absl::Status& status) {
   if (status.ok()) {
-    return absl::OkStatus();
+    return ::tsl::OkStatus();
   }
 
-  return ::tsl::Status(static_cast<::absl::StatusCode>(status.code()),
+  return ::tsl::Status(static_cast<tensorflow::errors::Code>(status.code()),
                        absl::Substitute("Error in $0 with status: $1",
                                         function_name, status.ToString()));
 }
