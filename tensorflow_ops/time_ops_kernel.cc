@@ -20,7 +20,6 @@
 #include <utility>
 
 #include "absl/container/flat_hash_set.h"
-#include "absl/status/status.h"
 #include "absl/strings/string_view.h"
 #include "absl/strings/substitute.h"
 #include "absl/time/time.h"
@@ -31,6 +30,7 @@
 #include "sql_utils/public/functions/parse_date_time.h"
 #include "tensorflow_ops/constants.h"
 #include "tensorflow_ops/utils.h"
+#include "tensorflow/tsl/platform/status.h"
 #include "tensorflow/core/framework/op_kernel.h"
 #include "tensorflow/core/framework/op_requires.h"
 #include "tensorflow/core/framework/tensor.h"
@@ -43,6 +43,7 @@ using ::tensorflow::OpKernelConstruction;
 using ::tensorflow::OpKernelContext;
 using ::tensorflow::Tensor;
 using ::tensorflow::tstring;
+using ::tensorflow::errors::InvalidArgument;
 
 namespace bigquery_ml_utils {
 
@@ -62,12 +63,12 @@ class TimeFromComponents : public OpKernel {
     const Tensor& second_tensor = context->input(2);
     auto second = second_tensor.flat<int64_t>();
 
-    OP_REQUIRES(context,
-                hour.size() == minute.size() && hour.size() == second.size(),
-                absl::InvalidArgumentError(absl::Substitute(
-                    "Errors in $0: Inputs must have the "
-                    "same shape, but are: $1, $2, $3",
-                    name(), hour.size(), minute.size(), second.size())));
+    OP_REQUIRES(
+        context, hour.size() == minute.size() && hour.size() == second.size(),
+        InvalidArgument(absl::Substitute("Errors in $0: Inputs must have the "
+                                         "same shape, but are: $1, $2, $3",
+                                         name(), hour.size(), minute.size(),
+                                         second.size())));
 
     // Create an output tensor with the shape of the time tensor
     Tensor* output_tensor = NULL;
@@ -79,9 +80,9 @@ class TimeFromComponents : public OpKernel {
     for (int i = 0; i < N; i++) {
       // Parse the time.
       TimeValue time;
-      OP_REQUIRES_OK(
-          context, ToStatus(name(), functions::ConstructTime(
-                                        hour(i), minute(i), second(i), &time)));
+      OP_REQUIRES_OK(context, ToTslStatus(name(), functions::ConstructTime(
+                                                      hour(i), minute(i),
+                                                      second(i), &time)));
 
       // Format time to string.
       std::string out;
@@ -125,8 +126,8 @@ class TimeFromTimestamp : public OpKernel {
       TimeValue time;
       OP_REQUIRES_OK(
           context,
-          ToStatus(name(), functions::ConvertTimestampToTime(
-                               absl::FromUnixMicros(ts), time_zone, &time)));
+          ToTslStatus(name(), functions::ConvertTimestampToTime(
+                                  absl::FromUnixMicros(ts), time_zone, &time)));
 
       // Format time to string.
       std::string out;
@@ -165,7 +166,7 @@ class TimeFromDatetime : public OpKernel {
       TimeValue time;
       OP_REQUIRES_OK(
           context,
-          ToStatus(name(), functions::ExtractTimeFromDatetime(dt, &time)));
+          ToTslStatus(name(), functions::ExtractTimeFromDatetime(dt, &time)));
 
       // Format time to string.
       std::string out;
@@ -206,16 +207,16 @@ class CastToTimeFromString : public OpKernel {
       TimeValue time;
       if (with_format) {
         // Convert string with format
-        OP_REQUIRES_OK(context,
-                       ToStatus(name(), functions::CastStringToTime(
-                                            format, time_string(i),
-                                            functions::kMicroseconds, &time)));
+        OP_REQUIRES_OK(
+            context, ToTslStatus(name(), functions::CastStringToTime(
+                                             format, time_string(i),
+                                             functions::kMicroseconds, &time)));
       } else {
         // Convert string without format
-        OP_REQUIRES_OK(context,
-                       ToStatus(name(), functions::ConvertStringToTime(
-                                            time_string(i),
-                                            functions::kMicroseconds, &time)));
+        OP_REQUIRES_OK(
+            context, ToTslStatus(name(), functions::ConvertStringToTime(
+                                             time_string(i),
+                                             functions::kMicroseconds, &time)));
       }
       // Format time to string.
       std::string out;
@@ -228,11 +229,11 @@ class CastToTimeFromString : public OpKernel {
   }
 };
 
-absl::Status TimeAddOperator(TimeValue& time, int64_t interval,
-                             functions::DateTimestampPart& time_part,
-                             absl::string_view function_name, TimeValue* out) {
-  return ToStatus(function_name,
-                  functions::AddTime(time, time_part, interval, out));
+::tsl::Status TimeAddOperator(TimeValue& time, int64_t interval,
+                              functions::DateTimestampPart& time_part,
+                              absl::string_view function_name, TimeValue* out) {
+  return ToTslStatus(function_name,
+                     functions::AddTime(time, time_part, interval, out));
 }
 
 class TimeAdd : public OpKernel {
@@ -247,7 +248,7 @@ class TimeAdd : public OpKernel {
     const Tensor& diff_tensor = context->input(1);
     auto interval_int = diff_tensor.flat<int64_t>();
     OP_REQUIRES(context, time.size() == interval_int.size(),
-                absl::InvalidArgumentError(absl::Substitute(
+                InvalidArgument(absl::Substitute(
                     "Error in $0: time and interval must have the same shape, "
                     "but are $1, $2",
                     name(), time.size(), interval_int.size())));
@@ -302,7 +303,7 @@ class TimeSub : public OpKernel {
     const Tensor& diff_tensor = context->input(1);
     auto interval_int = diff_tensor.flat<int64_t>();
     OP_REQUIRES(context, interval_int.size() == time.size(),
-                absl::InvalidArgumentError(absl::Substitute(
+                InvalidArgument(absl::Substitute(
                     "Error in $0: time and interval must have the same shape, "
                     "but are $1, $2",
                     name(), time.size(), interval_int.size())));
@@ -357,7 +358,7 @@ class TimeDiff : public OpKernel {
     const Tensor& time_b_tensor = context->input(1);
     auto time_b = time_b_tensor.flat<tstring>();
     OP_REQUIRES(context, time_a.size() == time_b.size(),
-                absl::InvalidArgumentError(absl::Substitute(
+                InvalidArgument(absl::Substitute(
                     "Error in $0: time_a and time_b must have the same shape, "
                     "but are $1, $2",
                     name(), time_a.size(), time_b.size())));
@@ -388,8 +389,9 @@ class TimeDiff : public OpKernel {
 
       // Compute diff.
       int64_t out;
-      OP_REQUIRES_OK(context, ToStatus(name(), functions::DiffTimes(
-                                                   time_a_value, time_b_value,
+      OP_REQUIRES_OK(
+          context,
+          ToTslStatus(name(), functions::DiffTimes(time_a_value, time_b_value,
                                                    part_enum, &out)));
 
       // Set the output value.
@@ -431,9 +433,9 @@ class TimeTrunc : public OpKernel {
 
       // Extract time from datetime.
       TimeValue out_time;
-      OP_REQUIRES_OK(context,
-                     ToStatus(name(), functions::TruncateTime(
-                                          time_value, part_enum, &out_time)));
+      OP_REQUIRES_OK(
+          context, ToTslStatus(name(), functions::TruncateTime(
+                                           time_value, part_enum, &out_time)));
 
       // Format time to string.
       std::string out;
@@ -480,8 +482,8 @@ class ExtractFromTime : public OpKernel {
       // Extract time from datetime.
       int32_t out;
       OP_REQUIRES_OK(context,
-                     ToStatus(name(), functions::ExtractFromTime(
-                                          part_enum, time_value, &out)));
+                     ToTslStatus(name(), functions::ExtractFromTime(
+                                             part_enum, time_value, &out)));
 
       // Set the output value.
       // Currently, BQML util inference only supports int64.
@@ -512,10 +514,10 @@ class ParseTime : public OpKernel {
     for (int i = 0; i < N; i++) {
       // Parse time.
       TimeValue out_time;
-      OP_REQUIRES_OK(
-          context, ToStatus(name(), functions::ParseStringToTime(
-                                        format, time_string(i),
-                                        functions::kMicroseconds, &out_time)));
+      OP_REQUIRES_OK(context, ToTslStatus(name(), functions::ParseStringToTime(
+                                                      format, time_string(i),
+                                                      functions::kMicroseconds,
+                                                      &out_time)));
 
       // Format time to string.
       std::string out;
@@ -556,9 +558,9 @@ class SafeParseTime : public OpKernel {
         // Set the NULL-equivalent output value for unsuccessful parsing.
         OP_REQUIRES_OK(
             context,
-            ToStatus(name(), functions::ParseStringToTime(
-                                 kTimeFormatString, kNullTime,
-                                 functions::kMicroseconds, &out_time)));
+            ToTslStatus(name(), functions::ParseStringToTime(
+                                    kTimeFormatString, kNullTime,
+                                    functions::kMicroseconds, &out_time)));
       }
 
       // Format time to string.
@@ -598,8 +600,9 @@ class FormatTime : public OpKernel {
 
       // Format time.
       std::string out;
-      OP_REQUIRES_OK(context, ToStatus(name(), functions::FormatTimeToString(
-                                                   format, time_value, &out)));
+      OP_REQUIRES_OK(context,
+                     ToTslStatus(name(), functions::FormatTimeToString(
+                                             format, time_value, &out)));
 
       // Set the output value.
       output_flat(i).reserve(out.size());

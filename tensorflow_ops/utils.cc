@@ -30,103 +30,108 @@
 #include "sql_utils/public/functions/parse_date_time.h"
 #include "sql_utils/public/interval_value.h"
 #include "tensorflow_ops/constants.h"
+#include "tensorflow/tsl/platform/errors.h"
+#include "tensorflow/tsl/platform/status.h"
+
+using ::tsl::errors::InvalidArgument;
 
 namespace bigquery_ml_utils {
 
-absl::Status ParseInputDateTimestampPart(
+::tsl::Status ParseInputDateTimestampPart(
     absl::string_view part, absl::string_view function_name,
     functions::DateTimestampPart* out,
     const absl::flat_hash_set<functions::DateTimestampPart>& supported_parts) {
   int part_int = functions::DateTimestampPart_FromName(part);
   if (part_int == -1) {
-    return absl::InvalidArgumentError(
+    return InvalidArgument(
         absl::Substitute("Invalid part in $0: $1", function_name, part));
   }
 
   *out = static_cast<functions::DateTimestampPart>(part_int);
   if (!supported_parts.empty() && !supported_parts.contains(*out)) {
-    return absl::InvalidArgumentError(
+    return InvalidArgument(
         absl::Substitute("Unsupported part in $0: $1", function_name, part));
   }
   return absl::OkStatus();
 }
 
-absl::Status ParseInputDate(absl::string_view date,
-                            absl::string_view function_name, int32_t* out) {
-  return ToStatus(function_name,
-                  functions::ParseStringToDate(kDateFormatString, date,
-                                               /*parse_version2=*/true, out));
+::tsl::Status ParseInputDate(absl::string_view date,
+                             absl::string_view function_name, int32_t* out) {
+  return ToTslStatus(function_name, functions::ParseStringToDate(
+                                        kDateFormatString, date,
+                                        /*parse_version2=*/true, out));
 }
 
-absl::Status ParseInputDatetime(absl::string_view datetime,
-                                absl::string_view function_name,
-                                DatetimeValue* out) {
-  return ToStatus(function_name,
-                  functions::ParseStringToDatetime(
-                      kDatetimeFormatString, datetime, functions::kMicroseconds,
-                      /*parse_version2=*/true, out));
-}
-
-absl::Status ParseInputTime(absl::string_view time,
-                            absl::string_view function_name, TimeValue* out) {
-  return ToStatus(function_name,
-                  functions::ParseStringToTime(kTimeFormatString, time,
-                                               functions::kMicroseconds, out));
-}
-
-absl::Status ParseInputTimestamp(absl::string_view timestamp,
-                                 const absl::TimeZone& time_zone,
+::tsl::Status ParseInputDatetime(absl::string_view datetime,
                                  absl::string_view function_name,
-                                 int64_t* out) {
-  return ToStatus(function_name,
-                  functions::ParseStringToTimestamp(
-                      kTimestampFormatString, timestamp, time_zone,
-                      /*parse_version2=*/true, out));
+                                 DatetimeValue* out) {
+  return ToTslStatus(function_name, functions::ParseStringToDatetime(
+                                        kDatetimeFormatString, datetime,
+                                        functions::kMicroseconds,
+                                        /*parse_version2=*/true, out));
 }
 
-absl::Status FormatOutputDatetime(const DatetimeValue& dt,
+::tsl::Status ParseInputTime(absl::string_view time,
+                             absl::string_view function_name, TimeValue* out) {
+  return ToTslStatus(function_name, functions::ParseStringToTime(
+                                        kTimeFormatString, time,
+                                        functions::kMicroseconds, out));
+}
+
+::tsl::Status ParseInputTimestamp(absl::string_view timestamp,
+                                  const absl::TimeZone& time_zone,
                                   absl::string_view function_name,
-                                  std::string* out) {
-  // Output 3 formats dynamically to align with CAST AS STRING in BQML.
-  return ToStatus(function_name, functions::ConvertDatetimeToString(
-                                     dt, functions::kMicroseconds, out));
+                                  int64_t* out) {
+  return ToTslStatus(function_name,
+                     functions::ParseStringToTimestamp(
+                         kTimestampFormatString, timestamp, time_zone,
+                         /*parse_version2=*/true, out));
 }
 
-absl::Status FormatOutputDate(int32_t d, absl::string_view function_name,
-                              std::string* out) {
-  return ToStatus(function_name,
-                  functions::FormatDateToString(kDateFormatString, d, out));
-}
-
-absl::Status FormatOutputTime(const TimeValue& time,
-                              absl::string_view function_name,
-                              std::string* out) {
-  // Output 3 formats dynamically to align with CAST AS STRING in BQML.
-  return ToStatus(function_name, functions::ConvertTimeToString(
-                                     time, functions::kMicroseconds, out));
-}
-
-absl::Status FormatOutputTimestamp(int64_t ts, absl::string_view function_name,
+::tsl::Status FormatOutputDatetime(const DatetimeValue& dt,
+                                   absl::string_view function_name,
                                    std::string* out) {
+  // Output 3 formats dynamically to align with CAST AS STRING in BQML.
+  return ToTslStatus(function_name, functions::ConvertDatetimeToString(
+                                        dt, functions::kMicroseconds, out));
+}
+
+::tsl::Status FormatOutputDate(int32_t d, absl::string_view function_name,
+                               std::string* out) {
+  return ToTslStatus(function_name,
+                     functions::FormatDateToString(kDateFormatString, d, out));
+}
+
+::tsl::Status FormatOutputTime(const TimeValue& time,
+                               absl::string_view function_name,
+                               std::string* out) {
+  // Output 3 formats dynamically to align with CAST AS STRING in BQML.
+  return ToTslStatus(function_name, functions::ConvertTimeToString(
+                                        time, functions::kMicroseconds, out));
+}
+
+::tsl::Status FormatOutputTimestamp(int64_t ts, absl::string_view function_name,
+                                    std::string* out) {
   functions::FormatDateTimestampOptions format_options = {
       .expand_Q = true,
       .expand_J = true,
   };
   // Output at the UTC time zone.
-  return ToStatus(function_name, functions::FormatTimestampToString(
-                                     kTimestampFormatString, ts,
-                                     absl::UTCTimeZone(), format_options, out));
+  return ToTslStatus(function_name,
+                     functions::FormatTimestampToString(kTimestampFormatString,
+                                                        ts, absl::UTCTimeZone(),
+                                                        format_options, out));
 }
 
-absl::Status ToStatus(absl::string_view function_name,
-                      const absl::Status& status) {
+::tsl::Status ToTslStatus(absl::string_view function_name,
+                          const absl::Status& status) {
   if (status.ok()) {
     return absl::OkStatus();
   }
 
-  return absl::Status(status.code(),
-                      absl::Substitute("Error in $0 with status: $1",
-                                       function_name, status.ToString()));
+  return ::tsl::Status(static_cast<::absl::StatusCode>(status.code()),
+                       absl::Substitute("Error in $0 with status: $1",
+                                        function_name, status.ToString()));
 }
 
 absl::StatusOr<IntervalValue> GetIntervalValue(

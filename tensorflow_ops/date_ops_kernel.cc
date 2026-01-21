@@ -89,8 +89,8 @@ class ExtractFromDate : public OpKernel {
       // Extract part from the date.
       int32_t out;
       OP_REQUIRES_OK(context,
-                     ToStatus(name(), functions::ExtractFromDate(
-                                          part_enum, date_value, &out)));
+                     ToTslStatus(name(), functions::ExtractFromDate(
+                                             part_enum, date_value, &out)));
 
       // Set the output value.
       output_flat(i) = static_cast<int64_t>(out);
@@ -132,8 +132,8 @@ class DateFromComponents : public OpKernel {
       // Construct the date.
       int32_t date;
       OP_REQUIRES_OK(
-          context, ToStatus(name(), functions::ConstructDate(year(i), month(i),
-                                                             day(i), &date)));
+          context, ToTslStatus(name(), functions::ConstructDate(
+                                           year(i), month(i), day(i), &date)));
 
       // Format date to string.
       std::string out;
@@ -175,10 +175,11 @@ class DateFromTimestamp : public OpKernel {
 
       // Extract date from timestamp.
       int32_t date;
-      OP_REQUIRES_OK(context, ToStatus(name(), functions::ExtractFromTimestamp(
-                                                   functions::DATE, ts,
-                                                   functions::kMicroseconds,
-                                                   time_zone, &date)));
+      OP_REQUIRES_OK(
+          context,
+          ToTslStatus(name(), functions::ExtractFromTimestamp(
+                                  functions::DATE, ts, functions::kMicroseconds,
+                                  time_zone, &date)));
 
       // Format date to string.
       std::string out;
@@ -216,8 +217,8 @@ class DateFromDatetime : public OpKernel {
       // Extract date from datetime.
       int32_t date;
       OP_REQUIRES_OK(context,
-                     ToStatus(name(), functions::ExtractFromDatetime(
-                                          functions::DATE, dt, &date)));
+                     ToTslStatus(name(), functions::ExtractFromDatetime(
+                                             functions::DATE, dt, &date)));
 
       // Format date to string.
       std::string out;
@@ -259,13 +260,14 @@ class CastToDateFromString : public OpKernel {
       if (with_format) {
         // Convert string with format
         int32_t current_date = functions::CurrentDate(absl::UTCTimeZone());
-        OP_REQUIRES_OK(context, ToStatus(name(), functions::CastStringToDate(
-                                                     format, date_string(i),
-                                                     current_date, &date)));
+        OP_REQUIRES_OK(context, ToTslStatus(name(), functions::CastStringToDate(
+                                                        format, date_string(i),
+                                                        current_date, &date)));
       } else {
         // Convert string without format
-        OP_REQUIRES_OK(context, ToStatus(name(), functions::ConvertStringToDate(
-                                                     date_string(i), &date)));
+        OP_REQUIRES_OK(context,
+                       ToTslStatus(name(), functions::ConvertStringToDate(
+                                               date_string(i), &date)));
       }
       // Format date to string.
       std::string out;
@@ -369,8 +371,8 @@ class DateAdd : public OpKernel {
       int32_t date_out;
       OP_REQUIRES_OK(
           context,
-          ToStatus(name(), functions::AddDate(date_in, part_enum,
-                                              interval_int(i), &date_out)));
+          ToTslStatus(name(), functions::AddDate(date_in, part_enum,
+                                                 interval_int(i), &date_out)));
 
       // Format date to string.
       std::string out;
@@ -426,8 +428,8 @@ class DateSub : public OpKernel {
       int32_t date_out;
       OP_REQUIRES_OK(
           context,
-          ToStatus(name(), functions::AddDate(date_in, part_enum,
-                                              -interval_int(i), &date_out)));
+          ToTslStatus(name(), functions::AddDate(date_in, part_enum,
+                                                 -interval_int(i), &date_out)));
 
       // Format date to string.
       std::string out;
@@ -486,9 +488,9 @@ class DateDiff : public OpKernel {
 
       // Compute diff.
       int32_t out;
-      OP_REQUIRES_OK(
-          context, ToStatus(name(), functions::DiffDates(date_a_int, date_b_int,
-                                                         part_enum, &out)));
+      OP_REQUIRES_OK(context, ToTslStatus(name(), functions::DiffDates(
+                                                      date_a_int, date_b_int,
+                                                      part_enum, &out)));
 
       // Set the output value.
       output_flat(i) = out;
@@ -532,9 +534,9 @@ class DateTrunc : public OpKernel {
 
       // Truncate date.
       int32_t date_out;
-      OP_REQUIRES_OK(
-          context, ToStatus(name(), functions::TruncateDate(date_in, part_enum,
-                                                            &date_out)));
+      OP_REQUIRES_OK(context,
+                     ToTslStatus(name(), functions::TruncateDate(
+                                             date_in, part_enum, &date_out)));
 
       // Format date to string.
       std::string out;
@@ -575,9 +577,9 @@ class FormatDate : public OpKernel {
       std::string out;
       OP_REQUIRES_OK(
           context,
-          ToStatus(name(), functions::FormatDateToString(
-                               format, date_int,
-                               {.expand_Q = true, .expand_J = true}, &out)));
+          ToTslStatus(name(), functions::FormatDateToString(
+                                  format, date_int,
+                                  {.expand_Q = true, .expand_J = true}, &out)));
 
       // Set the output value.
       output_flat(i).reserve(out.size());
@@ -631,9 +633,9 @@ class LastDayFromDate : public OpKernel {
 
       // Extract LAST_DAY from the datetime value.
       int32_t date_int;
-      OP_REQUIRES_OK(context,
-                     ToStatus(name(), functions::LastDayOfDate(
-                                          date_value, part_enum, &date_int)));
+      OP_REQUIRES_OK(
+          context, ToTslStatus(name(), functions::LastDayOfDate(
+                                           date_value, part_enum, &date_int)));
 
       // Set the output value.
       std::string output_str;
@@ -667,10 +669,10 @@ class ParseDate : public OpKernel {
     for (int i = 0; i < N; i++) {
       // Parse the date.
       int32_t date_in;
-      OP_REQUIRES_OK(context,
-                     ToStatus(name(), functions::ParseStringToDate(
-                                          format, date(i),
-                                          /*parse_version2=*/true, &date_in)));
+      OP_REQUIRES_OK(
+          context, ToTslStatus(name(), functions::ParseStringToDate(
+                                           format, date(i),
+                                           /*parse_version2=*/true, &date_in)));
 
       // Format date to string.
       std::string out;
@@ -710,9 +712,10 @@ class SafeParseDate : public OpKernel {
                .ok()) {
         // Set the NULL-equivalent output value for unsuccessful parsing
         OP_REQUIRES_OK(
-            context, ToStatus(name(), functions::ParseStringToDate(
-                                          kDateFormatString, kNullDate,
-                                          /*parse_version2=*/true, &date_in)));
+            context,
+            ToTslStatus(name(), functions::ParseStringToDate(
+                                    kDateFormatString, kNullDate,
+                                    /*parse_version2=*/true, &date_in)));
       }
 
       // Format date to string.
