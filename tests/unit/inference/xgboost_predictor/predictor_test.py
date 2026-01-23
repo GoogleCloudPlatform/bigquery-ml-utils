@@ -12,13 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for third_party.py.bqml_xgboost_predictor."""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
-import sys
+import importlib.resources as importlib_resources
 
 from absl import flags
 from absl.testing import absltest
@@ -27,11 +22,6 @@ import mock
 import numpy as np
 import xgboost as xgb
 
-# pylint: disable=g-import-not-at-top
-if sys.version_info >= (3, 9):  # `importlib.resources.files` was added in 3.9
-  import importlib.resources as importlib_resources
-else:
-  import importlib_resources
 
 FLAGS = flags.FLAGS
 

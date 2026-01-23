@@ -15,6 +15,7 @@ keras==2.11.0
 libclang==18.1.1
 Markdown==3.8
 MarkupSafe==3.0.2
+mock==5.2.0
 numpy==1.26.4
 nvidia-nccl-cu12==2.26.5
 oauthlib==3.2.2
@@ -23,6 +24,7 @@ packaging==25.0
 protobuf==3.19.6
 pyasn1==0.6.1
 pyasn1_modules==0.4.2
+pytest==9.0.2
 requests==2.32.3
 requests-oauthlib==2.0.0
 rsa==4.9.1
