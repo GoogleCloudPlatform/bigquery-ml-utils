@@ -22,21 +22,21 @@
 #include <string_view>
 #include <vector>
 
-#include "google/protobuf/repeated_field.h"
+#include "absl/base/optimization.h"
+#include "absl/status/statusor.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
+#include "absl/types/optional.h"
+#include "third_party/protobuf/repeated_field.h"
+#include "sql_utils/base/source_location.h"
+#include "sql_utils/base/status.h"
+#include "sql_utils/base/status_builder.h"
 #include "sql_utils/proto/internal_error_location.pb.h"
 #include "sql_utils/public/deprecation_warning.pb.h"
 #include "sql_utils/public/error_helpers.h"
 #include "sql_utils/public/error_location.pb.h"
 #include "sql_utils/public/options.pb.h"
 #include "sql_utils/public/parse_location.h"
-#include "absl/base/optimization.h"
-#include "absl/status/statusor.h"
-#include "absl/strings/str_cat.h"
-#include "absl/strings/string_view.h"
-#include "absl/types/optional.h"
-#include "sql_utils/base/source_location.h"
-#include "sql_utils/base/status.h"
-#include "sql_utils/base/status_builder.h"
 
 namespace bigquery_ml_utils {
 
