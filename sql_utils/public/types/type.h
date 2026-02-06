@@ -29,7 +29,7 @@
 #include <vector>
 
 #include "google/protobuf/descriptor.pb.h"
-#include "third_party/protobuf/descriptor.h"
+#include "google/protobuf/descriptor.h"
 // #include "sql_utils/common/float_margin.h"
 #include "sql_utils/public/options.pb.h"
 #include "sql_utils/public/type.pb.h"

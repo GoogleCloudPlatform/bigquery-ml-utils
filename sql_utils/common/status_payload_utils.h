@@ -22,7 +22,7 @@
 #include "absl/memory/memory.h"
 #include "absl/strings/cord.h"
 #include "absl/strings/str_cat.h"
-#include "third_party/protobuf/message.h"
+#include "google/protobuf/message.h"
 #include "sql_utils/base/logging.h"
 #include "sql_utils/base/status.h"
 #include "sql_utils/base/status_payload.h"

@@ -27,7 +27,7 @@
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/optional.h"
-#include "third_party/protobuf/repeated_field.h"
+#include "google/protobuf/repeated_field.h"
 #include "sql_utils/base/source_location.h"
 #include "sql_utils/base/status.h"
 #include "sql_utils/base/status_builder.h"

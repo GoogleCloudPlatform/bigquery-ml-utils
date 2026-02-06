@@ -22,8 +22,8 @@
 #include "absl/strings/cord.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/strip.h"
-#include "third_party/protobuf/descriptor_database.h"
-#include "third_party/protobuf/message.h"
+#include "google/protobuf/descriptor_database.h"
+#include "google/protobuf/message.h"
 #include "sql_utils/base/status.h"
 #include "sql_utils/base/status_payload.h"
 
