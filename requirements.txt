@@ -22,7 +22,7 @@ oauthlib==3.2.2
 opt_einsum==3.4.0
 packaging==25.0
 protobuf==3.19.6
-pyasn1==0.6.1
+pyasn1==0.6.2
 pyasn1_modules==0.4.2
 pytest==9.0.2
 requests==2.32.3
