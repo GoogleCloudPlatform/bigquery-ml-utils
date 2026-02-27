@@ -1,4 +1,5 @@
 #!/bin/bash
+set -x
 set -e
 
 docker_install() {
@@ -12,8 +13,8 @@ docker_install() {
 }
 
 function main() {
-  # Python 3.7 ~ 3.10.
-  SUPPORTED_PY_VERSIONS=( 7 8 9 10 )
+  # Python 3.10.
+  SUPPORTED_PY_VERSIONS=(10)
   BAZEL_FILE=/usr/bin/bazel
 
   USAGE='release.sh -d WHEEL_DIST'
