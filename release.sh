@@ -61,13 +61,13 @@ function main() {
     fi
 
     echo "=== Building bigquery-ml-utils pip package"
-    bazel clean --expunge && bazel build build_pip_pkg
+    bazel clean --expunge && bazel build --copt=-fno-exceptions build_pip_pkg
     bazel-bin/build_pip_pkg artifacts
     deactivate
   done
 
   echo "=== Repairing the wheels to be manylinux compatible"
-  auditwheel repair --exclude libtensorflow_framework.so.2 --plat manylinux_2_17_x86_64 -w $WHEEL_DIST artifacts/*.whl
+  auditwheel repair --exclude libtensorflow_framework.so.2 --plat manylinux_2_28_x86_64 -w $WHEEL_DIST artifacts/*.whl
 
   echo "=== Generated bigquery-ml-utils wheels in $WHEEL_DIST"
 }
