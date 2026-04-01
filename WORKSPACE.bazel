@@ -98,6 +98,11 @@ http_archive(
     ],
 )
 
+local_repository(
+    name = "io_bazel_rules_go",
+    path = "bazel/rules_go_stub",
+)
+
 load("@org_tensorflow//tensorflow:workspace3.bzl", "tf_workspace3")
 
 tf_workspace3()
