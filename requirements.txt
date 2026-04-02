@@ -6,3 +6,4 @@ tensorflow-text==2.13.0
 xgboost==3.0.1
 tzdata==2025.3
 pytest==9.0.2
+mock==5.1.0
