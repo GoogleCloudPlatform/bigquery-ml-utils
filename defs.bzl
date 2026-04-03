@@ -12,33 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-package(
-    default_visibility = ["//visibility:public"],
-)
+"""Shim to satisfy TensorFlow 2.16.1 Bazel toolchain requirements."""
 
-licenses(["notice"])
-
-# Export for the PIP package.
-exports_files(
-    [
-        "LICENSE",
-        "__init__.py",
-    ],
-)
-
-sh_binary(
-    name = "build_pip_pkg",
-    srcs = ["build_pip_pkg.sh"],
-    data = [
-        "LICENSE",
-        "MANIFEST.in",
-        "README.md",
-        "__init__.py",
-        "setup.py",
-        "//inference",
-        "//model_generator",
-        "//tensorflow_ops",
-    ],
-)
-
-exports_files(["defs.bzl"])
+interpreter = "python3"

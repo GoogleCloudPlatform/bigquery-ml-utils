@@ -90,11 +90,11 @@ http_archive(
 # Define TF in the end, so packages defined above will be skipped here.
 http_archive(
     name = "org_tensorflow",
-    sha256 = "e58c939079588623e6fa1d054aec2f90f95018266e0a970fd353a5244f5173dc",
-    strip_prefix = "tensorflow-2.13.0",
+    sha256 = "c729e56efc945c6df08efe5c9f5b8b89329c7c91b8f40ad2bb3e13900bd4876d",
+    strip_prefix = "tensorflow-2.16.1",
     urls = [
-        "https://github.com/tensorflow/tensorflow/archive/refs/tags/v2.13.0.tar.gz",
-        "https://codeload.github.com/tensorflow/tensorflow/tar.gz/refs/tags/v2.13.0",
+        "https://github.com/tensorflow/tensorflow/archive/refs/tags/v2.16.1.tar.gz",
+        "https://codeload.github.com/tensorflow/tensorflow/tar.gz/refs/tags/v2.16.1",
     ],
 )
 
@@ -122,3 +122,9 @@ tf_workspace0()
 load("//tf_dependency:tf_configure.bzl", "tf_configure")
 
 tf_configure(name = "local_config_tf")
+
+# Satisfy @python references from TF 2.16.1 toolchains using the local environment
+local_repository(
+    name = "python",
+    path = ".",
+)
