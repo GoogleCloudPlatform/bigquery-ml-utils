@@ -45,6 +45,8 @@ cc_binary(
             "-pthread",
             "-std=c++17",
             "-D_GLIBCXX_USE_CXX11_ABI=1",
+            "-DABSL_OPTION_USE_INLINE_NAMESPACE=1",
+            "-DABSL_OPTION_INLINE_NAMESPACE=lts_20230125",
         ],
     }),
     features = select({
@@ -78,6 +80,8 @@ cc_binary(
             "-pthread",
             "-std=c++17",
             "-D_GLIBCXX_USE_CXX11_ABI=1",
+            "-DABSL_OPTION_USE_INLINE_NAMESPACE=1",
+            "-DABSL_OPTION_INLINE_NAMESPACE=lts_20230125",
         ],
     }),
     features = select({
@@ -111,6 +115,8 @@ cc_binary(
             "-pthread",
             "-std=c++17",
             "-D_GLIBCXX_USE_CXX11_ABI=1",
+            "-DABSL_OPTION_USE_INLINE_NAMESPACE=1",
+            "-DABSL_OPTION_INLINE_NAMESPACE=lts_20230125",
         ],
     }),
     features = select({
@@ -145,6 +151,8 @@ cc_binary(
             "-pthread",
             "-std=c++17",
             "-D_GLIBCXX_USE_CXX11_ABI=1",
+            "-DABSL_OPTION_USE_INLINE_NAMESPACE=1",
+            "-DABSL_OPTION_INLINE_NAMESPACE=lts_20230125",
         ],
     }),
     features = select({

@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+#include "absl/status/status.h"
 #include "tensorflow/core/framework/op.h"
 #include "tensorflow/core/framework/shape_inference.h"
 
@@ -30,7 +31,7 @@ REGISTER_OP("TimeFromComponents")
     .Output("output: string")
     .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
       c->set_output(0, c->input(0));
-      return ::tensorflow::OkStatus();
+      return absl::OkStatus();
     });
 
 // Register TimeFromTimestamp op with signature.
@@ -41,7 +42,7 @@ REGISTER_OP("TimeFromTimestamp")
     .Output("output: string")
     .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
       c->set_output(0, c->input(0));
-      return ::tensorflow::OkStatus();
+      return absl::OkStatus();
     });
 
 // Register TimeFromDatetime op with signature.
@@ -51,7 +52,7 @@ REGISTER_OP("TimeFromDatetime")
     .Output("output: string")
     .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
       c->set_output(0, c->input(0));
-      return ::tensorflow::OkStatus();
+      return absl::OkStatus();
     });
 
 // Register CastToTimeFromString op with signature.
@@ -63,7 +64,7 @@ REGISTER_OP("CastToTimeFromString")
     .Output("output: string")
     .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
       c->set_output(0, c->input(0));
-      return ::tensorflow::OkStatus();
+      return absl::OkStatus();
     });
 
 // Register TimeAdd op with signature.
@@ -75,7 +76,7 @@ REGISTER_OP("TimeAdd")
     .Output("output: string")
     .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
       c->set_output(0, c->input(0));
-      return ::tensorflow::OkStatus();
+      return absl::OkStatus();
     });
 
 // Register TimeSub op with signature.
@@ -87,7 +88,7 @@ REGISTER_OP("TimeSub")
     .Output("output: string")
     .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
       c->set_output(0, c->input(0));
-      return ::tensorflow::OkStatus();
+      return absl::OkStatus();
     });
 
 // Register TimeDiff op with signature.
@@ -99,7 +100,7 @@ REGISTER_OP("TimeDiff")
     .Output("output: int64")
     .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
       c->set_output(0, c->input(0));
-      return ::tensorflow::OkStatus();
+      return absl::OkStatus();
     });
 
 // Register TimeTrunc op with signature.
@@ -110,7 +111,7 @@ REGISTER_OP("TimeTrunc")
     .Output("output: string")
     .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
       c->set_output(0, c->input(0));
-      return ::tensorflow::OkStatus();
+      return absl::OkStatus();
     });
 
 // Register ExtractFromTime op with signature.
@@ -121,7 +122,7 @@ REGISTER_OP("ExtractFromTime")
     .Output("output: int64")
     .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
       c->set_output(0, c->input(0));
-      return ::tensorflow::OkStatus();
+      return absl::OkStatus();
     });
 
 // Register ParseTime op with signature.
@@ -132,7 +133,7 @@ REGISTER_OP("ParseTime")
     .Output("output: string")
     .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
       c->set_output(0, c->input(1));
-      return ::tensorflow::OkStatus();
+      return absl::OkStatus();
     });
 
 // Register SafeParseTime op with signature.
@@ -143,7 +144,7 @@ REGISTER_OP("SafeParseTime")
     .Output("output: string")
     .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
       c->set_output(0, c->input(1));
-      return ::tensorflow::OkStatus();
+      return absl::OkStatus();
     });
 
 // Register FormatTime op with signature.
@@ -154,7 +155,7 @@ REGISTER_OP("FormatTime")
     .Output("output: string")
     .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
       c->set_output(0, c->input(1));
-      return ::tensorflow::OkStatus();
+      return absl::OkStatus();
     });
 
 }  // namespace bigquery_ml_utils
