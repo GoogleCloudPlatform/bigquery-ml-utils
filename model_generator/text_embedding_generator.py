@@ -18,6 +18,8 @@ import enum
 
 import tensorflow as tf
 import tensorflow_hub as hub
+# Required for registering custom ops used by BERT.
+import tensorflow_text as _  # pylint: disable=unused-import
 
 
 @enum.unique
@@ -37,6 +39,55 @@ class TextEmbeddingModelLinks(str, enum.Enum):
   SWIVEL = "https://tfhub.dev/google/tf2-preview/gnews-swivel-20dim/1"
   BERT_PREPROCESS = "https://tfhub.dev/tensorflow/bert_en_cased_preprocess/3"
   BERT_ENCODER = "https://tfhub.dev/tensorflow/bert_en_cased_L-12_H-768_A-12/4"
+
+
+class Keras3HubLayer(tf.keras.layers.Layer):
+  """Wrapper for hub.load to be compatible with Keras 3."""
+
+  def __init__(self, handle, output_dim, **kwargs):
+    super().__init__(**kwargs)
+    self.handle = handle
+    self.output_dim = output_dim
+    self.model = hub.load(handle)
+
+  def call(self, inputs):
+    return self.model(inputs)
+
+  def compute_output_shape(self, input_shape):
+    return (input_shape[0], self.output_dim)
+
+  def get_config(self):
+    config = super().get_config()
+    config.update({
+        "handle": self.handle,
+        "output_dim": self.output_dim,
+    })
+    return config
+
+
+class Keras3BertWrapper(tf.keras.layers.Layer):
+  """Wrapper for BERT preprocess + encoder to be compatible with Keras 3."""
+
+  def __init__(self, pre_link, enc_link, **kwargs):
+    super().__init__(**kwargs)
+    self.pre_link = pre_link
+    self.enc_link = enc_link
+    self.pre = hub.load(pre_link)
+    self.enc = hub.load(enc_link)
+
+  def call(self, inputs):
+    return self.enc(self.pre(inputs))["pooled_output"]
+
+  def compute_output_shape(self, input_shape):
+    return (input_shape[0], 768)
+
+  def get_config(self):
+    config = super().get_config()
+    config.update({
+        "pre_link": self.pre_link,
+        "enc_link": self.enc_link,
+    })
+    return config
 
 
 class TextEmbeddingModelGenerator:
@@ -103,8 +154,7 @@ class TextEmbeddingModelGenerator:
     text_input = tf.keras.layers.Input(
         shape=(), dtype=tf.string, name="content"
     )
-    preprocessor = hub.KerasLayer(self._nnlm_link)
-    outputs = preprocessor(text_input)
+    outputs = Keras3HubLayer(self._nnlm_link, output_dim=50)(text_input)
     model = tf.keras.Model(text_input, outputs)
     return model
 
@@ -117,8 +167,7 @@ class TextEmbeddingModelGenerator:
     text_input = tf.keras.layers.Input(
         shape=(), dtype=tf.string, name="content"
     )
-    preprocessor = hub.KerasLayer(self._swivel_link)
-    outputs = preprocessor(text_input)
+    outputs = Keras3HubLayer(self._swivel_link, output_dim=20)(text_input)
     model = tf.keras.Model(text_input, outputs)
     return model
 
@@ -131,12 +180,10 @@ class TextEmbeddingModelGenerator:
     text_input = tf.keras.layers.Input(
         shape=(), dtype=tf.string, name="content"
     )
-    preprocessor = hub.KerasLayer(self._bert_preprocess_link)
-    encoder_inputs = preprocessor(text_input)
-    encoder = hub.KerasLayer(self._bert_encoder_link)
-    outputs = encoder(encoder_inputs)
-    pooled_output = outputs["pooled_output"]
-    model = tf.keras.Model(text_input, pooled_output)
+    outputs = Keras3BertWrapper(
+        self._bert_preprocess_link, self._bert_encoder_link
+    )(text_input)
+    model = tf.keras.Model(text_input, outputs)
     return model
 
   def _construct_model_signature(self, model) -> []:
