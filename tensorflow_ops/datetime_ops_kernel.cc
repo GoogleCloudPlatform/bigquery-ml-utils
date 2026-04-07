@@ -82,8 +82,9 @@ class DatetimeFromComponents : public OpKernel {
     valid_input = valid_input && (years.size() == seconds.size());
 
     OP_REQUIRES(context, valid_input,
-                InvalidArgument("Invalid input in DatetimeFromComponents: all "
-                                "the inputs must have the same shape."));
+                absl::InvalidArgumentError(
+                    "Invalid input in DatetimeFromComponents: all "
+                    "the inputs must have the same shape."));
 
     // Create an output tensor with the shape of the datetime tensor.
     Tensor* output_tensor = nullptr;
@@ -169,7 +170,7 @@ class DatetimeFromDateAndTime : public OpKernel {
 
     OP_REQUIRES(
         context, dates.size() == times.size(),
-        InvalidArgument(
+        absl::InvalidArgumentError(
             "Inputs in DatetimeFromDateAndTime must have the same length."));
 
     // Create an output tensor with the shape of the datetime tensor.
@@ -342,9 +343,10 @@ class DatetimeAdd : public OpKernel {
                                                      &output_tensor));
     auto output_flat = output_tensor->flat<tstring>();
 
-    OP_REQUIRES(context, input_datetime.size() == input_interval.size(),
-                InvalidArgument("DatetimeAdd expects the same length of "
-                                "datetime and internval inputs."));
+    OP_REQUIRES(
+        context, input_datetime.size() == input_interval.size(),
+        absl::InvalidArgumentError("DatetimeAdd expects the same length of "
+                                   "datetime and internval inputs."));
     const int N = input_datetime.size();
     for (int i = 0; i < N; i++) {
       // Parse the datetime.
@@ -406,9 +408,10 @@ class DatetimeDiff : public OpKernel {
                                 0, datetime_a_tensor.shape(), &output_tensor));
     auto output_flat = output_tensor->flat<int64_t>();
 
-    OP_REQUIRES(context, datetime_a.size() == datetime_b.size(),
-                InvalidArgument("DatetimeDiff expects the same length of "
-                                "datetime_a and datetime_b."));
+    OP_REQUIRES(
+        context, datetime_a.size() == datetime_b.size(),
+        absl::InvalidArgumentError("DatetimeDiff expects the same length of "
+                                   "datetime_a and datetime_b."));
     const int N = datetime_a.size();
     for (int i = 0; i < N; i++) {
       // Parse the datetime_a.
@@ -466,9 +469,10 @@ class DatetimeSub : public OpKernel {
                                                      &output_tensor));
     auto output_flat = output_tensor->flat<tstring>();
 
-    OP_REQUIRES(context, input_datetime.size() == input_interval.size(),
-                InvalidArgument("DatetimeSub expects the same length of "
-                                "datetime and internval inputs."));
+    OP_REQUIRES(
+        context, input_datetime.size() == input_interval.size(),
+        absl::InvalidArgumentError("DatetimeSub expects the same length of "
+                                   "datetime and internval inputs."));
     const int N = input_datetime.size();
     for (int i = 0; i < N; i++) {
       // Parse the datetime.
