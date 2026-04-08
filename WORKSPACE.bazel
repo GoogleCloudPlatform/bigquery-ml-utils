@@ -32,6 +32,7 @@ http_archive(
     strip_prefix = "abseil-cpp-20230802.1",
     urls = [
         "https://github.com/abseil/abseil-cpp/archive/refs/tags/20230802.1.tar.gz",
+        "https://codeload.github.com/abseil/abseil-cpp/tar.gz/refs/tags/20230802.1",
     ],
 )
 
