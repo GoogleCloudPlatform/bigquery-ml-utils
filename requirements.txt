@@ -5,5 +5,5 @@ tensorflow-hub==0.16.1
 tensorflow-text==2.16.1
 xgboost==3.0.1
 tzdata==2025.3
-pytest==9.0.2
+pytest==9.0.3
 mock==5.1.0
