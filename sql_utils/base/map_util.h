@@ -108,7 +108,7 @@ template <typename M, typename = void>
 struct HasTryEmplace : std::false_type {};
 
 template <typename M>
-struct HasTryEmplace<M, absl::void_t<decltype(std::declval<M>().try_emplace(
+struct HasTryEmplace<M, std::void_t<decltype(std::declval<M>().try_emplace(
                             std::declval<const MapUtilKeyT<M>&>()))>>
     : std::true_type {};
 
