@@ -99,7 +99,7 @@ If you chose to skip running the notebook and use a pre-built version of the mod
 Copy the model to Google Cloud Storage:
 ```python
 # copy the model files to GCS
-!gsutil cp -r gs://bucket/path/to/prebuilt/model gs://$PROJECT_ID/bqml/remote_model_tutorial
+!gcloud storage cp --recursive gs://bucket/path/to/prebuilt/model gs://$PROJECT_ID/bqml/remote_model_tutorial
 ```
 
 If you ran the tutorial notebook and created a model then continue by adding these code cells:
@@ -107,7 +107,7 @@ If you ran the tutorial notebook and created a model then continue by adding the
 Copy the model to Google Cloud Storage:
 ```python
 # copy the model files to GCS
-!gsutil cp -r $saved_model_path gs://$PROJECT_ID/bqml/remote_model_tutorial
+!gcloud storage cp --recursive $saved_model_path gs://$PROJECT_ID/bqml/remote_model_tutorial
 ```
 
 #### Step 3: Register the Model In Vertex AI Model Registry
@@ -294,7 +294,7 @@ endpoint.delete(force = True)
 model.delete()
 
 # remove model files in GCS
-!gsutil rm -r gs://$PROJECT_ID/bqml/remote_model_tutorial
+!gcloud storage rm --recursive gs://$PROJECT_ID/bqml/remote_model_tutorial
 
 # remove BigQuery Dataset (holds model definition)
 bq rm -r -f -d {PROJECT_ID}.bqml_remote_model_tutorial
