@@ -22,6 +22,7 @@
 #include <cctype>
 #include <cstddef>
 #include <cstdint>
+#include <iterator>
 #include <limits>
 #include <string>
 #include <utility>
@@ -839,7 +840,7 @@ absl::Status ParseTimeWithFormatElements(
       case FormatElementType::kY: {
         int element_length = format_element.len_in_format_str;
         SQL_RET_CHECK(element_length >= 0 &&
-                      element_length < ABSL_ARRAYSIZE(powers_of_ten));
+                      element_length < std::size(powers_of_ten));
         int element_length_power_of_ten =
             static_cast<int>(powers_of_ten[element_length]);
         int parsed_year_part;
