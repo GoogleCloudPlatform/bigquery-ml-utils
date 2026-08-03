@@ -18,6 +18,7 @@
 
 #include <cctype>
 #include <cmath>
+#include <iterator>
 #include <limits>
 #include <ostream>
 #include <string>
@@ -62,7 +63,7 @@ std::string ToString(int64_t value) {
     while (v >= int64_t{1000000}) {
       v /= int64_t{1000};
       ++unit;
-      SQL_CHECK(unit < units + ABSL_ARRAYSIZE(units));
+      SQL_CHECK(unit < units + std::size(units));
     }
     absl::StrAppendFormat(&s, "%.2f%c", v / 1000.0, *unit);
   }
