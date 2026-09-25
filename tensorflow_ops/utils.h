@@ -28,7 +28,7 @@
 #include "sql_utils/public/civil_time.h"
 #include "sql_utils/public/functions/datetime.pb.h"
 #include "sql_utils/public/interval_value.h"
-#include "tensorflow/tsl/platform/status.h"
+#include "tsl/platform/status.h"
 
 namespace bigquery_ml_utils {
 

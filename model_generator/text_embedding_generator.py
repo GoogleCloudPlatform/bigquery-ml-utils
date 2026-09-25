@@ -17,9 +17,26 @@
 import enum
 
 import tensorflow as tf
-import tensorflow_hub as hub
 # Required for registering custom ops used by BERT.
 import tensorflow_text as _  # pylint: disable=unused-import
+
+
+def _load_hub_model(handle):
+  """Loads a TF Hub model via a deferred tensorflow_hub import.
+
+  tensorflow_hub 0.16.1 imports pkg_resources at module scope and setuptools
+  >= 82 no longer ships it; importing here keeps `import bigquery_ml_utils`
+  (and the inference path) working without a setuptools cap.
+
+  Args:
+    handle: Path (local or hub) of the model, as accepted by hub.load.
+
+  Returns:
+    The loaded model.
+  """
+  import tensorflow_hub as hub  # pylint: disable=g-import-not-at-top
+
+  return hub.load(handle)
 
 
 @enum.unique
@@ -48,7 +65,7 @@ class Keras3HubLayer(tf.keras.layers.Layer):
     super().__init__(**kwargs)
     self.handle = handle
     self.output_dim = output_dim
-    self.model = hub.load(handle)
+    self.model = _load_hub_model(handle)
 
   def call(self, inputs):
     return self.model(inputs)
@@ -72,8 +89,8 @@ class Keras3BertWrapper(tf.keras.layers.Layer):
     super().__init__(**kwargs)
     self.pre_link = pre_link
     self.enc_link = enc_link
-    self.pre = hub.load(pre_link)
-    self.enc = hub.load(enc_link)
+    self.pre = _load_hub_model(pre_link)
+    self.enc = _load_hub_model(enc_link)
 
   def call(self, inputs):
     return self.enc(self.pre(inputs))["pooled_output"]

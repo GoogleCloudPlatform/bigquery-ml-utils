@@ -43,7 +43,7 @@ class BinaryDistribution(Distribution):
 
 setup(
     name='bigquery_ml_utils',
-    version='1.4.4',
+    version='1.5.0',
     description='BigQuery ML Utils',
     long_description=_LONG_DESCRIPTION,
     long_description_content_type='text/markdown',
@@ -56,9 +56,9 @@ setup(
         'absl-py == 2.4.0',
         'xgboost == 3.0.1',
         'numpy == 1.26.4',
-        'tensorflow == 2.16.1',
+        'tensorflow == 2.18.1',
         'tensorflow-hub == 0.16.1',
-        'tensorflow-text == 2.16.1',
+        'tensorflow-text == 2.18.1',
         'tzdata == 2025.3',
     ],
     include_package_data=True,

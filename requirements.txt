@@ -1,8 +1,8 @@
 absl-py==2.4.0
 numpy==1.26.4
-tensorflow==2.16.1
+tensorflow==2.18.1
 tensorflow-hub==0.16.1
-tensorflow-text==2.16.1
+tensorflow-text==2.18.1
 xgboost==3.0.1
 tzdata==2025.3
 pytest==9.0.2

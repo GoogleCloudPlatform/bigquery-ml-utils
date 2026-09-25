@@ -12,6 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Shim to satisfy TensorFlow 2.16.1 Bazel toolchain requirements."""
+"""Shim to satisfy TensorFlow 2.18.1 Bazel toolchain requirements."""
 
 interpreter = "python3"

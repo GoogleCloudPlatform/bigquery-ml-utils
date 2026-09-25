@@ -30,7 +30,7 @@
 #include "sql_utils/public/functions/parse_date_time.h"
 #include "tensorflow_ops/constants.h"
 #include "tensorflow_ops/utils.h"
-#include "tensorflow/tsl/platform/status.h"
+#include "tsl/platform/status.h"
 #include "tensorflow/core/framework/op_kernel.h"
 #include "tensorflow/core/framework/op_requires.h"
 #include "tensorflow/core/framework/tensor.h"

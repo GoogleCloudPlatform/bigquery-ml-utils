@@ -30,8 +30,8 @@
 #include "sql_utils/public/functions/parse_date_time.h"
 #include "sql_utils/public/interval_value.h"
 #include "tensorflow_ops/constants.h"
-#include "tensorflow/tsl/platform/errors.h"
-#include "tensorflow/tsl/platform/status.h"
+#include "tsl/platform/errors.h"
+#include "tsl/platform/status.h"
 #include "tensorflow/core/platform/errors.h"
 
 using ::tsl::errors::InvalidArgument;

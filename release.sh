@@ -13,8 +13,8 @@ docker_install() {
 }
 
 function main() {
-  # Python 3.10.
-  SUPPORTED_PY_VERSIONS=(10)
+  # Python 3.10 and 3.11.
+  SUPPORTED_PY_VERSIONS=(10 11)
   BAZEL_FILE=/usr/bin/bazel
 
   USAGE='release.sh -d WHEEL_DIST'

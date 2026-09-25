@@ -91,11 +91,11 @@ http_archive(
 # Define TF in the end, so packages defined above will be skipped here.
 http_archive(
     name = "org_tensorflow",
-    sha256 = "c729e56efc945c6df08efe5c9f5b8b89329c7c91b8f40ad2bb3e13900bd4876d",
-    strip_prefix = "tensorflow-2.16.1",
+    sha256 = "467c512b631e72ad5c9d5c16b23669bcf89675de630cfbb58f9dde746d34afa8",
+    strip_prefix = "tensorflow-2.18.1",
     urls = [
-        "https://github.com/tensorflow/tensorflow/archive/refs/tags/v2.16.1.tar.gz",
-        "https://codeload.github.com/tensorflow/tensorflow/tar.gz/refs/tags/v2.16.1",
+        "https://github.com/tensorflow/tensorflow/archive/refs/tags/v2.18.1.tar.gz",
+        "https://codeload.github.com/tensorflow/tensorflow/tar.gz/refs/tags/v2.18.1",
     ],
 )
 
@@ -120,11 +120,61 @@ load("@org_tensorflow//tensorflow:workspace0.bzl", "tf_workspace0")
 
 tf_workspace0()
 
+# TF 2.18's @local_xla//xla/tsl loads @local_config_cuda unconditionally, so
+# mirror the hermetic CUDA/NCCL init from TF's own WORKSPACE. Without
+# HERMETIC_CUDA_VERSION set these produce CPU-only stub repositories.
+load(
+    "@local_tsl//third_party/gpus/cuda/hermetic:cuda_json_init_repository.bzl",
+    "cuda_json_init_repository",
+)
+
+cuda_json_init_repository()
+
+load(
+    "@cuda_redist_json//:distributions.bzl",
+    "CUDA_REDISTRIBUTIONS",
+    "CUDNN_REDISTRIBUTIONS",
+)
+load(
+    "@local_tsl//third_party/gpus/cuda/hermetic:cuda_redist_init_repositories.bzl",
+    "cuda_redist_init_repositories",
+    "cudnn_redist_init_repository",
+)
+
+cuda_redist_init_repositories(
+    cuda_redistributions = CUDA_REDISTRIBUTIONS,
+)
+
+cudnn_redist_init_repository(
+    cudnn_redistributions = CUDNN_REDISTRIBUTIONS,
+)
+
+load(
+    "@local_tsl//third_party/gpus/cuda/hermetic:cuda_configure.bzl",
+    "cuda_configure",
+)
+
+cuda_configure(name = "local_config_cuda")
+
+load(
+    "@local_tsl//third_party/nccl/hermetic:nccl_redist_init_repository.bzl",
+    "nccl_redist_init_repository",
+)
+
+nccl_redist_init_repository()
+
+load(
+    "@local_tsl//third_party/nccl/hermetic:nccl_configure.bzl",
+    "nccl_configure",
+)
+
+nccl_configure(name = "local_config_nccl")
+
 load("//tf_dependency:tf_configure.bzl", "tf_configure")
 
 tf_configure(name = "local_config_tf")
 
-# Satisfy @python references from TF 2.16.1 toolchains using the local environment
+# Satisfy @python references from TF 2.18.1 toolchains using the local environment
 local_repository(
     name = "python",
     path = ".",
