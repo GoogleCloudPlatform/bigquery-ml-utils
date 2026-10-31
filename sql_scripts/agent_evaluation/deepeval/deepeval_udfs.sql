@@ -13,7 +13,15 @@
 -- limitations under the License.
 
 -- =============================================================================
--- DeepEval BigQuery Managed Python UDF (`deepeval_evaluate`)
+-- DeepEval BigQuery Managed Python UDFs:
+--   1. `deepeval_parse_trace(events_json STRING) -> STRING`
+--      Offline Python UDF that normalizes raw BigQuery Agent Analytics (BQAA)
+--      event arrays (`agent_events` / `agent_events_v2`) or canonical
+--      `AgentData` JSON into DeepEval test case JSON without spending Gemini
+--      quota.
+--   2. `deepeval_evaluate(test_case_json STRING, metrics ARRAY<STRING>)`
+--      Online Python UDF (`WITH CONNECTION`) that evaluates a parsed DeepEval
+--      test case JSON against single-turn and multi-turn DeepEval metrics.
 --
 -- Placeholders (substituted by ./install.sh):
 --   YOUR_PROJECT_ID, YOUR_DATASET_ID (default: agent_analytics),
@@ -25,6 +33,605 @@
 --   on the BigQuery Cloud Resource Connection SA; no API key needed).
 -- =============================================================================
 
+-- -----------------------------------------------------------------------------
+-- UDF 1: Offline Trace Parser (`deepeval_parse_trace`)
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION `YOUR_PROJECT_ID.YOUR_DATASET_ID.deepeval_parse_trace`(
+  events_json STRING
+)
+RETURNS STRING
+LANGUAGE python
+OPTIONS (
+  runtime_version = 'python-3.11',
+  entry_point = 'parse_trace'
+)
+AS r'''
+import json
+import re
+
+# Causal lifecycle ordering for BQAA events that share an identical timestamp.
+_BQAA_PHASE = {
+    "INVOCATION_STARTING": 0,
+    "USER_MESSAGE_RECEIVED": 1,
+    "AGENT_STARTING": 2,
+    "LLM_REQUEST": 3,
+    "LLM_RESPONSE": 4,
+    "TOOL_STARTING": 5,
+    "HITL_CONFIRMATION_REQUEST": 5,
+    "HITL_INPUT_REQUEST": 5,
+    "TOOL_COMPLETED": 6,
+    "TOOL_ERROR": 6,
+    "HITL_CONFIRMATION_REQUEST_COMPLETED": 6,
+    "HITL_INPUT_REQUEST_COMPLETED": 6,
+    "AGENT_RESPONSE": 7,
+    "AGENT_ERROR": 7,
+    "AGENT_COMPLETED": 8,
+    "INVOCATION_COMPLETED": 9,
+    "INVOCATION_ERROR": 9,
+}
+
+
+def _parse_json_field(val, default):
+    """Parses val as JSON if it is a string, otherwise returns val or default."""
+    if val is None or val == "":
+        return default
+    if isinstance(val, str):
+        try:
+            parsed = json.loads(val)
+            return default if parsed is None else parsed
+        except Exception:
+            return default
+    return val
+
+
+def _extract_part_texts(parts) -> list[str]:
+    """Extracts text or markdown strings from a list of content part dicts."""
+    if not isinstance(parts, list):
+        return []
+    texts = []
+    for part in parts:
+        if isinstance(part, dict) and (part.get("text") or part.get("markdown")):
+            texts.append(str(part.get("text") or part.get("markdown")))
+    return texts
+
+
+def _extract_content_parts_text(ev: dict, excluded_attrs: tuple[str, ...]) -> str:
+    """Extracts plain/markdown text from top-level BQAA content_parts."""
+    if not isinstance(ev, dict) or not isinstance(ev.get("content_parts"), list):
+        return ""
+    parts = []
+    for part in ev["content_parts"]:
+        if not isinstance(part, dict):
+            continue
+        part_text = part.get("text")
+        part_attr = str(part.get("part_attributes") or "")
+        if (
+            part.get("mime_type") in ("text/plain", "text/markdown", None, "")
+            and isinstance(part_text, str)
+            and part_text not in ("[BINARY DATA]", "[UPLOAD FAILED]")
+            and not any(attr in part_attr for attr in excluded_attrs)
+        ):
+            parts.append(part_text)
+    return "\n".join(parts).strip()
+
+
+def _extract_bqaa_user_text(ev: dict, content_dict: dict, content_str: str) -> str:
+    """Extracts user message text from a BQAA USER_MESSAGE_RECEIVED event."""
+    raw = str(
+        content_dict.get("text_summary")
+        or content_dict.get("text")
+        or content_dict.get("message")
+        or ""
+    ).strip()
+    if not raw:
+        raw = _extract_content_parts_text(ev, ("function_response",))
+    if not raw and content_str:
+        raw = content_str.strip()
+    if raw.startswith("Function response:"):
+        return ""
+    match = re.match(r"^(?:User Content:\s*)?text:\s*'(.*)'$", raw, re.DOTALL)
+    return match.group(1) if match else raw
+
+
+def _extract_bqaa_response_text(
+    content_dict: dict, content_str: str, ev: dict | None = None
+) -> str:
+    """Extracts assistant response text from AGENT_RESPONSE or LLM_RESPONSE."""
+    resp_obj = content_dict.get("response")
+    if isinstance(resp_obj, dict):
+        candidates = resp_obj.get("candidates")
+        if isinstance(candidates, list) and candidates:
+            first_cand = candidates[0] if isinstance(candidates[0], dict) else {}
+            cand_content = first_cand.get("content")
+            parts = cand_content.get("parts") if isinstance(cand_content, dict) else []
+            cand_texts = _extract_part_texts(parts)
+            if cand_texts:
+                return "\n".join(cand_texts)
+        resp_parts = _extract_part_texts(resp_obj.get("parts"))
+        if resp_parts:
+            return "\n\n".join(resp_parts)
+        if resp_obj.get("clarifying_question"):
+            return str(resp_obj["clarifying_question"]).strip()
+    if content_dict.get("text_summary"):
+        return str(content_dict["text_summary"])
+    content_parts = _extract_part_texts(content_dict.get("parts"))
+    if content_parts:
+        return "\n\n".join(content_parts)
+    if isinstance(ev, dict):
+        top_parts = _extract_content_parts_text(
+            ev, ("function_call", "function_response")
+        )
+        if top_parts:
+            return top_parts
+    raw = resp_obj if isinstance(resp_obj, str) else content_str
+    if not isinstance(raw, str) or not raw.strip():
+        return ""
+    stripped = raw.strip()
+    if (
+        stripped.startswith("call:")
+        or " | call:" in stripped
+        or (stripped.startswith("Tool Name:") and "text:" not in stripped)
+    ):
+        return ""
+    m_tool_text = re.match(
+        r"^Tool Name:\s*text_response,\s*text:\s*'(.*)'$", stripped, re.DOTALL
+    )
+    if m_tool_text:
+        return m_tool_text.group(1)
+    m_text = re.match(r"^text:\s*'(.*)'$", stripped, re.DOTALL)
+    if m_text:
+        return m_text.group(1).replace("' | text: '", "\n")
+    return "" if stripped.startswith(("Tool Name:", "Model:")) else stripped
+
+
+def _parse_bqaa_events(ev_list: list, wrapper: dict) -> dict:
+    """Converts BQAA event rows into normalized DeepEval test_case fields."""
+    if not isinstance(ev_list, list) or not ev_list:
+        raise ValueError("BQAA events list cannot be empty")
+    valid_events = [
+        ev for ev in ev_list if isinstance(ev, dict) and ev.get("event_type")
+    ]
+    if not valid_events:
+        raise ValueError(
+            "BQAA events list must contain event objects with 'event_type'"
+        )
+    sorted_events = [
+        ev
+        for _, ev in sorted(
+            enumerate(valid_events),
+            key=lambda pair: (
+                str(pair[1].get("timestamp") or ""),
+                _BQAA_PHASE.get(str(pair[1].get("event_type") or "").upper(), 5),
+                pair[0],
+            ),
+        )
+    ]
+    invocations: dict[str, list[dict]] = {}
+    for ev in sorted_events:
+        inv_id = str(ev.get("invocation_id") or "turn_0")
+        invocations.setdefault(inv_id, []).append(ev)
+
+    primary_agent_id = str(wrapper.get("agent_id") or wrapper.get("agent") or "")
+    extracted_instruction = ""
+    normalized_turns = []
+
+    for inv_events in invocations.values():
+        turn_tools = []
+        turn_rc = []
+        pending_tools: dict[str, list[dict]] = {}
+        pending_by_span: dict[str, dict] = {}
+        user_text = ""
+        fallback_user_text = ""
+        agent_response_text = ""
+        llm_response_text = ""
+        fallback_error_text = ""
+
+        for ev in inv_events:
+            ev_type = str(ev.get("event_type") or "").upper()
+            attrs = _parse_json_field(ev.get("attributes"), {})
+            if not isinstance(attrs, dict):
+                attrs = {}
+            raw_content = ev.get("content")
+            parsed_content = _parse_json_field(raw_content, None)
+            if isinstance(parsed_content, dict):
+                content_dict, content_str = parsed_content, ""
+            else:
+                content_dict = {}
+                content_str = raw_content if isinstance(raw_content, str) else ""
+
+            if not primary_agent_id and (
+                ev.get("agent") or attrs.get("root_agent_name")
+            ):
+                primary_agent_id = str(
+                    ev.get("agent") or attrs.get("root_agent_name")
+                )
+
+            if ev.get("error_message"):
+                fallback_error_text = f"Error: {str(ev['error_message']).strip()}"
+                if ev_type in ("AGENT_ERROR", "INVOCATION_ERROR"):
+                    agent_response_text = ""
+                    llm_response_text = ""
+
+            if ev_type == "AGENT_STARTING":
+                instr = str(
+                    content_dict.get("text_summary")
+                    or content_str
+                    or attrs.get("static_instruction")
+                    or ""
+                ).strip()
+                if instr and not instr.startswith(
+                    ("<function", "<bound method", "functools.partial")
+                ):
+                    extracted_instruction = instr
+
+            elif ev_type == "LLM_REQUEST":
+                sys_prompt = str(
+                    content_dict.get("system_prompt")
+                    or content_dict.get("static_instruction")
+                    or attrs.get("system_instruction")
+                    or ""
+                ).strip()
+                if sys_prompt and not extracted_instruction:
+                    extracted_instruction = sys_prompt
+                if not fallback_user_text:
+                    req_obj = content_dict.get("request")
+                    req_contents = (
+                        req_obj.get("contents")
+                        if isinstance(req_obj, dict)
+                        else None
+                    )
+                    if (
+                        isinstance(req_contents, list)
+                        and req_contents
+                        and isinstance(req_contents[0], dict)
+                    ):
+                        parts = req_contents[0].get("parts")
+                        if (
+                            isinstance(parts, list)
+                            and parts
+                            and isinstance(parts[0], dict)
+                            and parts[0].get("text")
+                        ):
+                            fallback_user_text = str(parts[0]["text"])
+                    elif isinstance(content_dict.get("prompt"), list):
+                        for p_item in reversed(content_dict["prompt"]):
+                            if (
+                                isinstance(p_item, dict)
+                                and p_item.get("role") == "user"
+                                and p_item.get("content")
+                            ):
+                                fallback_user_text = str(p_item["content"])
+                                break
+                    elif content_str:
+                        m_prompt = re.search(
+                            r"Prompt:\s*user:\s*text:\s*'([^']*)'", content_str
+                        )
+                        if m_prompt:
+                            fallback_user_text = m_prompt.group(1)
+
+            elif ev_type == "USER_MESSAGE_RECEIVED":
+                u_msg = _extract_bqaa_user_text(ev, content_dict, content_str)
+                if u_msg:
+                    user_text = u_msg
+
+            elif ev_type in (
+                "TOOL_STARTING",
+                "HITL_CONFIRMATION_REQUEST",
+                "HITL_INPUT_REQUEST",
+            ):
+                t_name = content_dict.get("tool") or content_dict.get("tool_name")
+                t_desc = content_dict.get("description") or content_dict.get(
+                    "text_summary"
+                )
+                t_args = (
+                    content_dict.get("args")
+                    if content_dict.get("args") is not None
+                    else content_dict.get("tool_input")
+                )
+                if not t_name and content_str:
+                    m_name = re.search(r"Tool Name:\s*([^,\n]+)", content_str)
+                    if m_name:
+                        t_name = m_name.group(1).strip()
+                    m_desc = re.search(
+                        r"Description:\s*([^,\n]+?)(?:,\s*Arguments:|$)",
+                        content_str,
+                    )
+                    if m_desc:
+                        t_desc = m_desc.group(1).strip()
+                    m_args = re.search(
+                        r"Arguments:\s*(\{.*\})\s*$", content_str, re.DOTALL
+                    )
+                    if m_args:
+                        t_args = _parse_json_field(m_args.group(1), {})
+                t_name = str(t_name or "unknown_tool").strip()
+                if ev_type == "TOOL_STARTING" and (
+                    t_name == "transfer_to_agent"
+                    or t_name.startswith("adk_request_")
+                ):
+                    continue
+                parsed_args = _parse_json_field(t_args, {})
+                args_dict = (
+                    parsed_args
+                    if isinstance(parsed_args, dict)
+                    else ({"value": parsed_args} if parsed_args is not None else {})
+                )
+                entry = {
+                    "name": t_name,
+                    "args": args_dict,
+                    "description": str(t_desc or f"Tool {t_name}"),
+                }
+                pending_tools.setdefault(t_name, []).append(entry)
+                if ev.get("span_id"):
+                    pending_by_span[str(ev["span_id"])] = entry
+
+            elif ev_type in (
+                "TOOL_COMPLETED",
+                "TOOL_ERROR",
+                "HITL_CONFIRMATION_REQUEST_COMPLETED",
+                "HITL_INPUT_REQUEST_COMPLETED",
+            ):
+                span_key = str(ev.get("span_id") or "")
+                matched_span = pending_by_span.pop(span_key, None) if span_key else None
+                t_name = content_dict.get("tool") or content_dict.get("tool_name")
+                if not t_name and content_str:
+                    m_name = re.search(r"Tool Name:\s*([^,\n]+)", content_str)
+                    if m_name:
+                        t_name = m_name.group(1).strip()
+                if not t_name and matched_span:
+                    t_name = matched_span.get("name")
+                if not t_name and len(pending_tools) == 1:
+                    t_name = next(iter(pending_tools))
+                t_name = str(t_name or "unknown_tool").strip()
+                if ev_type in ("TOOL_COMPLETED", "TOOL_ERROR") and (
+                    t_name == "transfer_to_agent"
+                    or t_name.startswith("adk_request_")
+                ):
+                    continue
+                tool_queue = pending_tools.get(t_name, [])
+                if matched_span and matched_span in tool_queue:
+                    tool_queue.remove(matched_span)
+                pending = matched_span or (
+                    tool_queue.pop(0) if tool_queue else {}
+                )
+                if not tool_queue:
+                    pending_tools.pop(t_name, None)
+
+                inline_args = (
+                    content_dict.get("args")
+                    if content_dict.get("args") is not None
+                    else content_dict.get("tool_input")
+                )
+                if inline_args is None and content_str:
+                    m_args = re.search(
+                        r"Arguments:\s*(\{.*\})\s*$", content_str, re.DOTALL
+                    )
+                    if m_args:
+                        inline_args = _parse_json_field(m_args.group(1), {})
+                parsed_args = (
+                    _parse_json_field(inline_args, None)
+                    if inline_args is not None
+                    else pending.get("args", {})
+                )
+                args_dict = (
+                    parsed_args
+                    if isinstance(parsed_args, dict)
+                    else ({"value": parsed_args} if parsed_args is not None else {})
+                )
+                desc_str = str(
+                    content_dict.get("description")
+                    or pending.get("description")
+                    or f"Tool {t_name}"
+                )
+
+                to_obj = content_dict.get("tool_output")
+                raw_res = (
+                    to_obj.get("result")
+                    if isinstance(to_obj, dict) and "result" in to_obj
+                    else (
+                        to_obj
+                        if to_obj is not None
+                        else content_dict.get("result")
+                    )
+                )
+                if raw_res is None and content_str:
+                    m_res = re.search(r"Result:\s*(.+)$", content_str, re.DOTALL)
+                    if m_res:
+                        raw_res = _parse_json_field(
+                            m_res.group(1).strip(), m_res.group(1).strip()
+                        )
+                if raw_res is None and ev_type == "TOOL_ERROR":
+                    raw_res = {
+                        "error": str(
+                            ev.get("error_message") or "Tool execution failed"
+                        )
+                    }
+                parsed_res = _parse_json_field(raw_res, raw_res)
+                resp_dict = (
+                    parsed_res
+                    if isinstance(parsed_res, dict)
+                    else {
+                        "result": parsed_res if parsed_res is not None else "ok"
+                    }
+                )
+
+                turn_tools.append({
+                    "name": t_name,
+                    "description": desc_str,
+                    "input_parameters": args_dict,
+                    "output": resp_dict,
+                })
+                if (
+                    isinstance(parsed_res, dict)
+                    and isinstance(parsed_res.get("content"), list)
+                    and parsed_res["content"]
+                    and isinstance(parsed_res["content"][0], dict)
+                    and parsed_res["content"][0].get("text")
+                ):
+                    rc_val = str(parsed_res["content"][0]["text"])
+                elif isinstance(parsed_res, (dict, list)):
+                    rc_val = json.dumps(parsed_res)
+                else:
+                    rc_val = str(parsed_res if parsed_res is not None else "null")
+                turn_rc.append(f"Tool {t_name} returned: {rc_val}")
+
+            elif ev_type == "AGENT_RESPONSE":
+                resp_text = _extract_bqaa_response_text(
+                    content_dict, content_str, ev
+                )
+                if resp_text:
+                    agent_response_text = resp_text
+
+            elif ev_type == "LLM_RESPONSE":
+                resp_text = _extract_bqaa_response_text(
+                    content_dict, content_str, ev
+                )
+                if resp_text:
+                    llm_response_text = resp_text
+
+        normalized_turns.append({
+            "input": user_text or fallback_user_text,
+            "actual_output": (
+                agent_response_text or llm_response_text or fallback_error_text
+            ),
+            "tools_called": turn_tools,
+            "retrieval_context": turn_rc,
+        })
+
+    primary_instr = str(
+        wrapper.get("chatbot_role")
+        or wrapper.get("instruction")
+        or extracted_instruction
+        or "Helpful AI Assistant"
+    )
+    last_turn = normalized_turns[-1]
+    all_rc = [c for turn in normalized_turns for c in turn["retrieval_context"]]
+    result = dict(wrapper)
+    result.setdefault("agent_id", primary_agent_id or "root_agent")
+    result.setdefault("chatbot_role", primary_instr)
+    result.setdefault("input", last_turn["input"])
+    result.setdefault("actual_output", last_turn["actual_output"])
+    result.setdefault(
+        "tools_called",
+        [t for turn in normalized_turns for t in turn["tools_called"]],
+    )
+    result.setdefault("retrieval_context", all_rc)
+    if not all_rc and not wrapper.get("retrieval_context") and extracted_instruction:
+        result.setdefault("context", [extracted_instruction])
+    result["turns"] = normalized_turns
+    return result
+
+
+def _parse_agent_data_dict(raw_dict: dict) -> dict:
+    """Normalizes a canonical AgentData JSON dict into DeepEval test_case fields."""
+    inner = _parse_json_field(raw_dict.get("agent_eval_data") or raw_dict.get("trace"), None)
+    agent_data = inner if isinstance(inner, dict) else raw_dict
+    raw_agents = agent_data.get("agents") if isinstance(agent_data.get("agents"), dict) else {}
+    raw_turns = agent_data.get("turns") if isinstance(agent_data.get("turns"), list) else []
+    if not raw_turns:
+        raise ValueError("AgentData turns list cannot be empty")
+    primary_agent_id = str(
+        raw_dict.get("agent_id") or raw_dict.get("agent") or next(iter(raw_agents), "root_agent")
+    )
+    primary_instr = str(
+        raw_dict.get("chatbot_role")
+        or raw_dict.get("instruction")
+        or (raw_agents.get(primary_agent_id) or {}).get("instruction")
+        or "Helpful AI Assistant"
+    )
+    normalized_turns = []
+    for t_obj in raw_turns:
+        if not isinstance(t_obj, dict):
+            continue
+        u_text, a_text, turn_tools, turn_rc = "", "", [], []
+        pending_args: dict[str, dict] = {}
+        for ev in (t_obj.get("events") if isinstance(t_obj.get("events"), list) else []):
+            if not isinstance(ev, dict):
+                continue
+            c_obj = ev.get("content") if isinstance(ev.get("content"), dict) else {}
+            role = str(c_obj.get("role") or "")
+            for part in (c_obj.get("parts") if isinstance(c_obj.get("parts"), list) else []):
+                if not isinstance(part, dict):
+                    continue
+                if part.get("text") is not None:
+                    if role == "user" or ev.get("author") == "user":
+                        u_text = str(part["text"])
+                    else:
+                        a_text = str(part["text"])
+                if isinstance(part.get("function_call"), dict):
+                    fc = part["function_call"]
+                    fc_name = str(fc.get("name") or "unknown_tool")
+                    if fc_name != "transfer_to_agent":
+                        pending_args[fc_name] = fc.get("args") if isinstance(fc.get("args"), dict) else {}
+                if isinstance(part.get("function_response"), dict):
+                    fr = part["function_response"]
+                    fr_name = str(fr.get("name") or "unknown_tool")
+                    fr_resp = fr.get("response")
+                    resp_dict = fr_resp if isinstance(fr_resp, dict) else {"result": fr_resp}
+                    turn_tools.append({
+                        "name": fr_name,
+                        "description": f"Tool {fr_name}",
+                        "input_parameters": pending_args.get(fr_name, {}),
+                        "output": resp_dict,
+                    })
+                    turn_rc.append(f"Tool {fr_name} returned: {json.dumps(fr_resp)}")
+        normalized_turns.append({
+            "input": u_text,
+            "actual_output": a_text,
+            "tools_called": turn_tools,
+            "retrieval_context": turn_rc,
+        })
+    if not normalized_turns:
+        raise ValueError("AgentData turns list cannot be empty")
+    last_turn = normalized_turns[-1]
+    all_rc = [c for turn in normalized_turns for c in turn["retrieval_context"]]
+    result = dict(raw_dict)
+    result.setdefault("agent_id", primary_agent_id)
+    result.setdefault("chatbot_role", primary_instr)
+    result.setdefault("input", last_turn["input"])
+    result.setdefault("actual_output", last_turn["actual_output"])
+    result.setdefault("tools_called", [t for turn in normalized_turns for t in turn["tools_called"]])
+    result.setdefault("retrieval_context", all_rc)
+    if not all_rc and not raw_dict.get("retrieval_context") and primary_instr:
+        result.setdefault("context", [primary_instr])
+    result["turns"] = normalized_turns
+    return result
+
+
+def _normalize_input_payload(events_json) -> dict:
+    """Parses BQAA event arrays, wrapped BQAA events, canonical AgentData, or test_case dicts."""
+    decoded = json.loads(events_json) if isinstance(events_json, str) else events_json
+    if isinstance(decoded, list):
+        return _parse_bqaa_events(decoded, {})
+    if isinstance(decoded, dict):
+        if "events" in decoded and decoded.get("events") is not None:
+            ev_list = _parse_json_field(decoded.get("events"), None)
+            return _parse_bqaa_events(ev_list, decoded)
+        if "event_type" in decoded:
+            return _parse_bqaa_events([decoded], {})
+        raw_turns = decoded.get("turns")
+        is_agent_data_turns = (
+            isinstance(raw_turns, list)
+            and bool(raw_turns)
+            and isinstance(raw_turns[0], dict)
+            and "events" in raw_turns[0]
+        )
+        if "agent_eval_data" in decoded or "trace" in decoded or is_agent_data_turns:
+            return _parse_agent_data_dict(decoded)
+        return decoded
+    raise ValueError("events_json must decode to a BQAA event array or JSON object")
+
+
+def parse_trace(events_json: str) -> str | None:
+    """UDF entry point converting raw BQAA or AgentData JSON into a DeepEval trace."""
+    if not events_json:
+        return None
+    return json.dumps(_normalize_input_payload(events_json))
+''';
+
+
+-- -----------------------------------------------------------------------------
+-- UDF 2: Online DeepEval Metric Evaluator (`deepeval_evaluate`)
+-- -----------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION `YOUR_PROJECT_ID.YOUR_DATASET_ID.deepeval_evaluate`(
   test_case_json STRING,
   metrics ARRAY<STRING>
@@ -84,7 +691,7 @@ _MULTI_REGION_LOCATIONS = {"us": "us-central1", "eu": "europe-west4"}
 
 
 def _resolve_gcp_location(override_loc: str = "") -> str:
-    """Resolves the Gemini endpoint location without cross-region fallback (preserving DRZ)."""
+    """Resolves the Gemini endpoint location without cross-region fallback (preserving data residency)."""
     raw_loc = (
         override_loc.strip().lower()
         or os.environ.get("GOOGLE_CLOUD_LOCATION", "").strip().lower()
@@ -107,7 +714,7 @@ try:
 except ValueError:
     GCP_LOCATION = ""
 _RAW_MODEL_ID = "YOUR_MODEL_ID".strip()
-# Default to gemini-2.5-flash (latest GA model available across regional endpoints for DRZ).
+# Default to gemini-2.5-flash (latest GA model available across regional endpoints for data residency).
 # Preview models (e.g. gemini-3-flash-preview) can be configured via install.sh MODEL_ID or judge_model.
 PRIMARY_MODEL_ID = (
     "gemini-2.5-flash"
@@ -210,21 +817,8 @@ def _is_non_retryable_error(err: Exception) -> bool:
 
 
 # -----------------------------------------------------------------------------
-# 2. BQAA Event, AgentData & Input Normalization Helpers
+# 2. Input Normalization Helpers (Tool Calls & Multi-Turn Conversations)
 # -----------------------------------------------------------------------------
-def _parse_json_field(val, default):
-    """Parses val as JSON if it is a string, otherwise returns val or default if None."""
-    if val is None or val == "":
-        return default
-    if isinstance(val, str):
-        try:
-            parsed = json.loads(val)
-            return default if parsed is None else parsed
-        except Exception:
-            return default
-    return val
-
-
 def _parse_str_list(val) -> list[str]:
     """Normalizes a string or list of values into a list of non-null strings."""
     if not val:
@@ -232,345 +826,6 @@ def _parse_str_list(val) -> list[str]:
     if isinstance(val, str):
         return [val]
     return [str(x) for x in val if x is not None] if isinstance(val, list) else [str(val)]
-
-
-def _extract_bqaa_user_text(ev: dict, content_dict: dict, content_str: str) -> str:
-    """Extracts user message text from a BQAA USER_MESSAGE_RECEIVED event."""
-    raw = str(content_dict.get("text_summary") or content_dict.get("message") or "").strip()
-    if not raw and isinstance(ev.get("content_parts"), list):
-        parts = []
-        for p in ev["content_parts"]:
-            if not isinstance(p, dict):
-                continue
-            p_text = p.get("text")
-            p_attr = str(p.get("part_attributes") or "")
-            if (
-                p.get("mime_type") == "text/plain"
-                and isinstance(p_text, str)
-                and p_text not in ("[BINARY DATA]", "[UPLOAD FAILED]")
-                and "function_response" not in p_attr
-            ):
-                parts.append(p_text)
-        raw = "\n".join(parts).strip()
-    if not raw and content_str:
-        raw = content_str.strip()
-    if raw.startswith("Function response:"):
-        return ""
-    m = re.match(r"^(?:User Content:\s*)?text:\s*'(.*)'$", raw, re.DOTALL)
-    return m.group(1) if m else raw
-
-
-def _extract_bqaa_response_text(content_dict: dict, content_str: str) -> str:
-    """Extracts assistant response text from a BQAA AGENT_RESPONSE or LLM_RESPONSE event."""
-    resp_obj = content_dict.get("response")
-    if isinstance(resp_obj, dict):
-        candidates = resp_obj.get("candidates")
-        if isinstance(candidates, list) and candidates:
-            c0 = candidates[0] if isinstance(candidates[0], dict) else {}
-            parts = (c0.get("content") or {}).get("parts") if isinstance(c0.get("content"), dict) else []
-            texts = [str(p["text"]) for p in (parts if isinstance(parts, list) else []) if isinstance(p, dict) and p.get("text")]
-            if texts:
-                return "\n".join(texts)
-    if content_dict.get("text_summary"):
-        return str(content_dict["text_summary"])
-    raw = resp_obj if isinstance(resp_obj, str) else content_str
-    if not isinstance(raw, str) or not raw.strip():
-        return ""
-    s = raw.strip()
-    if s.startswith("call:") or (s.startswith("Tool Name:") and "text:" not in s):
-        return ""
-    m_tool_text = re.match(r"^Tool Name:\s*text_response,\s*text:\s*'(.*)'$", s, re.DOTALL)
-    if m_tool_text:
-        return m_tool_text.group(1)
-    m_text = re.match(r"^text:\s*'(.*)'$", s, re.DOTALL)
-    if m_text:
-        return m_text.group(1).replace("' | text: '", "\n")
-    return s if not s.startswith(("Tool Name:", "Model:")) else ""
-
-
-def _parse_bqaa_events(ev_list: list, wrapper: dict) -> dict:
-    """Converts BQAA event rows (from BigQueryAgentAnalyticsPlugin) into DeepEval test_case fields."""
-    if not isinstance(ev_list, list) or not ev_list:
-        raise ValueError("BQAA events list cannot be empty")
-    valid_events = [e for e in ev_list if isinstance(e, dict) and e.get("event_type")]
-    if not valid_events:
-        raise ValueError("BQAA events list must contain event objects with 'event_type'")
-    sorted_events = [
-        ev for _, ev in sorted(
-            enumerate(valid_events),
-            key=lambda pair: (str(pair[1].get("timestamp") or ""), pair[0]),
-        )
-    ]
-    invocations: dict[str, list[dict]] = {}
-    for ev in sorted_events:
-        inv_id = str(ev.get("invocation_id") or "turn_0")
-        invocations.setdefault(inv_id, []).append(ev)
-
-    primary_agent_id = str(wrapper.get("agent_id") or wrapper.get("agent") or "")
-    extracted_instruction = ""
-    normalized_turns = []
-
-    for inv_events in invocations.values():
-        turn_tools = []
-        turn_rc = []
-        pending_tools: dict[str, dict] = {}
-        user_text = ""
-        fallback_user_text = ""
-        final_response_text = ""
-
-        has_agent_response = any(
-            str(e.get("event_type") or "").upper() == "AGENT_RESPONSE"
-            and _extract_bqaa_response_text(
-                _parse_json_field(e.get("content"), {}) if isinstance(_parse_json_field(e.get("content"), {}), dict) else {},
-                e.get("content") if isinstance(e.get("content"), str) else "",
-            )
-            for e in inv_events
-        )
-
-        for ev in inv_events:
-            ev_type = str(ev.get("event_type") or "").upper()
-            attrs = _parse_json_field(ev.get("attributes"), {})
-            if not isinstance(attrs, dict):
-                attrs = {}
-            raw_content = ev.get("content")
-            parsed_content = _parse_json_field(raw_content, {})
-            content_dict = parsed_content if isinstance(parsed_content, dict) else {}
-            content_str = raw_content if isinstance(raw_content, str) else ""
-
-            if not primary_agent_id and (ev.get("agent") or attrs.get("root_agent_name")):
-                primary_agent_id = str(ev.get("agent") or attrs.get("root_agent_name"))
-
-            if ev_type == "AGENT_STARTING":
-                instr = str(content_dict.get("text_summary") or content_str or attrs.get("static_instruction") or "").strip()
-                if instr and not instr.startswith(("<function", "<bound method", "functools.partial")):
-                    extracted_instruction = instr
-
-            elif ev_type == "LLM_REQUEST":
-                sys_prompt = str(content_dict.get("system_prompt") or "").strip()
-                if sys_prompt and not extracted_instruction:
-                    extracted_instruction = sys_prompt
-                if not fallback_user_text:
-                    req_contents = (content_dict.get("request") or {}).get("contents") if isinstance(content_dict.get("request"), dict) else None
-                    if isinstance(req_contents, list) and req_contents and isinstance(req_contents[0], dict):
-                        parts = req_contents[0].get("parts")
-                        if isinstance(parts, list) and parts and isinstance(parts[0], dict) and parts[0].get("text"):
-                            fallback_user_text = str(parts[0]["text"])
-                    elif isinstance(content_dict.get("prompt"), list):
-                        for p_item in reversed(content_dict["prompt"]):
-                            if isinstance(p_item, dict) and p_item.get("role") == "user" and p_item.get("content"):
-                                fallback_user_text = str(p_item["content"])
-                                break
-                    elif content_str:
-                        m_p = re.search(r"Prompt:\s*user:\s*text:\s*'([^']*)'", content_str)
-                        if m_p:
-                            fallback_user_text = m_p.group(1)
-
-            elif ev_type == "USER_MESSAGE_RECEIVED":
-                u_msg = _extract_bqaa_user_text(ev, content_dict, content_str)
-                if u_msg:
-                    user_text = u_msg
-
-            elif ev_type in ("TOOL_STARTING", "HITL_CONFIRMATION_REQUEST", "HITL_INPUT_REQUEST"):
-                t_name = content_dict.get("tool") or content_dict.get("tool_name")
-                t_desc = content_dict.get("description")
-                t_args = content_dict.get("args") if content_dict.get("args") is not None else content_dict.get("tool_input")
-                if not t_name and content_str:
-                    m_n = re.search(r"Tool Name:\s*([^,\n]+)", content_str)
-                    if m_n:
-                        t_name = m_n.group(1).strip()
-                    m_d = re.search(r"Description:\s*([^,\n]+?)(?:,\s*Arguments:|$)", content_str)
-                    if m_d:
-                        t_desc = m_d.group(1).strip()
-                    m_a = re.search(r"Arguments:\s*(\{.*\})\s*$", content_str, re.DOTALL)
-                    if m_a:
-                        t_args = _parse_json_field(m_a.group(1), {})
-                t_name = str(t_name or "unknown_tool")
-                if ev_type == "TOOL_STARTING" and (t_name == "transfer_to_agent" or t_name.startswith("adk_request_")):
-                    continue
-                parsed_args = _parse_json_field(t_args, {})
-                args_dict = parsed_args if isinstance(parsed_args, dict) else ({"value": parsed_args} if parsed_args is not None else {})
-                pending_tools[t_name] = {"args": args_dict, "description": str(t_desc or f"Tool {t_name}")}
-
-            elif ev_type in ("TOOL_COMPLETED", "TOOL_ERROR", "HITL_CONFIRMATION_REQUEST_COMPLETED", "HITL_INPUT_REQUEST_COMPLETED"):
-                t_name = content_dict.get("tool") or content_dict.get("tool_name")
-                if not t_name and content_str:
-                    m_n = re.search(r"Tool Name:\s*([^,\n]+)", content_str)
-                    if m_n:
-                        t_name = m_n.group(1).strip()
-                t_name = str(t_name or "unknown_tool")
-                if ev_type == "TOOL_COMPLETED" and (t_name == "transfer_to_agent" or t_name.startswith("adk_request_")):
-                    continue
-                pending = pending_tools.get(t_name, {})
-                inline_args = content_dict.get("args") if content_dict.get("args") is not None else content_dict.get("tool_input")
-                if inline_args is None and content_str:
-                    m_a = re.search(r"Arguments:\s*(\{.*\})\s*$", content_str, re.DOTALL)
-                    if m_a:
-                        inline_args = _parse_json_field(m_a.group(1), {})
-                parsed_args = _parse_json_field(inline_args, None) if inline_args is not None else pending.get("args", {})
-                args_dict = parsed_args if isinstance(parsed_args, dict) else ({"value": parsed_args} if parsed_args is not None else {})
-                desc_str = str(content_dict.get("description") or pending.get("description") or f"Tool {t_name}")
-
-                to_obj = content_dict.get("tool_output")
-                raw_res = (
-                    to_obj.get("result")
-                    if isinstance(to_obj, dict) and "result" in to_obj
-                    else (to_obj if to_obj is not None else content_dict.get("result"))
-                )
-                if raw_res is None and content_str:
-                    m_r = re.search(r"Result:\s*(.+)$", content_str, re.DOTALL)
-                    if m_r:
-                        raw_res = _parse_json_field(m_r.group(1).strip(), m_r.group(1).strip())
-                if raw_res is None and ev_type == "TOOL_ERROR":
-                    raw_res = {"error": str(ev.get("error_message") or "Tool execution failed")}
-                parsed_res = _parse_json_field(raw_res, raw_res)
-                resp_dict = parsed_res if isinstance(parsed_res, dict) else {"result": parsed_res if parsed_res is not None else "ok"}
-
-                turn_tools.append({
-                    "name": t_name,
-                    "description": desc_str,
-                    "input_parameters": args_dict,
-                    "output": resp_dict,
-                })
-                if (
-                    isinstance(parsed_res, dict)
-                    and isinstance(parsed_res.get("content"), list)
-                    and parsed_res["content"]
-                    and isinstance(parsed_res["content"][0], dict)
-                    and parsed_res["content"][0].get("text")
-                ):
-                    rc_val = str(parsed_res["content"][0]["text"])
-                elif isinstance(parsed_res, (dict, list)):
-                    rc_val = json.dumps(parsed_res)
-                else:
-                    rc_val = str(parsed_res if parsed_res is not None else "null")
-                turn_rc.append(f"Tool {t_name} returned: {rc_val}")
-
-            elif ev_type == "AGENT_RESPONSE" or (ev_type == "LLM_RESPONSE" and not has_agent_response):
-                resp_text = _extract_bqaa_response_text(content_dict, content_str)
-                if resp_text:
-                    final_response_text = resp_text
-
-        if not user_text and fallback_user_text:
-            user_text = fallback_user_text
-
-        normalized_turns.append({
-            "input": user_text,
-            "actual_output": final_response_text,
-            "tools_called": turn_tools,
-            "retrieval_context": turn_rc,
-        })
-
-    primary_instr = str(
-        wrapper.get("chatbot_role")
-        or wrapper.get("instruction")
-        or extracted_instruction
-        or "Helpful AI Assistant"
-    )
-    last_turn = normalized_turns[-1]
-    result = dict(wrapper)
-    result.setdefault("agent_id", primary_agent_id or "root_agent")
-    result.setdefault("chatbot_role", primary_instr)
-    result.setdefault("input", last_turn["input"])
-    result.setdefault("actual_output", last_turn["actual_output"])
-    result.setdefault("tools_called", [t for turn in normalized_turns for t in turn["tools_called"]])
-    result.setdefault("retrieval_context", [c for turn in normalized_turns for c in turn["retrieval_context"]])
-    result["turns"] = normalized_turns
-    return result
-
-
-def _parse_agent_data_dict(raw_dict: dict) -> dict:
-    """Normalizes a canonical AgentData JSON dict (or wrapper with agent_eval_data/trace) into tc_data."""
-    inner = _parse_json_field(raw_dict.get("agent_eval_data") or raw_dict.get("trace"), None)
-    agent_data = inner if isinstance(inner, dict) else raw_dict
-    raw_agents = agent_data.get("agents") if isinstance(agent_data.get("agents"), dict) else {}
-    raw_turns = agent_data.get("turns") if isinstance(agent_data.get("turns"), list) else []
-    if not raw_turns:
-        raise ValueError("AgentData turns list cannot be empty")
-    primary_agent_id = str(raw_dict.get("agent_id") or raw_dict.get("agent") or next(iter(raw_agents), "root_agent"))
-    primary_instr = str(
-        raw_dict.get("chatbot_role")
-        or raw_dict.get("instruction")
-        or (raw_agents.get(primary_agent_id) or {}).get("instruction")
-        or "Helpful AI Assistant"
-    )
-    normalized_turns = []
-    for t_obj in raw_turns:
-        if not isinstance(t_obj, dict):
-            continue
-        u_text, a_text, turn_tools, turn_rc = "", "", [], []
-        pending_args: dict[str, dict] = {}
-        for ev in (t_obj.get("events") if isinstance(t_obj.get("events"), list) else []):
-            if not isinstance(ev, dict):
-                continue
-            c_obj = ev.get("content") if isinstance(ev.get("content"), dict) else {}
-            role = str(c_obj.get("role") or "")
-            for part in (c_obj.get("parts") if isinstance(c_obj.get("parts"), list) else []):
-                if not isinstance(part, dict):
-                    continue
-                if part.get("text") is not None:
-                    if role == "user" or ev.get("author") == "user":
-                        u_text = str(part["text"])
-                    else:
-                        a_text = str(part["text"])
-                if isinstance(part.get("function_call"), dict):
-                    fc = part["function_call"]
-                    fc_name = str(fc.get("name") or "unknown_tool")
-                    if fc_name != "transfer_to_agent":
-                        pending_args[fc_name] = fc.get("args") if isinstance(fc.get("args"), dict) else {}
-                if isinstance(part.get("function_response"), dict):
-                    fr = part["function_response"]
-                    fr_name = str(fr.get("name") or "unknown_tool")
-                    fr_resp = fr.get("response")
-                    resp_dict = fr_resp if isinstance(fr_resp, dict) else {"result": fr_resp}
-                    turn_tools.append({
-                        "name": fr_name,
-                        "description": f"Tool {fr_name}",
-                        "input_parameters": pending_args.get(fr_name, {}),
-                        "output": resp_dict,
-                    })
-                    turn_rc.append(f"Tool {fr_name} returned: {json.dumps(fr_resp)}")
-        normalized_turns.append({
-            "input": u_text,
-            "actual_output": a_text,
-            "tools_called": turn_tools,
-            "retrieval_context": turn_rc,
-        })
-    if not normalized_turns:
-        raise ValueError("AgentData turns list cannot be empty")
-    last_turn = normalized_turns[-1]
-    result = dict(raw_dict)
-    result.setdefault("agent_id", primary_agent_id)
-    result.setdefault("chatbot_role", primary_instr)
-    result.setdefault("input", last_turn["input"])
-    result.setdefault("actual_output", last_turn["actual_output"])
-    result.setdefault("tools_called", [t for turn in normalized_turns for t in turn["tools_called"]])
-    result.setdefault("retrieval_context", [c for turn in normalized_turns for c in turn["retrieval_context"]])
-    result["turns"] = normalized_turns
-    return result
-
-
-def _normalize_input_payload(test_case_json) -> dict:
-    """Parses BQAA event arrays, wrapped BQAA events, canonical AgentData, or test_case dicts."""
-    decoded = json.loads(test_case_json) if isinstance(test_case_json, str) else test_case_json
-    if isinstance(decoded, list):
-        return _parse_bqaa_events(decoded, {})
-    if isinstance(decoded, dict):
-        if "events" in decoded and decoded.get("events") is not None:
-            ev_list = _parse_json_field(decoded.get("events"), None)
-            return _parse_bqaa_events(ev_list, decoded)
-        if "event_type" in decoded:
-            return _parse_bqaa_events([decoded], {})
-        raw_turns = decoded.get("turns")
-        is_agent_data_turns = (
-            isinstance(raw_turns, list)
-            and bool(raw_turns)
-            and isinstance(raw_turns[0], dict)
-            and "events" in raw_turns[0]
-        )
-        if "agent_eval_data" in decoded or "trace" in decoded or is_agent_data_turns:
-            return _parse_agent_data_dict(decoded)
-        return decoded
-    raise ValueError("test_case_json must decode to a BQAA event array or JSON object")
 
 
 def _parse_tools(raw_tools) -> list[ToolCall]:
@@ -718,7 +973,7 @@ def _build_metric(m_name: str, judge_model, parsed: _ParsedTestCase):
 
     # Custom single-turn or multi-turn DeepEval G-Eval rubric ("geval:<Name>:<Criteria>" or
     # "conversational_geval:<Name>:<Criteria>"). Note: GEval and ConversationalGEval are DeepEval's
-    # built-in implementations of the academic G-Eval LLM-as-a-Judge framework (unrelated to GEAP).
+    # built-in implementations of the academic G-Eval LLM-as-a-Judge framework.
     if m_lower in ("geval", "conversational_geval") or m_lower.startswith(("conversational_geval:", "geval:")):
         parts = m_name.split(":", 2)
         is_convo_geval = m_lower == "conversational_geval" or m_lower.startswith("conversational_geval:")
@@ -772,7 +1027,16 @@ def evaluate_test_case(test_case_json: str, metrics: list[str]) -> list[dict]:
     if not test_case_json or not metrics:
         return []
     try:
-        tc_data = _normalize_input_payload(test_case_json)
+        tc_data = (
+            json.loads(test_case_json)
+            if isinstance(test_case_json, str)
+            else test_case_json
+        )
+        if not isinstance(tc_data, dict):
+            raise ValueError(
+                "test_case_json must decode to a JSON object (use "
+                "deepeval_parse_trace() first for raw BQAA event arrays)"
+            )
         has_turns_key = "turns" in tc_data and tc_data.get("turns") is not None
         turns = _parse_turns(tc_data.get("turns")) if has_turns_key else []
         if has_turns_key and not turns:

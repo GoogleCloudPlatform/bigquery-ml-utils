@@ -13,20 +13,28 @@ Secret Manager secrets are required**.
 
 ## Available Integrations
 
-| Directory | UDF Name | Evaluation Backend | Supported Capabilities |
+| Directory | UDF Names | Evaluation Backend | Supported Capabilities |
 | :--- | :--- | :--- | :--- |
-| **[`deepeval/`](deepeval/)** | `deepeval_evaluate` | [DeepEval](https://github.com/confident-ai/deepeval) with [Gemini on Gemini Enterprise Agent Platform](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models) (`gemini-2.5-flash`) | Single-turn `LLMTestCase` metrics (`answer_relevancy`, `faithfulness`, `task_completion`, `tool_correctness`, `contextual_relevancy`, `contextual_precision`, `contextual_recall`, `hallucination`, `geval`) and multi-turn `ConversationalTestCase` metrics (`turn_relevancy`, `knowledge_retention`, `conversation_completeness`, `role_adherence`, `conversational_geval`). |
+| **[`deepeval/`](deepeval/)** | `deepeval_parse_trace`, `deepeval_evaluate` | [DeepEval](https://github.com/confident-ai/deepeval) with [Gemini on Gemini Enterprise Agent Platform](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models) (`gemini-2.5-flash`) | Offline BQAA / `AgentData` trace normalization (`deepeval_parse_trace`) plus single-turn `LLMTestCase` metrics (`answer_relevancy`, `faithfulness`, `task_completion`, `tool_correctness`, `contextual_relevancy`, `contextual_precision`, `contextual_recall`, `hallucination`, `geval`) and multi-turn `ConversationalTestCase` metrics (`turn_relevancy`, `knowledge_retention`, `conversation_completeness`, `role_adherence`, `conversational_geval`). |
 
 ---
 
-## UDF Signature, BQAA Input Format & Output Schema
+## UDF Signatures, BQAA Input Format & Output Schema
 
-`deepeval_evaluate` accepts **BigQuery Agent Analytics (BQAA)** event rows
-(`BigQueryAgentAnalyticsPlugin`) directly via
+`deepeval_parse_trace` normalizes **BigQuery Agent Analytics (BQAA)** event
+rows (`BigQueryAgentAnalyticsPlugin`) via
 `TO_JSON_STRING(ARRAY_AGG(t ORDER BY t.timestamp))` (as well as canonical
-`AgentData` JSON or key-value test case structs) and returns:
+`AgentData` JSON) into a trace JSON string without spending Gemini quota, and
+`deepeval_evaluate` evaluates the parsed trace:
 
 ```sql
+-- 1. Offline Trace Parser
+`<PROJECT_ID>.<DATASET_ID>.deepeval_parse_trace`(
+  events_json STRING
+)
+RETURNS STRING
+
+-- 2. Online DeepEval Metric Evaluator
 `<PROJECT_ID>.<DATASET_ID>.deepeval_evaluate`(
   test_case_json STRING,
   metrics ARRAY<STRING>
@@ -39,34 +47,54 @@ RETURNS ARRAY<STRUCT<
 >>
 ```
 
-### Direct Usage on a BQAA Table (`agent_events` / `agent_events_v2`)
+### Usage on a BQAA Table (`agent_events` / `agent_events_v2`)
 
 - **Single-Turn Evaluation (`GROUP BY session_id, invocation_id`)**:
   ```sql
+  -- Step 1: Materialize parsed invocation traces (runs offline without spending Gemini quota)
+  CREATE OR REPLACE TABLE `<PROJECT_ID>.<DATASET_ID>.parsed_invocation_traces` AS
   SELECT
     t.session_id,
     t.invocation_id,
+    `<PROJECT_ID>.<DATASET_ID>.deepeval_parse_trace`(
+      TO_JSON_STRING(ARRAY_AGG(t ORDER BY t.timestamp))
+    ) AS parsed_trace
+  FROM `bigquery-public-data.agent_analytic_sample_dataset.agent_events_v2` AS t
+  GROUP BY t.session_id, t.invocation_id;
+
+  -- Step 2: Evaluate parsed invocation traces
+  SELECT
+    session_id,
+    invocation_id,
     `<PROJECT_ID>.<DATASET_ID>.deepeval_evaluate`(
-      TO_JSON_STRING(ARRAY_AGG(t ORDER BY t.timestamp)),
+      parsed_trace,
       ['answer_relevancy', 'faithfulness', 'task_completion']
     ) AS eval_results
-  FROM `bigquery-public-data.agent_analytic_sample_dataset.agent_events_v2` AS t
-  GROUP BY t.session_id, t.invocation_id
+  FROM `<PROJECT_ID>.<DATASET_ID>.parsed_invocation_traces`
   LIMIT 10;
   ```
 - **Multi-Turn Session Evaluation (`GROUP BY session_id`)**:
   ```sql
+  WITH parsed_session_traces AS (
+    SELECT
+      t.session_id,
+      COUNT(DISTINCT t.invocation_id) AS num_invocations,
+      `<PROJECT_ID>.<DATASET_ID>.deepeval_parse_trace`(
+        TO_JSON_STRING(ARRAY_AGG(t ORDER BY t.timestamp))
+      ) AS parsed_trace
+    FROM `bigquery-public-data.agent_analytic_sample_dataset.agent_events_v2` AS t
+    GROUP BY t.session_id
+    HAVING COUNT(DISTINCT t.invocation_id) > 1
+    LIMIT 10
+  )
   SELECT
-    t.session_id,
-    COUNT(DISTINCT t.invocation_id) AS num_invocations,
+    session_id,
+    num_invocations,
     `<PROJECT_ID>.<DATASET_ID>.deepeval_evaluate`(
-      TO_JSON_STRING(ARRAY_AGG(t ORDER BY t.timestamp)),
+      parsed_trace,
       ['turn_relevancy', 'knowledge_retention', 'conversation_completeness']
     ) AS multi_turn_results
-  FROM `bigquery-public-data.agent_analytic_sample_dataset.agent_events_v2` AS t
-  GROUP BY t.session_id
-  HAVING COUNT(DISTINCT t.invocation_id) > 1
-  LIMIT 10;
+  FROM parsed_session_traces;
   ```
 
 ---
@@ -78,9 +106,10 @@ RETURNS ARRAY<STRUCT<
 - **`install.sh`**: One-command installer (`gcloud` + `bq`) that enables
   required APIs, creates the BigQuery dataset and Cloud Resource Connection,
   grants the **Agent Platform User** role (`roles/aiplatform.user`) to the
-  connection service account, and deploys the Python UDF.
+  connection service account, and deploys the `deepeval_parse_trace` and
+  `deepeval_evaluate` Python UDFs.
 - **`deepeval_udfs.sql`**: `CREATE OR REPLACE FUNCTION` DDL for the BigQuery
-  Managed Python UDF.
+  Managed Python UDFs.
 - **`agent_events_v2_eval_queries.sql`**: End-to-end SQL queries that evaluate
   [Agent Development Kit (ADK)](https://google.github.io/adk-docs/) BigQuery
   Agent Analytics (BQAA) logs directly from the public dataset

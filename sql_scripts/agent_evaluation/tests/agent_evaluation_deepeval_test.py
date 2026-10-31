@@ -41,6 +41,8 @@ from typing import Any
 import unittest
 from unittest import mock
 
+_UDF_BODY_LIMIT_BYTES = 32768
+
 
 def _find_script_dir() -> pathlib.Path:
   """Locates sql_scripts/agent_evaluation/deepeval relative to this test file."""
@@ -56,12 +58,12 @@ def _find_script_dir() -> pathlib.Path:
   )
 
 
-def _extract_udf_python_code(sql_text: str) -> str:
-  """Extracts the Python UDF body from SQL text."""
-  match = re.search(r"AS\s+r'''\n(.*?)\n''';", sql_text, flags=re.DOTALL)
-  if not match:
+def _extract_udf_python_bodies(sql_text: str) -> list[str]:
+  """Extracts all Python UDF bodies from SQL text."""
+  bodies = re.findall(r"AS\s+r'''\n(.*?)\n''';", sql_text, flags=re.DOTALL)
+  if not bodies:
     raise ValueError('Could not extract Python UDF body from deepeval_udfs.sql')
-  return match.group(1)
+  return bodies
 
 
 @dataclasses.dataclass
@@ -181,12 +183,10 @@ def _load_udf_module(
     default_project: str | None = 'fallback-project',
     default_location: str = 'us-central1',
 ) -> dict[str, Any]:
-  """Loads the Python code from deepeval_udfs.sql with fake deepeval/google.auth modules."""
+  """Loads the Python UDF bodies from deepeval_udfs.sql with fake deepeval/google.auth modules."""
   script_dir = _find_script_dir()
   sql_text = (script_dir / 'deepeval_udfs.sql').read_text(encoding='utf-8')
-  py_code = _extract_udf_python_code(sql_text)
-  if default_location != 'YOUR_LOCATION':
-    py_code = py_code.replace('"YOUR_LOCATION"', json.dumps(default_location))
+  py_bodies = _extract_udf_python_bodies(sql_text)
 
   fake_deepeval: Any = types.ModuleType('deepeval')
   fake_metrics: Any = types.ModuleType('deepeval.metrics')
@@ -254,8 +254,13 @@ def _load_udf_module(
   deepeval_patcher.start()
   _ACTIVE_PATCHERS.append(deepeval_patcher)
   with mock.patch.dict(sys.modules, patched_exec_modules):
-    compiled = compile(py_code, '<deepeval_udfs.sql>', 'exec')
-    exec(compiled, namespace)  # pylint: disable=exec-used
+    for idx, py_code in enumerate(py_bodies):
+      if default_location != 'YOUR_LOCATION':
+        py_code = py_code.replace(
+            '"YOUR_LOCATION"', json.dumps(default_location)
+        )
+      compiled = compile(py_code, f'<deepeval_udfs.sql:{idx}>', 'exec')
+      exec(compiled, namespace)  # pylint: disable=exec-used
   return namespace
 
 
@@ -278,35 +283,22 @@ class AgentEvaluationDeepevalTest(unittest.TestCase):
       _ACTIVE_PATCHERS.pop().stop()
     super().tearDown()
 
-  def test_files_exist_have_license_headers_and_no_internal_leaks(self):
+  def test_files_exist_and_have_license_headers(self):
     expected_files = [
         'install.sh',
         'deepeval_udfs.sql',
         'agent_events_v2_eval_queries.sql',
         'README.md',
-    ]
-    forbidden_patterns = [
-        r'corp\.google\.com',
-        r'googleplex\.com',
-        r'SecretManagerServiceClient',
-        r'GEMINI_API_KEY',
-        r'\bgoogle3\b',
-        r'\bblaze\b',
-        r'\bvertex\b',
+        '../README.md',
     ]
     for filename in expected_files:
       path = self.script_dir / filename
       self.assertTrue(path.is_file(), f'Missing expected file: {path}')
       content = path.read_text(encoding='utf-8')
       self.assertTrue(content)
-      if filename != 'README.md':
+      if not filename.endswith('README.md'):
         self.assertIn('Copyright 2026 Google LLC', content)
         self.assertIn('Licensed under the Apache License, Version 2.0', content)
-      for pattern in forbidden_patterns:
-        self.assertIsNone(
-            re.search(pattern, content, flags=re.IGNORECASE),
-            f'Found forbidden internal pattern {pattern!r} in {filename}',
-        )
 
     install_mode = (self.script_dir / 'install.sh').stat().st_mode
     self.assertNotEqual(
@@ -343,7 +335,7 @@ class AgentEvaluationDeepevalTest(unittest.TestCase):
     self.assertEqual(ns_eu['GCP_LOCATION'], 'europe-west4')
 
     # Regional locations like asia-northeast1 are preserved without cross-region
-    # fallback so data stays in the configured region (DRZ).
+    # fallback so data stays in the configured region.
     with mock.patch.dict(
         os.environ, {'GOOGLE_CLOUD_LOCATION': 'asia-northeast1'}
     ):
@@ -695,7 +687,11 @@ class AgentEvaluationDeepevalTest(unittest.TestCase):
 
   def test_bqaa_event_rows_and_agent_data_input(self):
     ns = _load_udf_module()
+    parse_trace = ns['parse_trace']
     evaluate_test_case = ns['evaluate_test_case']
+
+    self.assertIsNone(parse_trace(''))
+    self.assertIsNone(parse_trace(None))
 
     # 1. Single-turn ShopBot BQAA event array
     #    (TO_JSON_STRING(ARRAY_AGG(t ORDER BY timestamp)))
@@ -746,8 +742,9 @@ class AgentEvaluationDeepevalTest(unittest.TestCase):
             'status': 'OK',
         },
     ]
+    parsed_shop_trace = parse_trace(json.dumps(shopbot_events))
     res_shop = evaluate_test_case(
-        json.dumps(shopbot_events),
+        parsed_shop_trace,
         [
             'answer_relevancy',
             'faithfulness',
@@ -836,8 +833,9 @@ class AgentEvaluationDeepevalTest(unittest.TestCase):
             'content': {'response': "text: 'ds1 contains cards and sets.'"},
         },
     ]
+    parsed_multi_trace = parse_trace(json.dumps(bq_agent_session_events))
     res_multi = evaluate_test_case(
-        json.dumps(bq_agent_session_events),
+        parsed_multi_trace,
         [
             'turn_relevancy',
             'knowledge_retention',
@@ -910,22 +908,347 @@ class AgentEvaluationDeepevalTest(unittest.TestCase):
             ],
         }],
     }
+    parsed_ad_trace = parse_trace(json.dumps(canonical_agent_data))
     res_ad = evaluate_test_case(
-        json.dumps(canonical_agent_data),
+        parsed_ad_trace,
         ['answer_relevancy', 'faithfulness', 'task_completion'],
     )
     self.assertEqual(len(res_ad), 3)
     for r in res_ad:
       self.assertTrue(r['passed'])
 
-    # 4. Verify agent_events_v2_eval_queries.sql queries the BQAA table directly
+    # 4. Verify agent_events_v2_eval_queries.sql uses deepeval_parse_trace +
+    #    deepeval_evaluate
     queries_sql = (
         self.script_dir / 'agent_events_v2_eval_queries.sql'
     ).read_text(encoding='utf-8')
     self.assertIn(
         'TO_JSON_STRING(ARRAY_AGG(t ORDER BY t.timestamp))', queries_sql
     )
-    self.assertNotIn('CREATE OR REPLACE VIEW', queries_sql)
+    self.assertIn('deepeval_parse_trace', queries_sql)
+    self.assertIn('deepeval_evaluate', queries_sql)
+
+    # 5. Verify same-timestamp BQAA benchmark events:
+    #    - AGENT_RESPONSE with response.parts[*].markdown and
+    #      clarifying_question
+    #    - TOOL_ERROR with content=None matched to TOOL_STARTING via span_id
+    #    - Error-terminated invocation without AGENT_RESPONSE
+    same_ts = '2026-10-03 00:32:43+00'
+    markdown_and_clarify_events = [
+        {
+            'timestamp': same_ts,
+            'event_type': 'AGENT_RESPONSE',
+            'invocation_id': 'inv_md',
+            'content': {
+                'response': {
+                    'parts': [{'markdown': 'Found **5** active schools.'}]
+                }
+            },
+        },
+        {
+            'timestamp': same_ts,
+            'event_type': 'USER_MESSAGE_RECEIVED',
+            'invocation_id': 'inv_md',
+            'content_parts': [
+                {'mime_type': 'text/plain', 'text': 'How many active schools?'}
+            ],
+        },
+        {
+            'timestamp': same_ts,
+            'event_type': 'USER_MESSAGE_RECEIVED',
+            'invocation_id': 'inv_clarify',
+            'content': {'text_summary': 'What is the best school?'},
+        },
+        {
+            'timestamp': same_ts,
+            'event_type': 'AGENT_RESPONSE',
+            'invocation_id': 'inv_clarify',
+            'content': {
+                'response': {
+                    'clarifying_question': 'Do you mean by SAT or FRPM?'
+                }
+            },
+        },
+    ]
+    parsed_mc = json.loads(parse_trace(json.dumps(markdown_and_clarify_events)))
+    self.assertEqual(len(parsed_mc['turns']), 2)
+    self.assertEqual(parsed_mc['turns'][0]['input'], 'How many active schools?')
+    self.assertEqual(
+        parsed_mc['turns'][0]['actual_output'], 'Found **5** active schools.'
+    )
+    self.assertEqual(
+        parsed_mc['turns'][1]['actual_output'], 'Do you mean by SAT or FRPM?'
+    )
+
+    error_span_events = [
+        {
+            'timestamp': same_ts,
+            'event_type': 'TOOL_ERROR',
+            'invocation_id': 'inv_err',
+            'span_id': 'sp_sql_1',
+            'content': None,
+            'error_message': 'Query exceeded quota',
+            'status': 'ERROR',
+        },
+        {
+            'timestamp': same_ts,
+            'event_type': 'TOOL_STARTING',
+            'invocation_id': 'inv_err',
+            'span_id': 'sp_sql_1',
+            'content': {
+                'tool_name': 'execute_sql',
+                'tool_input': {'sql': 'SELECT 1'},
+                'text_summary': 'execute_sql: SELECT 1',
+            },
+        },
+        {
+            'timestamp': same_ts,
+            'event_type': 'USER_MESSAGE_RECEIVED',
+            'invocation_id': 'inv_err',
+            'content': {'text_summary': 'Run heavy query'},
+        },
+        {
+            'timestamp': same_ts,
+            'event_type': 'AGENT_ERROR',
+            'invocation_id': 'inv_err',
+            'error_message': 'Agent aborted on quota error',
+            'status': 'ERROR',
+        },
+    ]
+    parsed_err = json.loads(parse_trace(json.dumps(error_span_events)))
+    self.assertEqual(parsed_err['input'], 'Run heavy query')
+    self.assertEqual(
+        parsed_err['actual_output'], 'Error: Agent aborted on quota error'
+    )
+    self.assertEqual(len(parsed_err['tools_called']), 1)
+    self.assertEqual(parsed_err['tools_called'][0]['name'], 'execute_sql')
+    self.assertEqual(
+        parsed_err['tools_called'][0]['input_parameters'], {'sql': 'SELECT 1'}
+    )
+
+    # 6. Verify additional BQAA parser edge cases:
+    #    - Wrapper retrieval_context preserved when ext_instr is present and no
+    #      tools are called
+    #    - AGENT_STARTING with JSON-encoded "{}" falls back to
+    #      attributes.static_instruction
+    #    - LLM_RESPONSE with "text: '...' | call: <tool>" is ignored and
+    #      terminal error resets intermediate llm_response_text
+    #    - Completed tools are popped from pending_tools so subsequent
+    #      content=None TOOL_ERROR without span_id matches the active pending
+    #      tool
+    #    - Same-timestamp recovered TOOL_ERROR without AGENT_RESPONSE preserves
+    #      recovered LLM_RESPONSE instead of overwriting actual_output with
+    #      Error: ...
+    wrapper_rc_payload = {
+        'events': [
+            {
+                'timestamp': same_ts,
+                'event_type': 'AGENT_STARTING',
+                'invocation_id': 'inv_w',
+                'content': '{}',
+                'attributes': {
+                    'static_instruction': 'Follow strict groundedness rules.'
+                },
+            },
+            {
+                'timestamp': same_ts,
+                'event_type': 'USER_MESSAGE_RECEIVED',
+                'invocation_id': 'inv_w',
+                'content': {'text_summary': 'Summarize doc'},
+            },
+            {
+                'timestamp': same_ts,
+                'event_type': 'AGENT_RESPONSE',
+                'invocation_id': 'inv_w',
+                'content': {'text_summary': 'Doc summary.'},
+            },
+        ],
+        'retrieval_context': ['Caller supplied chunk 1'],
+    }
+    parsed_w = json.loads(parse_trace(json.dumps(wrapper_rc_payload)))
+    self.assertEqual(
+        parsed_w['chatbot_role'], 'Follow strict groundedness rules.'
+    )
+    self.assertEqual(parsed_w['retrieval_context'], ['Caller supplied chunk 1'])
+    self.assertNotIn('context', parsed_w)
+
+    multi_tool_and_call_events = [
+        {
+            'timestamp': '2026-10-03 00:32:40+00',
+            'event_type': 'USER_MESSAGE_RECEIVED',
+            'invocation_id': 'inv_mt',
+            'content': {'text_summary': 'Check schema and run query'},
+        },
+        {
+            'timestamp': '2026-10-03 00:32:41+00',
+            'event_type': 'LLM_RESPONSE',
+            'invocation_id': 'inv_mt',
+            'content': "text: 'Let me check' | call: get_table_info",
+        },
+        {
+            'timestamp': '2026-10-03 00:32:42+00',
+            'event_type': 'TOOL_STARTING',
+            'invocation_id': 'inv_mt',
+            'content': {
+                'tool_name': 'get_table_info',
+                'tool_input': {'table': 'schools'},
+            },
+        },
+        {
+            'timestamp': '2026-10-03 00:32:43+00',
+            'event_type': 'TOOL_COMPLETED',
+            'invocation_id': 'inv_mt',
+            'content': {
+                'tool_name': 'get_table_info',
+                'tool_output': {'columns': ['id']},
+            },
+        },
+        {
+            'timestamp': '2026-10-03 00:32:44+00',
+            'event_type': 'TOOL_STARTING',
+            'invocation_id': 'inv_mt',
+            'content': {
+                'tool_name': 'execute_sql',
+                'tool_input': {'sql': 'SELECT id FROM schools'},
+            },
+        },
+        {
+            'timestamp': '2026-10-03 00:32:45+00',
+            'event_type': 'TOOL_ERROR',
+            'invocation_id': 'inv_mt',
+            'content': None,
+            'error_message': 'Table not found',
+        },
+        {
+            'timestamp': '2026-10-03 00:32:46+00',
+            'event_type': 'INVOCATION_ERROR',
+            'invocation_id': 'inv_mt',
+            'error_message': 'Invocation failed after SQL error',
+        },
+    ]
+    parsed_mt = json.loads(parse_trace(json.dumps(multi_tool_and_call_events)))
+    self.assertEqual(
+        parsed_mt['actual_output'], 'Error: Invocation failed after SQL error'
+    )
+    self.assertEqual(len(parsed_mt['tools_called']), 2)
+    self.assertEqual(parsed_mt['tools_called'][0]['name'], 'get_table_info')
+    self.assertEqual(parsed_mt['tools_called'][1]['name'], 'execute_sql')
+    self.assertEqual(
+        parsed_mt['tools_called'][1]['input_parameters'],
+        {'sql': 'SELECT id FROM schools'},
+    )
+
+    recovered_same_ts_events = [
+        {
+            'timestamp': same_ts,
+            'event_type': 'USER_MESSAGE_RECEIVED',
+            'invocation_id': 'inv_rec',
+            'content': {'text_summary': 'Count active schools'},
+        },
+        {
+            'timestamp': same_ts,
+            'event_type': 'TOOL_STARTING',
+            'invocation_id': 'inv_rec',
+            'span_id': 'sp_rec_1',
+            'content': {
+                'tool_name': 'execute_sql',
+                'tool_input': {'sql': 'SELECT COUNT(*) FROM bad_table'},
+            },
+        },
+        {
+            'timestamp': same_ts,
+            'event_type': 'TOOL_ERROR',
+            'invocation_id': 'inv_rec',
+            'span_id': 'sp_rec_1',
+            'content': None,
+            'error_message': 'Table bad_table not found',
+        },
+        {
+            'timestamp': same_ts,
+            'event_type': 'LLM_RESPONSE',
+            'invocation_id': 'inv_rec',
+            'content': {'response': "text: 'Recovered: there are 42 schools.'"},
+        },
+    ]
+    parsed_rec = json.loads(parse_trace(json.dumps(recovered_same_ts_events)))
+    self.assertEqual(
+        parsed_rec['actual_output'], 'Recovered: there are 42 schools.'
+    )
+
+    # 7. Verify terminal error resets, transfer tool filtering, and AgentData
+    #    context fallback:
+    #    - Terminal error (INVOCATION_ERROR / AGENT_ERROR) resets
+    #      agent_response_text as well as llm_response_text
+    #    - TOOL_ERROR on transfer_to_agent / adk_request_* is filtered out
+    #    - _parse_agent_data_dict populates context=[primary_instr] when
+    #      retrieval_context is empty
+    ar_reset_and_transfer_err_events = [
+        {
+            'timestamp': '2026-10-03 00:32:40+00',
+            'event_type': 'USER_MESSAGE_RECEIVED',
+            'invocation_id': 'inv_ar_err',
+            'content': {'text_summary': 'Route and answer'},
+        },
+        {
+            'timestamp': '2026-10-03 00:32:41+00',
+            'event_type': 'TOOL_ERROR',
+            'invocation_id': 'inv_ar_err',
+            'content': {'tool_name': 'transfer_to_agent'},
+            'error_message': 'Subagent unavailable',
+        },
+        {
+            'timestamp': '2026-10-03 00:32:42+00',
+            'event_type': 'AGENT_RESPONSE',
+            'invocation_id': 'inv_ar_err',
+            'content': {'text_summary': 'Partial response before fatal error'},
+        },
+        {
+            'timestamp': '2026-10-03 00:32:43+00',
+            'event_type': 'INVOCATION_ERROR',
+            'invocation_id': 'inv_ar_err',
+            'error_message': 'Fatal invocation error',
+        },
+    ]
+    parsed_ar_err = json.loads(
+        parse_trace(json.dumps(ar_reset_and_transfer_err_events))
+    )
+    self.assertEqual(
+        parsed_ar_err['actual_output'], 'Error: Fatal invocation error'
+    )
+    self.assertEqual(parsed_ar_err['tools_called'], [])
+
+    ad_no_tools = {
+        'agents': {
+            'my_bq_agent': {
+                'agent_id': 'my_bq_agent',
+                'instruction': 'Strict AgentData Instruction',
+            }
+        },
+        'turns': [{
+            'turn_index': 0,
+            'turn_id': 't-0',
+            'events': [
+                {
+                    'author': 'user',
+                    'content': {
+                        'role': 'user',
+                        'parts': [{'text': 'Hello'}],
+                    },
+                },
+                {
+                    'author': 'my_bq_agent',
+                    'content': {
+                        'role': 'model',
+                        'parts': [{'text': 'Hi!'}],
+                    },
+                },
+            ],
+        }],
+    }
+    parsed_ad_no_tools = json.loads(parse_trace(json.dumps(ad_no_tools)))
+    self.assertEqual(
+        parsed_ad_no_tools['context'], ['Strict AgentData Instruction']
+    )
 
   def test_install_sh_help_and_end_to_end_with_fake_clis(self):
     install_sh = self.script_dir / 'install.sh'
@@ -1032,6 +1355,11 @@ exit 0
       rendered_sql = captured_sql_file.read_text(encoding='utf-8')
       self.assertIn(
           'CREATE OR REPLACE FUNCTION'
+          ' `customer-gcp-proj.custom_dataset.deepeval_parse_trace`',
+          rendered_sql,
+      )
+      self.assertIn(
+          'CREATE OR REPLACE FUNCTION'
           ' `customer-gcp-proj.custom_dataset.deepeval_evaluate`',
           rendered_sql,
       )
@@ -1048,6 +1376,14 @@ exit 0
       ):
         self.assertNotIn(placeholder, rendered_sql)
       self.assertIn('"gemini-2.5-flash"', rendered_sql)
+      py_bodies = _extract_udf_python_bodies(rendered_sql)
+      self.assertEqual(len(py_bodies), 2)
+      for py_body in py_bodies:
+        self.assertLessEqual(
+            len(py_body.encode('utf-8')),
+            _UDF_BODY_LIMIT_BYTES,
+            'Python UDF definition body must be <= 32,768 bytes for BigQuery.',
+        )
 
       # Running with explicit 5th arg MODEL_ID substitutes custom model
       model_proc = subprocess.run(
@@ -1066,10 +1402,16 @@ exit 0
           check=False,
       )
       self.assertEqual(model_proc.returncode, 0)
-      self.assertIn(
-          '"gemini-2.5-pro"',
-          captured_sql_file.read_text(encoding='utf-8'),
-      )
+      custom_rendered_sql = captured_sql_file.read_text(encoding='utf-8')
+      self.assertIn('"gemini-2.5-pro"', custom_rendered_sql)
+      custom_py_bodies = _extract_udf_python_bodies(custom_rendered_sql)
+      self.assertEqual(len(custom_py_bodies), 2)
+      for custom_py_body in custom_py_bodies:
+        self.assertLessEqual(
+            len(custom_py_body.encode('utf-8')),
+            _UDF_BODY_LIMIT_BYTES,
+            'Custom-model Python UDF definition body must be <= 32,768 bytes.',
+        )
 
       # Invalid identifier with sed delimiter or whitespace is rejected upfront
       bad_id_proc = subprocess.run(

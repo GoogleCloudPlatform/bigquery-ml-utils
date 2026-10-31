@@ -1,17 +1,17 @@
 # Evaluate AI Agent Traces in BigQuery Using Python UDFs and DeepEval
 
-This directory provides a unified **BigQuery Managed Python UDF**
-(`deepeval_evaluate`), a one-command installer script (`install.sh`), and
-end-to-end SQL queries for evaluating **Single-Turn** and **Multi-Turn** AI
-agent execution traces directly inside BigQuery using
+This directory provides **BigQuery Managed Python UDFs**
+(`deepeval_parse_trace` and `deepeval_evaluate`), a one-command installer
+script (`install.sh`), and end-to-end SQL queries for evaluating **Single-Turn**
+and **Multi-Turn** AI agent execution traces directly inside BigQuery using
 [DeepEval](https://github.com/confident-ai/deepeval) and
 [Gemini on Gemini Enterprise Agent Platform](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models)
 (`gemini-2.5-flash`).
 
-Because the UDF authenticates to Gemini Enterprise Agent Platform using
-Application Default Credentials (`google.auth.default()`) attached to a BigQuery
-Cloud Resource Connection, **no Gemini API keys or Secret Manager setup are
-required**.
+Because `deepeval_evaluate` authenticates to Gemini Enterprise Agent Platform
+using Application Default Credentials (`google.auth.default()`) attached to a
+BigQuery Cloud Resource Connection, **no Gemini API keys or Secret Manager
+setup are required**.
 
 ---
 
@@ -64,10 +64,11 @@ export MODEL_ID="gemini-2.5-flash"
    Gemini Enterprise Agent Platform via `google.auth.default()`.
 5. Substitutes `${PROJECT_ID}`, `${DATASET_ID}`, `${LOCATION}`,
    `${CONNECTION_ID}`, and `${MODEL_ID}` into
-   [`deepeval_udfs.sql`](deepeval_udfs.sql) and deploys the `deepeval_evaluate`
-   Python UDF via `bq query`.
+   [`deepeval_udfs.sql`](deepeval_udfs.sql) and deploys the
+   `deepeval_parse_trace` and `deepeval_evaluate` Python UDFs via `bq query`.
 
-> **Note on First Execution, IAM Propagation, DRZ & Judge Model Selection:**
+> **Note on First Execution, IAM Propagation, Data Residency & Judge Model
+> Selection:**
 > - **IAM Propagation:** Project-level IAM bindings granted by `install.sh` can
 >   take 1–2 minutes to propagate. If a smoke test run immediately after
 >   installation returns `403 PERMISSION_DENIED`, wait ~1–2 minutes and retry.
@@ -76,20 +77,21 @@ export MODEL_ID="gemini-2.5-flash"
 >   Python container image with pinned packages (`deepeval==3.8.0`,
 >   `google-genai==1.15.0`, and `google-auth==2.40.0`). Subsequent queries reuse
 >   the cached container image.
-> - **Data Residency (DRZ) & Evaluation Regions:** `install.sh` substitutes
+> - **Data Residency & Evaluation Regions:** `install.sh` substitutes
 >   `${LOCATION}` into the UDF so the Gemini judge endpoint matches your
 >   BigQuery dataset region. Multi-regions `us` and `eu` map within the same
 >   geography to `us-central1` and `europe-west4`, and any explicit regional
 >   location (such as `us-east4`, `europe-west1`, or `asia-northeast1`) is
->   passed directly to the regional Gemini endpoint. To preserve data residency
->   (DRZ), the UDF **never** falls back across regions; if the location is
+>   passed directly to the regional Gemini endpoint. To preserve data residency,
+>   the UDF **never** falls back across regions; if the location is
 >   unconfigured or invalid, the UDF fails fast with a `ValueError`.
 > - **Judge Model Selection:** The default judge model is `gemini-2.5-flash`,
 >   the latest Generally Available (GA) Gemini model deployed across regional
->   endpoints (preserving regional DRZ). You can override the default model at
->   install time via `MODEL_ID` (5th argument to `./install.sh`) or per query
->   via `judge_model` in `test_case_json` (note that Gemini 3 preview models
->   such as `gemini-3-flash-preview` currently require `location: "global"`).
+>   endpoints (preserving regional data residency). You can override the default
+>   model at install time via `MODEL_ID` (5th argument to `./install.sh`) or per
+>   query via `judge_model` in `test_case_json` (note that Gemini 3 preview
+>   models such as `gemini-3-flash-preview` currently require
+>   `location: "global"`).
 > - **Memory & Batching:** Because `deepeval` has a substantial runtime
 >   dependency tree, the UDF sets `max_batching_rows = 1`, caches the judge
 >   model client at module level, and lazily imports metric classes inside
@@ -133,9 +135,16 @@ reasoning for each requested metric.
 
 ## Step 3: Function Reference & Supported Metrics
 
-### Signature
+### Signatures
 
 ```sql
+-- 1. Offline Trace Parser (no external packages or connection needed; zero Gemini quota cost)
+`${PROJECT_ID}.${DATASET_ID}.deepeval_parse_trace`(
+  events_json STRING
+)
+RETURNS STRING
+
+-- 2. Online DeepEval Metric Evaluator
 `${PROJECT_ID}.${DATASET_ID}.deepeval_evaluate`(
   test_case_json STRING,
   metrics ARRAY<STRING>
@@ -143,36 +152,39 @@ reasoning for each requested metric.
 RETURNS ARRAY<STRUCT<metric STRING, score FLOAT64, passed BOOL, reason STRING>>
 ```
 
-### Supported Input Formats (`test_case_json`)
+### Supported Input Formats
 
-`deepeval_evaluate` natively accepts **BigQuery Agent Analytics (BQAA)** event
-rows (`BigQueryAgentAnalyticsPlugin`), canonical **`AgentData`** JSON, or
-ad-hoc key-value test case structs:
+`deepeval_parse_trace` normalizes **BigQuery Agent Analytics (BQAA)** event
+rows (`BigQueryAgentAnalyticsPlugin`) or canonical **`AgentData`** JSON into the
+normalized `test_case_json` object consumed by `deepeval_evaluate` (so you can
+materialize or inspect parsed traces in a table or view before spending Gemini
+quota):
 
-1. **Direct BQAA Event Array (`TO_JSON_STRING(ARRAY_AGG(t ORDER BY t.timestamp))`)**:
-   - Pass rows from any BQAA table (`agent_events` / `agent_events_v2`)
-     directly without creating intermediate transformation views:
-     - **Single-Turn (`GROUP BY session_id, invocation_id`)**: Evaluates a
-       single agent invocation (`LLMTestCase`).
+1. **BQAA Event Array (`deepeval_parse_trace(TO_JSON_STRING(ARRAY_AGG(t ORDER BY t.timestamp)))`)**:
+   - Parse rows from any BQAA table (`agent_events` / `agent_events_v2`):
+     - **Single-Turn (`GROUP BY session_id, invocation_id`)**: Builds a
+       single-turn trace (`LLMTestCase`).
      - **Multi-Turn (`GROUP BY session_id`)**: Automatically groups BQAA events
-       by `invocation_id` in chronological order into a multi-turn
-       `ConversationalTestCase`.
+       by `invocation_id` in chronological order into a multi-turn trace
+       (`ConversationalTestCase`).
    - To supply optional reference fields (such as `expected_output`,
      `expected_tools`, or `judge_model`) alongside BQAA rows, wrap the event
-     array in a `STRUCT`:
+     array in a `STRUCT` passed to `deepeval_parse_trace`:
      ```sql
-     TO_JSON_STRING(STRUCT(
-       ARRAY_AGG(t ORDER BY t.timestamp) AS events,
-       'Expected response text' AS expected_output,
-       [STRUCT('OrderTool' AS name, '{"order_id": "999"}' AS args)] AS expected_tools
-     ))
+     `${PROJECT_ID}.${DATASET_ID}.deepeval_parse_trace`(
+       TO_JSON_STRING(STRUCT(
+         ARRAY_AGG(t ORDER BY t.timestamp) AS events,
+         'Expected response text' AS expected_output,
+         [STRUCT('OrderTool' AS name, '{"order_id": "999"}' AS args)] AS expected_tools
+       ))
+     )
      ```
-2. **Canonical `AgentData` JSON (`{"agents": {...}, "turns": [{"turn_index": 0, "turn_id": "...", "events": [...]}]}`)**:
-   - Directly accepts pre-built `AgentData` JSON objects (or
-     `{agent_eval_data: ...}` / `{trace: ...}`).
+2. **Canonical `AgentData` JSON (`deepeval_parse_trace(agent_data_json)`)**:
+   - Normalizes `AgentData` JSON objects (`{"agents": {...}, "turns": [{"turn_index": 0, "turn_id": "...", "events": [...]}]}` or `{agent_eval_data: ...}` / `{trace: ...}`).
 3. **Ad-Hoc Key-Value Test Case `STRUCT` (`TO_JSON_STRING(STRUCT(...))`)**:
-   - Convenient for inline SQL smoke tests and custom table schemas (see fields
-     below).
+   - Can be passed directly to `deepeval_evaluate` (or through
+     `deepeval_parse_trace`) for inline SQL smoke tests and custom table schemas
+     (see fields below).
 
 ### Mode A: Single-Turn Evaluation (`LLMTestCase`)
 
@@ -213,25 +225,24 @@ or a single-turn `STRUCT`, `deepeval_evaluate` builds a DeepEval `LLMTestCase`.
   less hallucination).
 - `'geval:<Name>:<Criteria>'`: Custom LLM-as-a-Judge rubric using DeepEval's
   built-in `GEval` class (an implementation of the academic G-Eval two-step
-  chain-of-thought scoring framework, unrelated to Gemini Enterprise Agent
-  Platform / GEAP; for example, `'geval:Technical Precision:Evaluate whether
-  the response cites exact IDs and numbers from the tool output.'`).
+  chain-of-thought scoring framework, unrelated to GEAP; for example,
+  `'geval:Technical Precision:Evaluate whether the response cites exact IDs and
+  numbers from the tool output.'`).
 
 ---
 
 ### Mode B: Multi-Turn Conversational Evaluation (`ConversationalTestCase`)
 
-When `test_case_json` is a BQAA event array grouped by `session_id`
-(`TO_JSON_STRING(ARRAY_AGG(t ORDER BY t.timestamp))`), canonical `AgentData`
-JSON, or a `STRUCT` with a `turns` array, `deepeval_evaluate` automatically
-constructs a DeepEval `ConversationalTestCase`.
+When `test_case_json` is a multi-turn trace produced by `deepeval_parse_trace`
+(grouped by `session_id`) or a `STRUCT` with a `turns` array,
+`deepeval_evaluate` constructs a DeepEval `ConversationalTestCase`.
 
-#### Supported JSON Fields (`test_case_json`)
+#### Supported JSON Fields
 | Field | Type | Required | Description |
 | :--- | :--- | :--- | :--- |
-| `events` (or top-level BQAA array) | `ARRAY<STRUCT>` | Direct BQAA | Raw BQAA event rows across a session (`ARRAY_AGG(t ORDER BY t.timestamp)`), automatically grouped into ordered `Turn`s by `invocation_id`. |
-| `turns` | `ARRAY<STRUCT>` | Alternative | Ordered array of conversation turns. Accepts `AgentData` `ConversationTurn` objects, explicit `{role, content, tools_called, retrieval_context}` objects, or per-invocation `{input, actual_output, tools_called, retrieval_context}` structs. |
-| `chatbot_role` (or `instruction`) | `STRING` | Optional | Persona/system role description (automatically extracted from `AGENT_STARTING` / `LLM_REQUEST` when using BQAA input; required for `role_adherence`, defaults to `'Helpful AI Assistant'`). |
+| `events` (or top-level BQAA array in `deepeval_parse_trace`) | `ARRAY<STRUCT>` | BQAA Input | Raw BQAA event rows across a session (`ARRAY_AGG(t ORDER BY t.timestamp)`), automatically grouped by `deepeval_parse_trace` into ordered `turns` by `invocation_id`. |
+| `turns` | `ARRAY<STRUCT>` | Required in `test_case_json` | Ordered array of conversation turns (automatically populated by `deepeval_parse_trace`, or supplied as explicit `{role, content, tools_called, retrieval_context}` / `{input, actual_output, tools_called, retrieval_context}` structs). |
+| `chatbot_role` (or `instruction`) | `STRING` | Optional | Persona/system role description (automatically extracted from `AGENT_STARTING` / `LLM_REQUEST` by `deepeval_parse_trace`; required for `role_adherence`, defaults to `'Helpful AI Assistant'`). |
 | `scenario` | `STRING` | Optional | Scenario description for the conversation. |
 | `expected_outcome` | `STRING` | Optional | Expected outcome of the multi-turn session. |
 | `judge_model` | `STRING` | Optional | Primary Gemini judge model ID (defaults to `'gemini-2.5-flash'`). |
@@ -248,27 +259,29 @@ constructs a DeepEval `ConversationalTestCase`.
 - `'role_adherence'`: Measures whether the assistant adheres to `chatbot_role`
   across all turns.
 - `'conversational_geval:<Name>:<Criteria>'`: Custom multi-turn G-Eval rubric
-  (`deepeval.metrics.ConversationalGEval`, unrelated to GEAP) evaluated over
-  the full conversation trajectory.
+  (`deepeval.metrics.ConversationalGEval`) evaluated over the full conversation
+  trajectory.
 
 ---
 
 ## Step 4: End-to-End Walkthrough on a Public BQAA Table (`agent_events_v2`)
 
 The file [`agent_events_v2_eval_queries.sql`](agent_events_v2_eval_queries.sql)
-demonstrates how to evaluate real
+demonstrates how to parse and evaluate real
 [Agent Development Kit (ADK)](https://google.github.io/adk-docs/) BigQuery
-Agent Analytics (BQAA) logs directly from the public BigQuery dataset
-**`bigquery-public-data.agent_analytic_sample_dataset.agent_events_v2`**
-without needing any intermediate transformation views.
+Agent Analytics (BQAA) logs from the public BigQuery dataset
+**`bigquery-public-data.agent_analytic_sample_dataset.agent_events_v2`** using
+`deepeval_parse_trace` and `deepeval_evaluate`.
 
-> **Note on Cost & Quota:** Each evaluated row invokes the LLM judge once per
-> requested metric. The sample evaluation queries below include `LIMIT 10` to
-> bound LLM calls and runtime; adjust or remove `LIMIT` for larger runs.
+> **Note on Cost & Quota:** `deepeval_parse_trace` runs offline in Python with
+> zero Gemini quota cost, allowing you to materialize and inspect parsed traces
+> in a table before invoking `deepeval_evaluate`. Each row evaluated by
+> `deepeval_evaluate` invokes the LLM judge once per requested metric
+> (`LIMIT 10` is included below to bound LLM calls).
 
-You can run both queries in
+You can run the full workflow in
 [`agent_events_v2_eval_queries.sql`](agent_events_v2_eval_queries.sql) at once
-from the command line, or run each query individually below:
+from the command line, or run each step individually below:
 
 ```bash
 sed \
@@ -278,20 +291,34 @@ sed \
   | bq query --project_id="${PROJECT_ID}" --location="${LOCATION}" --use_legacy_sql=false
 ```
 
-### 1. Run Single-Turn Evaluation Directly on the BQAA Table
+### 1. Parse Raw BQAA Events (`deepeval_parse_trace`) & Run Single-Turn Evaluation (`deepeval_evaluate`)
 
-Group the BQAA table by `(session_id, invocation_id)` and pass
-`TO_JSON_STRING(ARRAY_AGG(t ORDER BY t.timestamp))` directly to
+Group the BQAA table by `(session_id, invocation_id)`, parse the event array
+into a trace table (or CTE) with `deepeval_parse_trace`, and evaluate with
 `deepeval_evaluate`:
 
 ```bash
 bq query --project_id="${PROJECT_ID}" --location="${LOCATION}" --use_legacy_sql=false <<EOF
+-- Materialize parsed invocation traces (runs offline without spending Gemini quota)
+CREATE OR REPLACE TABLE \`${PROJECT_ID}.${DATASET_ID}.parsed_invocation_traces\` AS
 SELECT
   ARRAY_FIRST(ARRAY_AGG(t.agent IGNORE NULLS ORDER BY t.timestamp)) AS agent,
   t.session_id,
   t.invocation_id,
+  MIN(t.timestamp) AS started_at,
+  \`${PROJECT_ID}.${DATASET_ID}.deepeval_parse_trace\`(
+    TO_JSON_STRING(ARRAY_AGG(t ORDER BY t.timestamp))
+  ) AS parsed_trace
+FROM \`bigquery-public-data.agent_analytic_sample_dataset.agent_events_v2\` AS t
+GROUP BY t.session_id, t.invocation_id;
+
+-- Evaluate the parsed invocation traces with DeepEval metrics
+SELECT
+  agent,
+  session_id,
+  invocation_id,
   \`${PROJECT_ID}.${DATASET_ID}.deepeval_evaluate\`(
-    TO_JSON_STRING(ARRAY_AGG(t ORDER BY t.timestamp)),
+    parsed_trace,
     [
       'answer_relevancy',
       'faithfulness',
@@ -299,27 +326,39 @@ SELECT
       'geval:Technical Precision:Evaluate whether the response provides exact names, IDs, or numbers grounded in the tool output without hallucinating.'
     ]
   ) AS eval_results
-FROM \`bigquery-public-data.agent_analytic_sample_dataset.agent_events_v2\` AS t
-GROUP BY t.session_id, t.invocation_id
-ORDER BY MIN(t.timestamp)
+FROM \`${PROJECT_ID}.${DATASET_ID}.parsed_invocation_traces\`
+ORDER BY started_at
 LIMIT 10;
 EOF
 ```
 
-### 2. Run Multi-Turn Session Evaluation Directly on the BQAA Table
+### 2. Run Multi-Turn Session Evaluation (`deepeval_parse_trace` + `deepeval_evaluate`)
 
-Group the BQAA table by `session_id` and pass
-`TO_JSON_STRING(ARRAY_AGG(t ORDER BY t.timestamp))` directly to
-`deepeval_evaluate`:
+Group the BQAA table by `session_id`, parse the multi-turn session trace with
+`deepeval_parse_trace`, and pass the parsed trace to `deepeval_evaluate`:
 
 ```bash
 bq query --project_id="${PROJECT_ID}" --location="${LOCATION}" --use_legacy_sql=false <<EOF
+WITH parsed_session_traces AS (
+  SELECT
+    ARRAY_FIRST(ARRAY_AGG(t.agent IGNORE NULLS ORDER BY t.timestamp)) AS agent,
+    t.session_id,
+    COUNT(DISTINCT t.invocation_id) AS num_invocations,
+    \`${PROJECT_ID}.${DATASET_ID}.deepeval_parse_trace\`(
+      TO_JSON_STRING(ARRAY_AGG(t ORDER BY t.timestamp))
+    ) AS parsed_trace
+  FROM \`bigquery-public-data.agent_analytic_sample_dataset.agent_events_v2\` AS t
+  GROUP BY t.session_id
+  HAVING COUNT(DISTINCT t.invocation_id) > 1
+  ORDER BY t.session_id
+  LIMIT 10
+)
 SELECT
-  ARRAY_FIRST(ARRAY_AGG(t.agent IGNORE NULLS ORDER BY t.timestamp)) AS agent,
-  t.session_id,
-  COUNT(DISTINCT t.invocation_id) AS num_invocations,
+  agent,
+  session_id,
+  num_invocations,
   \`${PROJECT_ID}.${DATASET_ID}.deepeval_evaluate\`(
-    TO_JSON_STRING(ARRAY_AGG(t ORDER BY t.timestamp)),
+    parsed_trace,
     [
       'turn_relevancy',
       'knowledge_retention',
@@ -328,11 +367,8 @@ SELECT
       'conversational_geval:Cross-Turn Context Carryover:Evaluate whether the assistant remembers the project_id discussed in earlier turns when the user asks follow-up questions about a dataset or table without repeating the project_id.'
     ]
   ) AS multi_turn_results
-FROM \`bigquery-public-data.agent_analytic_sample_dataset.agent_events_v2\` AS t
-GROUP BY t.session_id
-HAVING COUNT(DISTINCT t.invocation_id) > 1
-ORDER BY t.session_id
-LIMIT 10;
+FROM parsed_session_traces
+ORDER BY session_id;
 EOF
 ```
 
@@ -342,11 +378,12 @@ EOF
 
 - [`install.sh`](install.sh): One-command installer script (`gcloud` + `bq`)
   that provisions APIs, the BigQuery dataset, the Cloud Resource Connection,
-  IAM permissions (`roles/aiplatform.user`), and the `deepeval_evaluate` Python
-  UDF.
+  IAM permissions (`roles/aiplatform.user`), and the `deepeval_parse_trace` and
+  `deepeval_evaluate` Python UDFs.
 - [`deepeval_udfs.sql`](deepeval_udfs.sql): `CREATE OR REPLACE FUNCTION` DDL for
-  the unified `deepeval_evaluate` BigQuery Managed Python UDF.
+  the `deepeval_parse_trace` and `deepeval_evaluate` BigQuery Managed Python
+  UDFs.
 - [`agent_events_v2_eval_queries.sql`](agent_events_v2_eval_queries.sql):
-  Ready-to-run SQL queries for evaluating single-turn and multi-turn BQAA agent
-  traces directly from
+  Ready-to-run SQL queries for parsing and evaluating single-turn and
+  multi-turn BQAA agent traces from
   `bigquery-public-data.agent_analytic_sample_dataset.agent_events_v2`.

@@ -78,7 +78,7 @@ if [[ ! "${MODEL_ID}" =~ ^[a-zA-Z0-9_.-]+$ ]]; then
 fi
 
 echo "=================================================================="
-echo "Installing DeepEval BigQuery Python UDF (deepeval_evaluate)"
+echo "Installing DeepEval BigQuery Python UDFs (deepeval_parse_trace, deepeval_evaluate)"
 echo "  Project ID    : ${PROJECT_ID}"
 echo "  Dataset ID    : ${DATASET_ID}"
 echo "  Location      : ${LOCATION}"
@@ -133,8 +133,8 @@ gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
   --condition=None \
   --quiet >/dev/null
 
-# 5. Deploy the unified deepeval_evaluate Python UDF into the target project, dataset, and connection
-echo "[5/5] Deploying deepeval_evaluate Python UDF from deepeval_udfs.sql..."
+# 5. Deploy the deepeval_parse_trace and deepeval_evaluate Python UDFs into the target project, dataset, and connection
+echo "[5/5] Deploying deepeval_parse_trace and deepeval_evaluate Python UDFs from deepeval_udfs.sql..."
 sed \
   -e "s/YOUR_PROJECT_ID/${PROJECT_ID}/g" \
   -e "s/YOUR_DATASET_ID/${DATASET_ID}/g" \
@@ -145,7 +145,7 @@ sed \
   | bq query --project_id="${PROJECT_ID}" --location="${LOCATION}" --use_legacy_sql=false
 
 echo "=================================================================="
-echo "Successfully deployed deepeval_evaluate to ${PROJECT_ID}.${DATASET_ID}!"
+echo "Successfully deployed deepeval_parse_trace and deepeval_evaluate to ${PROJECT_ID}.${DATASET_ID}!"
 echo "Note: IAM policy bindings can take 1-2 minutes to propagate before the first UDF query."
 echo ""
 echo "Quick test command:"
