@@ -1431,6 +1431,32 @@ exit 0
       self.assertNotEqual(bad_id_proc.returncode, 0)
       self.assertIn('Error: Invalid DATASET_ID', bad_id_proc.stderr)
 
+      # Existing dataset with case-insensitive matching location (e.g. 'US' vs
+      # 'us') succeeds on macOS Bash 3.2 (no Bash 4+ ${VAR,,} syntax)
+      install_sh_text = install_sh.read_text(encoding='utf-8')
+      self.assertIsNone(
+          re.search(r'\$\{[^}]*(?:,,|\^\^)\}', install_sh_text),
+          'install.sh must not use Bash 4+ case expansion (${var,,}) so it '
+          'runs on macOS /bin/bash 3.2.',
+      )
+      same_loc_env = env.copy()
+      same_loc_env['FAKE_EXISTING_DS_LOC'] = 'US'
+      same_loc_proc = subprocess.run(
+          [
+              'bash',
+              str(install_sh),
+              'customer-gcp-proj',
+              'custom_dataset',
+              'us',
+              'custom_ge_conn',
+          ],
+          env=same_loc_env,
+          capture_output=True,
+          text=True,
+          check=False,
+      )
+      self.assertEqual(same_loc_proc.returncode, 0, same_loc_proc.stderr)
+
       # Existing dataset in a different location fails early with clear error
       mismatch_env = env.copy()
       mismatch_env['FAKE_EXISTING_DS_LOC'] = 'EU'

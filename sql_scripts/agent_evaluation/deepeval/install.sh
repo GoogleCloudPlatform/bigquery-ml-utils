@@ -99,7 +99,9 @@ gcloud services enable \
 echo "[2/5] Ensuring BigQuery dataset ${PROJECT_ID}:${DATASET_ID} exists..."
 if DS_JSON="$(bq --project_id="${PROJECT_ID}" show --format=json --dataset "${PROJECT_ID}:${DATASET_ID}" 2>/dev/null)"; then
   EXISTING_LOC="$(printf '%s' "${DS_JSON}" | sed -n 's/.*"location":[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)"
-  if [[ -n "${EXISTING_LOC}" && "${EXISTING_LOC,,}" != "${LOCATION,,}" ]]; then
+  EXISTING_LOC_LOWER="$(printf '%s' "${EXISTING_LOC}" | tr '[:upper:]' '[:lower:]')"
+  LOCATION_LOWER="$(printf '%s' "${LOCATION}" | tr '[:upper:]' '[:lower:]')"
+  if [[ -n "${EXISTING_LOC}" && "${EXISTING_LOC_LOWER}" != "${LOCATION_LOWER}" ]]; then
     echo "Error: Dataset ${PROJECT_ID}:${DATASET_ID} already exists in location '${EXISTING_LOC}', which does not match requested LOCATION '${LOCATION}'." >&2
     exit 1
   fi
