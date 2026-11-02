@@ -26,7 +26,7 @@
 -- Placeholders (substituted by ./install.sh):
 --   YOUR_PROJECT_ID, YOUR_DATASET_ID (default: agent_analytics),
 --   YOUR_LOCATION (default: us), YOUR_CONNECTION_ID (default: gemini_enterprise_connection),
---   YOUR_MODEL_ID (default: gemini-2.5-flash)
+--   YOUR_MODEL_ID (default: gemini-3.8-flash)
 --
 -- Authentication:
 --   Uses Google Cloud ADC via google.auth.default() (requires `roles/aiplatform.user`
@@ -691,7 +691,7 @@ _MULTI_REGION_LOCATIONS = {"us": "us-central1", "eu": "europe-west4"}
 
 
 def _resolve_gcp_location(override_loc: str = "") -> str:
-    """Resolves the Gemini endpoint location without cross-region fallback (preserving data residency)."""
+    """Resolves the configured regional Gemini endpoint location (mapping 'us'/'eu' multi-regions)."""
     raw_loc = (
         override_loc.strip().lower()
         or os.environ.get("GOOGLE_CLOUD_LOCATION", "").strip().lower()
@@ -714,14 +714,13 @@ try:
 except ValueError:
     GCP_LOCATION = ""
 _RAW_MODEL_ID = "YOUR_MODEL_ID".strip()
-# Default to gemini-2.5-flash (latest GA model available across regional endpoints for data residency).
-# Preview models (e.g. gemini-3-flash-preview) can be configured via install.sh MODEL_ID or judge_model.
+# Default to gemini-3.8-flash (latest GA Flash model on Gemini Enterprise Agent Platform).
 PRIMARY_MODEL_ID = (
-    "gemini-2.5-flash"
+    "gemini-3.8-flash"
     if not _RAW_MODEL_ID or _RAW_MODEL_ID == "YOUR_MODEL_ID"
     else _RAW_MODEL_ID
 )
-FALLBACK_MODEL_ID = "gemini-2.5-flash-lite"
+FALLBACK_MODEL_ID = "gemini-2.5-flash"
 
 
 class SafeGeminiModel(GeminiModel):
@@ -784,11 +783,31 @@ class SafeGeminiModel(GeminiModel):
 
 
 _MODEL_CACHE: dict[tuple[str, str, str], SafeGeminiModel] = {}
+# Matches Gemini 3.x model IDs (e.g. "gemini-3.8-flash", "publishers/google/models/gemini-3.8-flash")
+# without matching unrelated identifiers containing "gemini-3" as a non-prefix substring.
+_GEMINI_3_MODEL_RE = re.compile(
+    r"^(?:publishers/google/models/)?gemini-3(?:\b|[.-])",
+    re.IGNORECASE,
+)
+
+
+def _is_gemini_3_model(model_id: str) -> bool:
+    """Returns True if model_id is a Gemini 3.x model identifier."""
+    return bool(_GEMINI_3_MODEL_RE.match(model_id.strip()))
 
 
 def _get_judge_model(model_id: str, location: str = "") -> SafeGeminiModel:
-    """Returns a module-cached SafeGeminiModel instance to avoid per-row re-initialization."""
+    """Returns a module-cached SafeGeminiModel instance to avoid per-row re-initialization.
+
+    Gemini 3.x models (such as gemini-3.8-flash) are served on the global endpoint rather
+    than single-region endpoints (e.g. us-central1), while BigQuery datasets and connections
+    must be created in a regional or multi-region location. When no per-row location override
+    is set, Gemini 3.x models route to 'global'; regional models (e.g. gemini-2.5-flash,
+    including retry fallback) and explicit per-row location overrides use GCP_LOCATION.
+    """
     resolved_loc = _resolve_gcp_location(location) if location else (GCP_LOCATION or _resolve_gcp_location())
+    if _is_gemini_3_model(model_id) and not location:
+        resolved_loc = "global"
     key = (model_id, GCP_PROJECT, resolved_loc)
     if key not in _MODEL_CACHE:
         _MODEL_CACHE[key] = SafeGeminiModel(

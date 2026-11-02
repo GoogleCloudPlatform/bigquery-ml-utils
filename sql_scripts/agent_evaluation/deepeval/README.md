@@ -6,7 +6,7 @@ script (`install.sh`), and end-to-end SQL queries for evaluating **Single-Turn**
 and **Multi-Turn** AI agent execution traces directly inside BigQuery using
 [DeepEval](https://github.com/confident-ai/deepeval) and
 [Gemini on Gemini Enterprise Agent Platform](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models)
-(`gemini-2.5-flash`).
+(`gemini-3.8-flash`).
 
 Because `deepeval_evaluate` authenticates to Gemini Enterprise Agent Platform
 using Application Default Credentials (`google.auth.default()`) attached to a
@@ -42,7 +42,7 @@ export PROJECT_ID="your-gcp-project-id"
 export DATASET_ID="agent_analytics"
 export LOCATION="us"
 export CONNECTION_ID="gemini_enterprise_connection"
-export MODEL_ID="gemini-2.5-flash"
+export MODEL_ID="gemini-3.8-flash"
 
 # 2. Run the one-command installer:
 ./install.sh "${PROJECT_ID}" "${DATASET_ID}" "${LOCATION}" "${CONNECTION_ID}" "${MODEL_ID}"
@@ -78,20 +78,32 @@ export MODEL_ID="gemini-2.5-flash"
 >   `google-genai==1.15.0`, and `google-auth==2.40.0`). Subsequent queries reuse
 >   the cached container image.
 > - **Data Residency & Evaluation Regions:** `install.sh` substitutes
->   `${LOCATION}` into the UDF so the Gemini judge endpoint matches your
->   BigQuery dataset region. Multi-regions `us` and `eu` map within the same
->   geography to `us-central1` and `europe-west4`, and any explicit regional
->   location (such as `us-east4`, `europe-west1`, or `asia-northeast1`) is
->   passed directly to the regional Gemini endpoint. To preserve data residency,
->   the UDF **never** falls back across regions; if the location is
->   unconfigured or invalid, the UDF fails fast with a `ValueError`.
-> - **Judge Model Selection:** The default judge model is `gemini-2.5-flash`,
->   the latest Generally Available (GA) Gemini model deployed across regional
->   endpoints (preserving regional data residency). You can override the default
->   model at install time via `MODEL_ID` (5th argument to `./install.sh`) or per
->   query via `judge_model` in `test_case_json` (note that Gemini 3 preview
->   models such as `gemini-3-flash-preview` currently require
->   `location: "global"`).
+>   `${LOCATION}` into the UDF (mapping multi-regions `us` → `us-central1` and
+>   `eu` → `europe-west4`, and passing explicit regions such as `us-east4`,
+>   `europe-west1`, or `asia-northeast1` directly; if the location is
+>   unconfigured or invalid, the UDF fails fast with a `ValueError`). Because
+>   Gemini 3.x models such as the default `gemini-3.8-flash` are not served on
+>   single-region endpoints (and BigQuery datasets/connections cannot be
+>   created in `global`), **Gemini 3.x models route evaluation requests to the
+>   `global` endpoint by default** when no per-row `location` is specified,
+>   meaning prompt traffic may be processed outside `${LOCATION}`. Regional
+>   models such as `gemini-2.5-flash` (including automatic retry fallback on
+>   attempt 3) and any explicit per-row `location` override in `test_case_json`
+>   always stay on the configured regional endpoint and never fall back across
+>   regions. For strict in-region data residency compliance, install with
+>   `MODEL_ID="gemini-2.5-flash"` (or set `"judge_model": "gemini-2.5-flash"`
+>   in `test_case_json`).
+> - **Judge Model Selection:** The default primary judge model is
+>   `gemini-3.8-flash` (routed to `global` unless a per-row `location` is set),
+>   with `gemini-2.5-flash` (routed to the configured regional endpoint) as the
+>   fallback model on the final retry attempt for transient or invalid-JSON
+>   evaluation errors (deterministic HTTP 4xx errors other than 408/429 fail
+>   fast without retrying). When installing with `MODEL_ID="gemini-2.5-flash"`
+>   (or setting `"judge_model": "gemini-2.5-flash"`), the fallback model also
+>   defaults to `gemini-2.5-flash` unless `fallback_judge_model` is overridden.
+>   You can override the model at install time via `MODEL_ID` (5th argument to
+>   `./install.sh`) or per query via `judge_model`, `fallback_judge_model`, and
+>   `location` in `test_case_json`.
 > - **Memory & Batching:** Because `deepeval` has a substantial runtime
 >   dependency tree, the UDF sets `max_batching_rows = 1`, caches the judge
 >   model client at module level, and lazily imports metric classes inside
@@ -202,8 +214,9 @@ or a single-turn `STRUCT`, `deepeval_evaluate` builds a DeepEval `LLMTestCase`.
 | `expected_output` | `STRING` | Conditional | Reference/golden answer (required for `contextual_precision` and `contextual_recall`). |
 | `tools_called` | `ARRAY<STRUCT>` | Automatic from BQAA | Tools invoked by the agent (automatically extracted from `TOOL_STARTING` / `TOOL_COMPLETED` / `TOOL_ERROR` when using BQAA input; used by `task_completion` and `tool_correctness`). |
 | `expected_tools` | `ARRAY<STRUCT>` | Conditional | Expected tool calls (required for `tool_correctness`). |
-| `judge_model` | `STRING` | Optional | Primary Gemini judge model ID (defaults to `'gemini-2.5-flash'`). |
-| `fallback_judge_model` | `STRING` | Optional | Fallback Gemini judge model ID used on final retry (defaults to `'gemini-2.5-flash-lite'`). |
+| `judge_model` | `STRING` | Optional | Primary Gemini judge model ID (defaults to `'gemini-3.8-flash'`). |
+| `fallback_judge_model` | `STRING` | Optional | Fallback Gemini judge model ID used on final retry (defaults to `'gemini-2.5-flash'`). |
+| `location` | `STRING` | Optional | Per-row Gemini endpoint location override (defaults to `'global'` for Gemini 3.x models and the configured regional endpoint for regional models such as `'gemini-2.5-flash'`). |
 
 #### Supported Single-Turn Metrics (`metrics`)
 
@@ -245,8 +258,9 @@ When `test_case_json` is a multi-turn trace produced by `deepeval_parse_trace`
 | `chatbot_role` (or `instruction`) | `STRING` | Optional | Persona/system role description (automatically extracted from `AGENT_STARTING` / `LLM_REQUEST` by `deepeval_parse_trace`; required for `role_adherence`, defaults to `'Helpful AI Assistant'`). |
 | `scenario` | `STRING` | Optional | Scenario description for the conversation. |
 | `expected_outcome` | `STRING` | Optional | Expected outcome of the multi-turn session. |
-| `judge_model` | `STRING` | Optional | Primary Gemini judge model ID (defaults to `'gemini-2.5-flash'`). |
-| `fallback_judge_model` | `STRING` | Optional | Fallback Gemini judge model ID used on final retry (defaults to `'gemini-2.5-flash-lite'`). |
+| `judge_model` | `STRING` | Optional | Primary Gemini judge model ID (defaults to `'gemini-3.8-flash'`). |
+| `fallback_judge_model` | `STRING` | Optional | Fallback Gemini judge model ID used on final retry (defaults to `'gemini-2.5-flash'`). |
+| `location` | `STRING` | Optional | Per-row Gemini endpoint location override (defaults to `'global'` for Gemini 3.x models and the configured regional endpoint for regional models such as `'gemini-2.5-flash'`). |
 
 #### Supported Multi-Turn Metrics (`metrics`)
 

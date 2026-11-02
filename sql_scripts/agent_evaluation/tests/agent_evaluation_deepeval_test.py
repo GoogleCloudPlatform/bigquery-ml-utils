@@ -334,18 +334,83 @@ class AgentEvaluationDeepevalTest(unittest.TestCase):
       ns_eu = _load_udf_module()
     self.assertEqual(ns_eu['GCP_LOCATION'], 'europe-west4')
 
-    # Regional locations like asia-northeast1 are preserved without cross-region
-    # fallback so data stays in the configured region.
+    # Gemini 3 models (such as the default gemini-3.8-flash) route to the
+    # global endpoint by default, while regional models (e.g. gemini-2.5-flash,
+    # including retry fallback), non-Gemini-3 model IDs, and explicit per-call
+    # location overrides preserve the regional endpoint.
     with mock.patch.dict(
         os.environ, {'GOOGLE_CLOUD_LOCATION': 'asia-northeast1'}
     ):
       ns_regional = _load_udf_module()
       self.assertEqual(ns_regional['GCP_LOCATION'], 'asia-northeast1')
-      regional_res = ns_regional['evaluate_test_case'](
+      default_res = ns_regional['evaluate_test_case'](
           json.dumps({'input': 'Q', 'actual_output': 'A'}),
           ['answer_relevancy'],
       )
-    self.assertTrue(regional_res[0]['passed'])
+      self.assertTrue(default_res[0]['passed'])
+      self.assertEqual(
+          FakeBaseMetric.last_instances[-1].model.location, 'global'
+      )
+      regional_res = ns_regional['evaluate_test_case'](
+          json.dumps({
+              'input': 'Q',
+              'actual_output': 'A',
+              'judge_model': 'gemini-2.5-flash',
+          }),
+          ['answer_relevancy'],
+      )
+      self.assertTrue(regional_res[0]['passed'])
+      self.assertEqual(
+          FakeBaseMetric.last_instances[-1].model.location, 'asia-northeast1'
+      )
+      explicit_loc_res = ns_regional['evaluate_test_case'](
+          json.dumps({
+              'input': 'Q',
+              'actual_output': 'A',
+              'location': 'asia-northeast1',
+          }),
+          ['answer_relevancy'],
+      )
+      self.assertTrue(explicit_loc_res[0]['passed'])
+      self.assertEqual(
+          FakeBaseMetric.last_instances[-1].model.model, 'gemini-3.8-flash'
+      )
+      self.assertEqual(
+          FakeBaseMetric.last_instances[-1].model.location, 'asia-northeast1'
+      )
+      substring_model_res = ns_regional['evaluate_test_case'](
+          json.dumps({
+              'input': 'Q',
+              'actual_output': 'A',
+              'judge_model': 'custom-gemini-3-adapter',
+          }),
+          ['answer_relevancy'],
+      )
+      self.assertTrue(substring_model_res[0]['passed'])
+      self.assertEqual(
+          FakeBaseMetric.last_instances[-1].model.location, 'asia-northeast1'
+      )
+      FakeBaseMetric.fail_models = {'gemini-3.8-flash'}
+      with mock.patch.object(
+          ns_regional['time'], 'sleep', autospec=True
+      ) as mock_sleep_regional:
+        fallback_loc_res = ns_regional['evaluate_test_case'](
+            json.dumps({'input': 'Q', 'actual_output': 'A'}),
+            ['answer_relevancy'],
+        )
+      FakeBaseMetric.fail_models = set()
+    self.assertEqual(mock_sleep_regional.call_count, 2)
+    self.assertTrue(fallback_loc_res[0]['passed'])
+    self.assertIn('[Judge: gemini-2.5-flash]', fallback_loc_res[0]['reason'])
+    self.assertEqual(
+        FakeBaseMetric.last_instances[-2].model.model, 'gemini-3.8-flash'
+    )
+    self.assertEqual(
+        FakeBaseMetric.last_instances[-2].model.location, 'global'
+    )
+    self.assertEqual(
+        FakeBaseMetric.last_instances[-1].model.model, 'gemini-2.5-flash'
+    )
     self.assertEqual(
         FakeBaseMetric.last_instances[-1].model.location, 'asia-northeast1'
     )
@@ -402,7 +467,7 @@ class AgentEvaluationDeepevalTest(unittest.TestCase):
     for res in results:
       self.assertAlmostEqual(res['score'], 0.9)
       self.assertTrue(res['passed'])
-      self.assertIn('gemini-2.5-flash', res['reason'])
+      self.assertIn('gemini-3.8-flash', res['reason'])
 
     # Verify GEval received RETRIEVAL_CONTEXT and TOOLS_CALLED in
     # evaluation_params.
@@ -596,9 +661,9 @@ class AgentEvaluationDeepevalTest(unittest.TestCase):
     ns = _load_udf_module()
     evaluate_test_case = ns['evaluate_test_case']
 
-    # Fail primary model ('gemini-2.5-flash') so attempt 3 falls back to
-    # 'gemini-2.5-flash-lite'.
-    FakeBaseMetric.fail_models = {'gemini-2.5-flash'}
+    # Fail primary model ('gemini-3.8-flash') so attempt 3 falls back to
+    # 'gemini-2.5-flash'.
+    FakeBaseMetric.fail_models = {'gemini-3.8-flash'}
     with mock.patch.object(ns['time'], 'sleep', autospec=True) as mock_sleep:
       results = evaluate_test_case(
           json.dumps({'input': 'Q', 'actual_output': 'A'}),
@@ -606,12 +671,12 @@ class AgentEvaluationDeepevalTest(unittest.TestCase):
       )
     self.assertEqual(len(results), 1)
     self.assertTrue(results[0]['passed'])
-    self.assertIn('[Judge: gemini-2.5-flash-lite]', results[0]['reason'])
+    self.assertIn('[Judge: gemini-2.5-flash]', results[0]['reason'])
     self.assertEqual(mock_sleep.call_count, 2)
 
     # Exhausting all 3 attempts (both primary and fallback fail) sleeps twice
     # and emits passed=None.
-    FakeBaseMetric.fail_models = {'gemini-2.5-flash', 'gemini-2.5-flash-lite'}
+    FakeBaseMetric.fail_models = {'gemini-3.8-flash', 'gemini-2.5-flash'}
     with mock.patch.object(
         ns['time'], 'sleep', autospec=True
     ) as mock_sleep_all:
@@ -1375,7 +1440,7 @@ exit 0
           'YOUR_MODEL_ID',
       ):
         self.assertNotIn(placeholder, rendered_sql)
-      self.assertIn('"gemini-2.5-flash"', rendered_sql)
+      self.assertIn('"gemini-3.8-flash"', rendered_sql)
       py_bodies = _extract_udf_python_bodies(rendered_sql)
       self.assertEqual(len(py_bodies), 2)
       for py_body in py_bodies:

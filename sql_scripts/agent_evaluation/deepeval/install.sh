@@ -33,11 +33,11 @@ Arguments (optional if gcloud default project is configured):
   DATASET_ID     BigQuery dataset name to host the UDF (default: agent_analytics)
   LOCATION       BigQuery dataset & connection location (default: us)
   CONNECTION_ID  BigQuery Cloud Resource Connection ID (default: gemini_enterprise_connection)
-  MODEL_ID       Primary Gemini judge model ID (default: gemini-2.5-flash)
+  MODEL_ID       Primary Gemini judge model ID (default: gemini-3.8-flash)
 
 Examples:
   ./install.sh my-gcp-project
-  ./install.sh my-gcp-project agent_analytics us gemini_enterprise_connection gemini-2.5-flash
+  ./install.sh my-gcp-project agent_analytics us gemini_enterprise_connection gemini-3.8-flash
 EOF
   exit 0
 fi
@@ -53,7 +53,7 @@ PROJECT_ID="${1:-${PROJECT_ID:-${DEFAULT_GCLOUD_PROJECT}}}"
 DATASET_ID="${2:-${DATASET_ID:-agent_analytics}}"
 LOCATION="${3:-${LOCATION:-us}}"
 CONNECTION_ID="${4:-${CONNECTION_ID:-gemini_enterprise_connection}}"
-MODEL_ID="${5:-${MODEL_ID:-gemini-2.5-flash}}"
+MODEL_ID="${5:-${MODEL_ID:-gemini-3.8-flash}}"
 
 if [[ -z "${PROJECT_ID}" ]]; then
   echo "Error: PROJECT_ID is not set." >&2

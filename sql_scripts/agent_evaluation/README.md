@@ -15,7 +15,7 @@ Secret Manager secrets are required**.
 
 | Directory | UDF Names | Evaluation Backend | Supported Capabilities |
 | :--- | :--- | :--- | :--- |
-| **[`deepeval/`](deepeval/)** | `deepeval_parse_trace`, `deepeval_evaluate` | [DeepEval](https://github.com/confident-ai/deepeval) with [Gemini on Gemini Enterprise Agent Platform](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models) (`gemini-2.5-flash`) | Offline BQAA / `AgentData` trace normalization (`deepeval_parse_trace`) plus single-turn `LLMTestCase` metrics (`answer_relevancy`, `faithfulness`, `task_completion`, `tool_correctness`, `contextual_relevancy`, `contextual_precision`, `contextual_recall`, `hallucination`, `geval`) and multi-turn `ConversationalTestCase` metrics (`turn_relevancy`, `knowledge_retention`, `conversation_completeness`, `role_adherence`, `conversational_geval`). |
+| **[`deepeval/`](deepeval/)** | `deepeval_parse_trace`, `deepeval_evaluate` | [DeepEval](https://github.com/confident-ai/deepeval) with [Gemini on Gemini Enterprise Agent Platform](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models) (`gemini-3.8-flash`) | Offline BQAA / `AgentData` trace normalization (`deepeval_parse_trace`) plus single-turn `LLMTestCase` metrics (`answer_relevancy`, `faithfulness`, `task_completion`, `tool_correctness`, `contextual_relevancy`, `contextual_precision`, `contextual_recall`, `hallucination`, `geval`) and multi-turn `ConversationalTestCase` metrics (`turn_relevancy`, `knowledge_retention`, `conversation_completeness`, `role_adherence`, `conversational_geval`). |
 
 ---
 
