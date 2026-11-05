@@ -135,6 +135,14 @@ class FakeGeminiModel:
     self.generate_calls.append((prompt, schema))
     if schema is not None and getattr(schema, 'REJECT_ADDITIONAL_PROPS', False):
       raise ValueError('Invalid schema: additional_properties is not supported')
+    if schema is not None and getattr(
+        schema, 'REJECT_CAMEL_ADDITIONAL_PROPS', False
+    ):
+      raise ValueError(
+          '1 validation error for Schema\nadditionalProperties\n  Extra inputs'
+          ' are not permitted [type=extra_forbidden, input_value=False,'
+          ' input_type=bool]'
+      )
     if schema is None:
       return '```json\n{"data": {"project": "demo-proj"}}\n```', 0.0
     return schema.model_validate({'data': {'project': 'demo-proj'}}), 0.0
@@ -182,6 +190,7 @@ def _load_udf_module(
     sa_email: str = 'bqcx-123456789012-abcd@gcp-sa-bigquery-condel.iam.gserviceaccount.com',
     default_project: str | None = 'fallback-project',
     default_location: str = 'us-central1',
+    default_model: str = 'YOUR_MODEL_ID',
 ) -> dict[str, Any]:
   """Loads the Python UDF bodies from deepeval_udfs.sql with fake deepeval/google.auth modules."""
   script_dir = _find_script_dir()
@@ -259,6 +268,10 @@ def _load_udf_module(
         py_code = py_code.replace(
             '"YOUR_LOCATION"', json.dumps(default_location)
         )
+      if default_model != 'YOUR_MODEL_ID':
+        # Deliberately mirrors the unquoted global `s/YOUR_MODEL_ID/.../g` in
+        # install.sh to catch regressions if the sentinel uses uppercase.
+        py_code = py_code.replace('YOUR_MODEL_ID', default_model)
       compiled = compile(py_code, f'<deepeval_udfs.sql:{idx}>', 'exec')
       exec(compiled, namespace)  # pylint: disable=exec-used
   return namespace
@@ -624,13 +637,29 @@ class AgentEvaluationDeepevalTest(unittest.TestCase):
       def model_validate(obj):
         return obj
 
+    class StrictSchemaWithCamelAdditionalProps:
+      REJECT_CAMEL_ADDITIONAL_PROPS = True
+
+      @staticmethod
+      def model_json_schema():
+        return {'type': 'object'}
+
+      @staticmethod
+      def model_validate(obj):
+        return obj
+
     parsed2, _ = model.generate(
         'Extract dict', schema=StrictSchemaWithAdditionalProps
     )
     self.assertEqual(parsed2, {'data': {'project': 'demo-proj'}})
+    parsed3, _ = model.generate(
+        'Extract camel additionalProperties',
+        schema=StrictSchemaWithCamelAdditionalProps,
+    )
+    self.assertEqual(parsed3, {'data': {'project': 'demo-proj'}})
 
-    # Verify async a_generate also shortcuts Knowledge and falls back on
-    # additional_properties.
+    # Verify async a_generate also shortcuts Knowledge and falls back on both
+    # additional_properties and camelCase additionalProperties.
     parsed_async, _ = asyncio.run(
         model.a_generate('Extract knowledge async', schema=Knowledge)
     )
@@ -641,6 +670,13 @@ class AgentEvaluationDeepevalTest(unittest.TestCase):
         )
     )
     self.assertEqual(parsed_async2, {'data': {'project': 'demo-proj'}})
+    parsed_async3, _ = asyncio.run(
+        model.a_generate(
+            'Extract camel additionalProperties async',
+            schema=StrictSchemaWithCamelAdditionalProps,
+        )
+    )
+    self.assertEqual(parsed_async3, {'data': {'project': 'demo-proj'}})
 
     # Verify malformed JSON / validation failure in fallback raises RuntimeError
     class RejectingSchema:
@@ -656,6 +692,16 @@ class AgentEvaluationDeepevalTest(unittest.TestCase):
 
     with self.assertRaises(RuntimeError):
       model._generate_json_fallback('Extract invalid', RejectingSchema)
+
+  def test_primary_model_id_survives_install_sed_substitution(self):
+    # Unsubstituted placeholder resolves to the default gemini-3.8-flash model.
+    ns_default = _load_udf_module()
+    self.assertEqual(ns_default['PRIMARY_MODEL_ID'], 'gemini-3.8-flash')
+
+    # Global sed replacement of YOUR_MODEL_ID by install.sh preserves the
+    # user-supplied PRIMARY_MODEL_ID rather than resetting to gemini-3.8-flash.
+    ns_custom_model = _load_udf_module(default_model='gemini-2.5-flash')
+    self.assertEqual(ns_custom_model['PRIMARY_MODEL_ID'], 'gemini-2.5-flash')
 
   def test_retry_fallback_to_flash_lite_and_error_handling(self):
     ns = _load_udf_module()

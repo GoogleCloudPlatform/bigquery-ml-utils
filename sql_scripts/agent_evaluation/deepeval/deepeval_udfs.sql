@@ -717,19 +717,25 @@ _RAW_MODEL_ID = "YOUR_MODEL_ID".strip()
 # Default to gemini-3.8-flash (latest GA Flash model on Gemini Enterprise Agent Platform).
 PRIMARY_MODEL_ID = (
     "gemini-3.8-flash"
-    if not _RAW_MODEL_ID or _RAW_MODEL_ID == "YOUR_MODEL_ID"
+    if not _RAW_MODEL_ID or _RAW_MODEL_ID.lower() == "your_model_id"
     else _RAW_MODEL_ID
 )
 FALLBACK_MODEL_ID = "gemini-2.5-flash"
 
 
 class SafeGeminiModel(GeminiModel):
-    """GeminiModel wrapper with JSON-prompt fallback for open Dict schemas.
+    """GeminiModel wrapper with JSON-prompt fallback for unsupported Pydantic JSON schemas.
 
-    Metrics like KnowledgeRetentionMetric use Pydantic Dict fields (`additional_properties`),
-    which Gemini's structured output API rejects with HTTP 400. When that occurs, this
-    wrapper falls back to requesting raw JSON in the prompt and validating client-side.
+    Metrics like KnowledgeRetentionMetric emit `additionalProperties` / `additional_properties`
+    in Pydantic JSON schemas, which `google-genai==1.15.0` and Gemini's structured output API
+    reject. When that occurs, this wrapper falls back to requesting raw JSON in the prompt and
+    validating client-side.
     """
+
+    @staticmethod
+    def _is_schema_error(err: Exception) -> bool:
+        msg = str(err).lower()
+        return "additional_properties" in msg or "additionalproperties" in msg
 
     def _clean_json(self, text: str) -> dict:
         s = text.strip()
@@ -755,7 +761,7 @@ class SafeGeminiModel(GeminiModel):
         try:
             return super().generate(prompt, schema=schema)
         except Exception as e:
-            if schema is not None and "additional_properties" in str(e):
+            if schema is not None and self._is_schema_error(e):
                 return self._generate_json_fallback(prompt, schema)
             raise
 
@@ -777,7 +783,7 @@ class SafeGeminiModel(GeminiModel):
         try:
             return await super().a_generate(prompt, schema=schema)
         except Exception as e:
-            if schema is not None and "additional_properties" in str(e):
+            if schema is not None and self._is_schema_error(e):
                 return await self._a_generate_json_fallback(prompt, schema)
             raise
 
