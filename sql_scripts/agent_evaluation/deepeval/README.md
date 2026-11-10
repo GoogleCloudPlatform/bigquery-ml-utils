@@ -138,10 +138,12 @@ SELECT
 EOF
 ```
 
-The UDF returns an
-`ARRAY<STRUCT<metric STRING, score FLOAT64, passed BOOL, reason STRING>>`
-containing the numeric score (`0.0` to `1.0`), pass/fail status, and LLM judge
-reasoning for each requested metric.
+The UDF returns an `ARRAY<STRUCT<...>>` (`metric`, `score`, `passed`, `reason`,
+`judge_input_tokens`, and `judge_output_tokens`) containing the numeric score
+(`0.0` to `1.0`), pass/fail status, LLM judge reasoning, and the **Gemini judge
+model's** evaluation token usage (`judge_input_tokens` and
+`judge_output_tokens`, including thinking tokens, consumed by the judge model to
+score each metric — not the tokens consumed by the agent turn being evaluated).
 
 ---
 
@@ -161,7 +163,14 @@ RETURNS STRING
   test_case_json STRING,
   metrics ARRAY<STRING>
 )
-RETURNS ARRAY<STRUCT<metric STRING, score FLOAT64, passed BOOL, reason STRING>>
+RETURNS ARRAY<STRUCT<
+  metric STRING,
+  score FLOAT64,
+  passed BOOL,
+  reason STRING,
+  judge_input_tokens INT64,   -- Judge model input tokens consumed during metric evaluation
+  judge_output_tokens INT64   -- Judge model output + thinking tokens consumed during metric evaluation
+>>
 ```
 
 ### Supported Input Formats
@@ -214,6 +223,7 @@ or a single-turn `STRUCT`, `deepeval_evaluate` builds a DeepEval `LLMTestCase`.
 | `expected_output` | `STRING` | Conditional | Reference/golden answer (required for `contextual_precision` and `contextual_recall`). |
 | `tools_called` | `ARRAY<STRUCT>` | Automatic from BQAA | Tools invoked by the agent (automatically extracted from `TOOL_STARTING` / `TOOL_COMPLETED` / `TOOL_ERROR` when using BQAA input; used by `task_completion` and `tool_correctness`). |
 | `expected_tools` | `ARRAY<STRUCT>` | Conditional | Expected tool calls (required for `tool_correctness`). |
+| `evaluation_steps` | `ARRAY<STRING>` | Optional | Explicit scoring steps for `geval` / `conversational_geval` (skips Pass 1 step generation and evaluates in a single LLM pass). |
 | `judge_model` | `STRING` | Optional | Primary Gemini judge model ID (defaults to `'gemini-3.8-flash'`). |
 | `fallback_judge_model` | `STRING` | Optional | Fallback Gemini judge model ID used on final retry (defaults to `'gemini-2.5-flash'`). |
 | `location` | `STRING` | Optional | Per-row Gemini endpoint location override (defaults to `'global'` for Gemini 3.x models and the configured regional endpoint for regional models such as `'gemini-2.5-flash'`). |
@@ -221,7 +231,11 @@ or a single-turn `STRUCT`, `deepeval_evaluate` builds a DeepEval `LLMTestCase`.
 #### Supported Single-Turn Metrics (`metrics`)
 
 - `'answer_relevancy'`: Measures whether `actual_output` directly addresses
-  `input`.
+  `input`. *(Note: `answer_relevancy` only inspects `input` and
+  `actual_output` without `chatbot_role`; if your agent's system prompt
+  mandates proactive boilerplate such as governance contacts, documentation
+  links, or closing disclaimers, prefer `'task_completion'` or `'geval'` so
+  required footers are not penalized as irrelevant statements.)*
 - `'faithfulness'`: Checks whether claims in `actual_output` are grounded in
   `retrieval_context` without hallucinations.
 - `'task_completion'`: Evaluates whether the agent accomplished the user's goal
@@ -236,11 +250,18 @@ or a single-turn `STRUCT`, `deepeval_evaluate` builds a DeepEval `LLMTestCase`.
   facts needed to produce `expected_output`.
 - `'hallucination'`: Measures contradiction against `context` (lower score =
   less hallucination).
-- `'geval:<Name>:<Criteria>'`: Custom LLM-as-a-Judge rubric using DeepEval's
-  built-in `GEval` class (an implementation of the academic G-Eval two-step
-  chain-of-thought scoring framework, unrelated to GEAP; for example,
+- `'geval:<Name>:<Criteria>'` (or single-pass
+  `'geval:<Name>:steps:<Step 1>;<Step 2>'`): Custom LLM-as-a-Judge rubric using
+  DeepEval's built-in `GEval` class (an implementation of the academic G-Eval
+  scoring framework, unrelated to GEAP; for example,
   `'geval:Technical Precision:Evaluate whether the response cites exact IDs and
-  numbers from the tool output.'`).
+  numbers from the tool output.'`). Prefixing `<Criteria>` with `steps:` (or
+  supplying `evaluation_steps` in `test_case_json`) passes explicit
+  `evaluation_steps` to `GEval`, skipping LLM step-generation and cutting
+  evaluation from 2 LLM passes to 1 pass. When `tools_called` is present and
+  `retrieval_context` consists solely of auto-extracted tool outputs, the UDF
+  automatically omits redundant `RETRIEVAL_CONTEXT` / `CONTEXT` parameters to
+  avoid sending duplicate tool payloads in the prompt.
 
 ---
 
@@ -258,6 +279,7 @@ When `test_case_json` is a multi-turn trace produced by `deepeval_parse_trace`
 | `chatbot_role` (or `instruction`) | `STRING` | Optional | Persona/system role description (automatically extracted from `AGENT_STARTING` / `LLM_REQUEST` by `deepeval_parse_trace`; required for `role_adherence`, defaults to `'Helpful AI Assistant'`). |
 | `scenario` | `STRING` | Optional | Scenario description for the conversation. |
 | `expected_outcome` | `STRING` | Optional | Expected outcome of the multi-turn session. |
+| `evaluation_steps` | `ARRAY<STRING>` | Optional | Explicit scoring steps for `conversational_geval` (skips Pass 1 step generation and evaluates in a single LLM pass). |
 | `judge_model` | `STRING` | Optional | Primary Gemini judge model ID (defaults to `'gemini-3.8-flash'`). |
 | `fallback_judge_model` | `STRING` | Optional | Fallback Gemini judge model ID used on final retry (defaults to `'gemini-2.5-flash'`). |
 | `location` | `STRING` | Optional | Per-row Gemini endpoint location override (defaults to `'global'` for Gemini 3.x models and the configured regional endpoint for regional models such as `'gemini-2.5-flash'`). |
@@ -272,9 +294,10 @@ When `test_case_json` is a multi-turn trace produced by `deepeval_parse_trace`
   the multi-turn session were satisfied by the end of the conversation.
 - `'role_adherence'`: Measures whether the assistant adheres to `chatbot_role`
   across all turns.
-- `'conversational_geval:<Name>:<Criteria>'`: Custom multi-turn G-Eval rubric
-  (`deepeval.metrics.ConversationalGEval`) evaluated over the full conversation
-  trajectory.
+- `'conversational_geval:<Name>:<Criteria>'` (or single-pass
+  `'conversational_geval:<Name>:steps:<Step 1>;<Step 2>'`): Custom multi-turn
+  G-Eval rubric (`deepeval.metrics.ConversationalGEval`) evaluated over the full
+  conversation trajectory.
 
 ---
 

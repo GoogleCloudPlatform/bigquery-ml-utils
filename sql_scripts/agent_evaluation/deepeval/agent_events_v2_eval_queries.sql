@@ -63,7 +63,8 @@ LIMIT 10;
 --   - answer_relevancy
 --   - faithfulness
 --   - task_completion
---   - geval:<Name>:<Criteria>
+--   - geval:<Name>:<Criteria> (or single-pass `geval:<Name>:steps:<Step 1>;<Step 2>`)
+-- Each element in `eval_results` is a STRUCT<metric, score, passed, reason, judge_input_tokens, judge_output_tokens>.
 SELECT
   agent,
   session_id,

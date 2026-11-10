@@ -43,9 +43,15 @@ RETURNS ARRAY<STRUCT<
   metric STRING,
   score FLOAT64,
   passed BOOL,
-  reason STRING
+  reason STRING,
+  judge_input_tokens INT64,   -- Judge model input tokens consumed during metric evaluation
+  judge_output_tokens INT64   -- Judge model output + thinking tokens consumed during metric evaluation
 >>
 ```
+
+Each returned `STRUCT` includes `judge_input_tokens` and `judge_output_tokens`
+reporting the tokens consumed by the **Gemini judge model** while scoring that
+metric (not the tokens consumed by the agent trace being evaluated).
 
 ### Usage on a BQAA Table (`agent_events` / `agent_events_v2`)
 

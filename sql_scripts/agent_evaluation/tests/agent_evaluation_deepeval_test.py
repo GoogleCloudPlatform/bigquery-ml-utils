@@ -122,6 +122,8 @@ class FakeTurnParams(enum.Enum):
 class FakeGeminiModel:
   """Fake base GeminiModel recording initialization args and generate calls."""
 
+  genai_models_mod: Any = None
+
   def __init__(
       self, model: str = '', project: str = '', location: str = '', **kwargs
   ):
@@ -143,6 +145,8 @@ class FakeGeminiModel:
           ' are not permitted [type=extra_forbidden, input_value=False,'
           ' input_type=bool]'
       )
+    if self.genai_models_mod is not None:
+      self.genai_models_mod.Models().generate_content()
     if schema is None:
       return '```json\n{"data": {"project": "demo-proj"}}\n```', 0.0
     return schema.model_validate({'data': {'project': 'demo-proj'}}), 0.0
@@ -150,7 +154,22 @@ class FakeGeminiModel:
   async def a_generate(
       self, prompt: str, schema: Any = None
   ) -> tuple[Any, float]:
-    return self.generate(prompt, schema=schema)
+    self.generate_calls.append((prompt, schema))
+    if schema is not None and getattr(schema, 'REJECT_ADDITIONAL_PROPS', False):
+      raise ValueError('Invalid schema: additional_properties is not supported')
+    if schema is not None and getattr(
+        schema, 'REJECT_CAMEL_ADDITIONAL_PROPS', False
+    ):
+      raise ValueError(
+          '1 validation error for Schema\nadditionalProperties\n  Extra inputs'
+          ' are not permitted [type=extra_forbidden, input_value=False,'
+          ' input_type=bool]'
+      )
+    if self.genai_models_mod is not None:
+      await self.genai_models_mod.AsyncModels().generate_content()
+    if schema is None:
+      return '```json\n{"data": {"project": "demo-proj"}}\n```', 0.0
+    return schema.model_validate({'data': {'project': 'demo-proj'}}), 0.0
 
 
 class FakeBaseMetric:
@@ -176,6 +195,8 @@ class FakeBaseMetric:
       raise self.fail_error_cls(
           f'{self.fail_error_msg} from {self.model.model}'
       )
+    if self.model is not None:
+      self.model.generate('eval_prompt')
     self.measured_test_case = test_case
     self.score = self.score_override
     model_name = getattr(self.model, 'model', 'unknown')
@@ -237,6 +258,39 @@ def _load_udf_module(
 
   fake_google: Any = types.ModuleType('google')
   fake_google_auth: Any = types.ModuleType('google.auth')
+  fake_google_genai: Any = types.ModuleType('google.genai')
+  fake_google_genai_models: Any = types.ModuleType('google.genai.models')
+
+  class FakeGenaiModels:
+
+    def generate_content(self, *args, **kwargs):
+      del args, kwargs
+      return types.SimpleNamespace(
+          usage_metadata=types.SimpleNamespace(
+              prompt_token_count=40,
+              tool_use_prompt_token_count=10,
+              candidates_token_count=15,
+              thoughts_token_count=5,
+          )
+      )
+
+  class FakeGenaiAsyncModels:
+
+    async def generate_content(self, *args, **kwargs):
+      del args, kwargs
+      return types.SimpleNamespace(
+          usage_metadata=types.SimpleNamespace(
+              prompt_token_count=60,
+              tool_use_prompt_token_count=0,
+              candidates_token_count=12,
+              thoughts_token_count=8,
+          )
+      )
+
+  fake_google_genai_models.Models = FakeGenaiModels
+  fake_google_genai_models.AsyncModels = FakeGenaiAsyncModels
+  fake_google_genai.models = fake_google_genai_models
+  FakeGeminiModel.genai_models_mod = fake_google_genai_models
 
   class FakeCreds:
 
@@ -245,6 +299,7 @@ def _load_udf_module(
 
   fake_google_auth.default = lambda: (FakeCreds(sa_email), default_project)
   fake_google.auth = fake_google_auth
+  fake_google.genai = fake_google_genai
 
   patched_deepeval_modules = {
       'deepeval': fake_deepeval,
@@ -256,6 +311,8 @@ def _load_udf_module(
       **patched_deepeval_modules,
       'google': fake_google,
       'google.auth': fake_google_auth,
+      'google.genai': fake_google_genai,
+      'google.genai.models': fake_google_genai_models,
   }
 
   namespace: dict[str, Any] = {'__name__': 'deepeval_udf_module'}
@@ -1359,6 +1416,131 @@ class AgentEvaluationDeepevalTest(unittest.TestCase):
     parsed_ad_no_tools = json.loads(parse_trace(json.dumps(ad_no_tools)))
     self.assertEqual(
         parsed_ad_no_tools['context'], ['Strict AgentData Instruction']
+    )
+
+  def test_customer_feedback_enhancements_and_token_usage(self):
+    ns = _load_udf_module()
+    evaluate_test_case = ns['evaluate_test_case']
+
+    # 1. Token usage fields (judge_input_tokens, judge_output_tokens) on LLM and
+    #    skipped metrics (exercised end-to-end through google.genai.models.Models).
+    tok_tc = json.dumps({
+        'input': 'Order status?',
+        'actual_output': 'Shipped via UPS.',
+        'expected_output': 'Shipped via UPS.',
+    })
+    tok_res = evaluate_test_case(
+        tok_tc,
+        ['answer_relevancy', 'faithfulness', 'unknown_metric'],
+    )
+    self.assertEqual(len(tok_res), 3)
+    # LLM metric records FakeGenaiModels.generate_content (50 in, 20 out)
+    self.assertEqual(tok_res[0]['judge_input_tokens'], 50)
+    self.assertEqual(tok_res[0]['judge_output_tokens'], 20)
+    # Skipped metric (faithfulness without retrieval_context) -> None tokens
+    self.assertIsNone(tok_res[1]['judge_input_tokens'])
+    self.assertIsNone(tok_res[1]['judge_output_tokens'])
+    # Unsupported metric -> None tokens
+    self.assertIsNone(tok_res[2]['judge_input_tokens'])
+    self.assertIsNone(tok_res[2]['judge_output_tokens'])
+
+    # Verify AsyncModels.generate_content via SafeGeminiModel.a_generate
+    judge = ns['_get_judge_model']('gemini-3.8-flash')
+    ns['_TOKEN_USAGE'][:] = [0, 0]
+    asyncio.run(judge.a_generate('async prompt'))
+    self.assertEqual(ns['_TOKEN_USAGE'], [60, 20])
+
+    # 2. GEval deduplication when retrieval_context consists solely of
+    #    "Tool <name> returned: ..." and tools_called has output, plus
+    #    single-pass evaluation_steps ("steps:...") support.
+    FakeBaseMetric.last_instances.clear()
+    dedup_tc = json.dumps({
+        'input': 'Lookup table schema',
+        'actual_output': 'Table sales has column id.',
+        'retrieval_context': ['Tool get_schema returned: {"columns": ["id"]}'],
+        'tools_called': [{'name': 'get_schema', 'output': {'columns': ['id']}}],
+    })
+    dedup_res = evaluate_test_case(
+        dedup_tc,
+        ['geval:Grounding:steps:Check column names;Verify no hallucinations'],
+    )
+    self.assertTrue(dedup_res[0]['passed'])
+    geval_dedup_inst = FakeBaseMetric.last_instances[-1]
+    self.assertEqual(
+        geval_dedup_inst.kwargs['evaluation_steps'],
+        ['Check column names', 'Verify no hallucinations'],
+    )
+    self.assertNotIn('criteria', geval_dedup_inst.kwargs)
+    self.assertIn(
+        FakeLLMTestCaseParams.TOOLS_CALLED,
+        geval_dedup_inst.kwargs['evaluation_params'],
+    )
+    self.assertNotIn(
+        FakeLLMTestCaseParams.RETRIEVAL_CONTEXT,
+        geval_dedup_inst.kwargs['evaluation_params'],
+    )
+    self.assertNotIn(
+        FakeLLMTestCaseParams.CONTEXT,
+        geval_dedup_inst.kwargs['evaluation_params'],
+    )
+
+    # 3. Preserve RETRIEVAL_CONTEXT when tools_called lacks output, and preserve
+    #    CONTEXT when context differs from retrieval_context; also test
+    #    tc_data["evaluation_steps"] and empty "steps:" fallback.
+    FakeBaseMetric.last_instances.clear()
+    no_out_tc = json.dumps({
+        'input': 'Lookup table schema',
+        'actual_output': 'Table sales has column id.',
+        'retrieval_context': ['Tool get_schema returned: {"columns": ["id"]}'],
+        'context': ['Static schema policy'],
+        'tools_called': ['get_schema'],
+        'evaluation_steps': 'Step 1;Step 2',
+    })
+    evaluate_test_case(no_out_tc, ['geval:Grounding:steps:'])
+    geval_no_out = FakeBaseMetric.last_instances[-1]
+    self.assertEqual(
+        geval_no_out.kwargs['evaluation_steps'], ['Step 1', 'Step 2']
+    )
+    self.assertIn(
+        FakeLLMTestCaseParams.RETRIEVAL_CONTEXT,
+        geval_no_out.kwargs['evaluation_params'],
+    )
+    self.assertIn(
+        FakeLLMTestCaseParams.CONTEXT,
+        geval_no_out.kwargs['evaluation_params'],
+    )
+
+    # 4. ConversationalGEval with inline steps: and turn-level RETRIEVAL_CONTEXT
+    #    deduplication when turn tools_called has output.
+    FakeBaseMetric.last_instances.clear()
+    convo_dedup_tc = json.dumps({
+        'turns': [
+            {'role': 'user', 'content': 'Find order'},
+            {
+                'role': 'assistant',
+                'content': 'Order 123 shipped.',
+                'retrieval_context': ['Tool OrderTool returned: {"id": 123}'],
+                'tools_called': [{'name': 'OrderTool', 'output': {'id': 123}}],
+            },
+        ]
+    })
+    evaluate_test_case(
+        convo_dedup_tc,
+        [
+            'conversational_geval:Flow:steps:Verify turn flow;Check tool'
+            ' grounding'
+        ],
+    )
+    c_inst = FakeBaseMetric.last_instances[-1]
+    self.assertEqual(
+        c_inst.kwargs['evaluation_steps'],
+        ['Verify turn flow', 'Check tool grounding'],
+    )
+    self.assertIn(
+        FakeTurnParams.TOOLS_CALLED, c_inst.kwargs['evaluation_params']
+    )
+    self.assertNotIn(
+        FakeTurnParams.RETRIEVAL_CONTEXT, c_inst.kwargs['evaluation_params']
     )
 
   def test_install_sh_help_and_end_to_end_with_fake_clis(self):
