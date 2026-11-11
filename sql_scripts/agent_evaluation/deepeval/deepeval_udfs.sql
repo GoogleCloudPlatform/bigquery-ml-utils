@@ -184,6 +184,17 @@ def _extract_bqaa_response_text(
     return "" if stripped.startswith(("Tool Name:", "Model:")) else stripped
 
 
+def _collect_turn_rc(normalized_turns: list[dict]) -> tuple[list[str], list[str]]:
+    """Returns (tool_rc, all_rc) with prior-turn dialogue appended after tool outputs."""
+    tool_rc = [c for turn in normalized_turns for c in turn["retrieval_context"]]
+    prior_rc = [
+        f"Prior turn {i + 1}: User: {turn['input']} | Assistant: {turn['actual_output']}"
+        for i, turn in enumerate(normalized_turns[:-1])
+        if turn.get("input") or turn.get("actual_output")
+    ]
+    return tool_rc, tool_rc + prior_rc
+
+
 def _parse_bqaa_events(ev_list: list, wrapper: dict) -> dict:
     """Converts BQAA event rows into normalized DeepEval test_case fields."""
     if not isinstance(ev_list, list) or not ev_list:
@@ -504,7 +515,7 @@ def _parse_bqaa_events(ev_list: list, wrapper: dict) -> dict:
         or "Helpful AI Assistant"
     )
     last_turn = normalized_turns[-1]
-    all_rc = [c for turn in normalized_turns for c in turn["retrieval_context"]]
+    tool_rc, all_rc = _collect_turn_rc(normalized_turns)
     result = dict(wrapper)
     result.setdefault("agent_id", primary_agent_id or "root_agent")
     result.setdefault("chatbot_role", primary_instr)
@@ -515,7 +526,7 @@ def _parse_bqaa_events(ev_list: list, wrapper: dict) -> dict:
         [t for turn in normalized_turns for t in turn["tools_called"]],
     )
     result.setdefault("retrieval_context", all_rc)
-    if not all_rc and not wrapper.get("retrieval_context") and extracted_instruction:
+    if not tool_rc and not wrapper.get("retrieval_context") and extracted_instruction:
         result.setdefault("context", [extracted_instruction])
     result["turns"] = normalized_turns
     return result
@@ -583,7 +594,7 @@ def _parse_agent_data_dict(raw_dict: dict) -> dict:
     if not normalized_turns:
         raise ValueError("AgentData turns list cannot be empty")
     last_turn = normalized_turns[-1]
-    all_rc = [c for turn in normalized_turns for c in turn["retrieval_context"]]
+    tool_rc, all_rc = _collect_turn_rc(normalized_turns)
     result = dict(raw_dict)
     result.setdefault("agent_id", primary_agent_id)
     result.setdefault("chatbot_role", primary_instr)
@@ -591,7 +602,7 @@ def _parse_agent_data_dict(raw_dict: dict) -> dict:
     result.setdefault("actual_output", last_turn["actual_output"])
     result.setdefault("tools_called", [t for turn in normalized_turns for t in turn["tools_called"]])
     result.setdefault("retrieval_context", all_rc)
-    if not all_rc and not raw_dict.get("retrieval_context") and primary_instr:
+    if not tool_rc and not raw_dict.get("retrieval_context") and primary_instr:
         result.setdefault("context", [primary_instr])
     result["turns"] = normalized_turns
     return result
@@ -989,6 +1000,7 @@ CONVERSATIONAL_METRICS = {
     "turn_relevancy", "knowledge_retention", "conversation_completeness", "role_adherence",
 }
 _TOOL_RC_RE = re.compile(r"^Tool\s+\S+\s+returned:\s")
+_PRIOR_TURN_RC_RE = re.compile(r"^Prior turn \d+:\s")
 
 
 @dataclass(frozen=True)
@@ -1019,8 +1031,13 @@ def _build_metric(m_name: str, judge_model, parsed: _ParsedTestCase):
         if m_lower in CONVERSATIONAL_METRICS and not is_conversational:
             return m_lower, "MISSING_TURNS"
         cls_name, threshold, req_fields = METRIC_REGISTRY[m_lower]
+        eff_rc = (
+            [c for c in retrieval_context if not _PRIOR_TURN_RC_RE.match(str(c))]
+            if m_lower.startswith("contextual_")
+            else retrieval_context
+        )
         available = {
-            "retrieval_context": bool(retrieval_context),
+            "retrieval_context": bool(eff_rc),
             "context": bool(context),
             "expected_output": bool(expected_output),
             "expected_tools": bool(expected_tools),
@@ -1153,7 +1170,16 @@ def evaluate_test_case(test_case_json: str, metrics: list[str]) -> list[dict]:
                     retrieval_context.extend(t.retrieval_context)
                 if not has_top_tools and getattr(t, "tools_called", None):
                     tools_called.extend(t.tools_called)
-        context = _parse_str_list(tc_data.get("context")) or retrieval_context
+        default_context = [
+            c for c in retrieval_context if not _PRIOR_TURN_RC_RE.match(str(c))
+        ]
+        context = _parse_str_list(tc_data.get("context")) or default_context
+        all_tools_have_out = bool(tools_called) and all(
+            getattr(tc, "output", None) is not None for tc in tools_called
+        )
+        non_tool_rc = [
+            c for c in retrieval_context if not _TOOL_RC_RE.match(str(c))
+        ]
         expected_tools = _parse_tools(tc_data.get("expected_tools"))
         parsed_tc = _ParsedTestCase(
             tc_data=tc_data,
@@ -1225,6 +1251,13 @@ def evaluate_test_case(test_case_json: str, metrics: list[str]) -> list[dict]:
             continue
 
         use_convo_case = label in CONVERSATIONAL_METRICS or label.startswith("conversational_geval:")
+        if not use_convo_case:
+            if label.startswith("geval:") and all_tools_have_out:
+                llm_test_case.retrieval_context = non_tool_rc or None
+            elif label.startswith("contextual_"):
+                llm_test_case.retrieval_context = default_context or None
+            else:
+                llm_test_case.retrieval_context = retrieval_context or None
         target_case = convo_test_case if use_convo_case else llm_test_case
 
         # Retry up to 3 attempts; fall back to fallback_model_id on the final attempt

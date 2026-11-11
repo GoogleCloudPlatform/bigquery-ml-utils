@@ -188,6 +188,7 @@ class FakeBaseMetric:
     self.score: float | None = None
     self.reason: str | None = None
     self.measured_test_case: Any = None
+    self.measured_retrieval_context: list[str] = []
     FakeBaseMetric.last_instances.append(self)
 
   def measure(self, test_case: Any) -> float:
@@ -198,6 +199,9 @@ class FakeBaseMetric:
     if self.model is not None:
       self.model.generate('eval_prompt')
     self.measured_test_case = test_case
+    self.measured_retrieval_context = list(
+        getattr(test_case, 'retrieval_context', None) or []
+    )
     self.score = self.score_override
     model_name = getattr(self.model, 'model', 'unknown')
     self.reason = f'Passed via {self.__class__.__name__} on {model_name}'
@@ -1085,14 +1089,14 @@ class AgentEvaluationDeepevalTest(unittest.TestCase):
     for r in res_ad:
       self.assertTrue(r['passed'])
 
-    # 4. Verify agent_events_v2_eval_queries.sql uses deepeval_parse_trace +
-    #    deepeval_evaluate
+    # 4. Verify agent_events_v2_eval_queries.sql uses CTE-first grouping +
+    #    deepeval_parse_trace + deepeval_evaluate
     queries_sql = (
         self.script_dir / 'agent_events_v2_eval_queries.sql'
     ).read_text(encoding='utf-8')
-    self.assertIn(
-        'TO_JSON_STRING(ARRAY_AGG(t ORDER BY t.timestamp))', queries_sql
-    )
+    self.assertIn('WITH grouped_invocations AS', queries_sql)
+    self.assertIn('WITH grouped_sessions AS', queries_sql)
+    self.assertIn('TO_JSON_STRING(events)', queries_sql)
     self.assertIn('deepeval_parse_trace', queries_sql)
     self.assertIn('deepeval_evaluate', queries_sql)
 
@@ -1542,6 +1546,353 @@ class AgentEvaluationDeepevalTest(unittest.TestCase):
     self.assertNotIn(
         FakeTurnParams.RETRIEVAL_CONTEXT, c_inst.kwargs['evaluation_params']
     )
+
+  def test_prior_turn_dialogue_carryover_in_retrieval_context(self):
+    ns = _load_udf_module()
+    parse_trace = ns['parse_trace']
+    evaluate_test_case = ns['evaluate_test_case']
+    # 1. 2-turn tool-less BQAA trace with AGENT_STARTING instruction:
+    #    - retrieval_context has Prior turn 1
+    #    - context falls back to [extracted_instruction] (not polluted by Prior turn 1)
+    #    - per-turn turns[i]['retrieval_context'] stays empty (no duplication across turns)
+    multi_turn_events = [
+        {
+            'timestamp': '2026-02-01T10:00:00Z',
+            'event_type': 'AGENT_STARTING',
+            'agent': 'space_agent',
+            'invocation_id': 'inv-1',
+            'content': {'text_summary': 'You are SpaceAgent.'},
+        },
+        {
+            'timestamp': '2026-02-01T10:00:01Z',
+            'event_type': 'USER_MESSAGE_RECEIVED',
+            'agent': 'space_agent',
+            'invocation_id': 'inv-1',
+            'content': {'text_summary': 'Who owns the sales domain?'},
+        },
+        {
+            'timestamp': '2026-02-01T10:00:03Z',
+            'event_type': 'AGENT_RESPONSE',
+            'agent': 'space_agent',
+            'invocation_id': 'inv-1',
+            'content': {'text_summary': 'Sales PO is Alice.'},
+        },
+        {
+            'timestamp': '2026-02-01T10:01:00Z',
+            'event_type': 'USER_MESSAGE_RECEIVED',
+            'agent': 'space_agent',
+            'invocation_id': 'inv-2',
+            'content': {'text_summary': 'And what table should I query?'},
+        },
+        {
+            'timestamp': '2026-02-01T10:01:02Z',
+            'event_type': 'AGENT_RESPONSE',
+            'agent': 'space_agent',
+            'invocation_id': 'inv-2',
+            'content': {'text_summary': 'Query proj.sales.orders (PO: Alice).'},
+        },
+    ]
+    parsed_mt = json.loads(parse_trace(json.dumps(multi_turn_events)))
+    self.assertEqual(
+        parsed_mt['retrieval_context'],
+        [
+            'Prior turn 1: User: Who owns the sales domain? | Assistant: Sales'
+            ' PO is Alice.'
+        ],
+    )
+    self.assertEqual(parsed_mt['context'], ['You are SpaceAgent.'])
+    self.assertEqual(parsed_mt['turns'][0]['retrieval_context'], [])
+    self.assertEqual(parsed_mt['turns'][1]['retrieval_context'], [])
+
+    # Verify evaluate_test_case on 2-turn tool-less trace:
+    # hallucination uses context=['You are SpaceAgent.'], single-turn geval
+    # includes both CONTEXT and RETRIEVAL_CONTEXT, and contextual_relevancy
+    # returns N/A because only Prior turn 1 dialogue is in retrieval_context.
+    FakeBaseMetric.last_instances.clear()
+    res_toolless = evaluate_test_case(
+        json.dumps(parsed_mt),
+        [
+            'hallucination',
+            'geval:Grounded:Check accuracy',
+            'contextual_relevancy',
+        ],
+    )
+    self.assertEqual(len(res_toolless), 3)
+    self.assertIsNone(res_toolless[2]['score'])
+    self.assertIn('N/A', res_toolless[2]['reason'])
+    hall_inst, geval_toolless_inst = FakeBaseMetric.last_instances[-2:]
+    self.assertEqual(
+        hall_inst.measured_test_case.context, ['You are SpaceAgent.']
+    )
+    self.assertIn(
+        FakeLLMTestCaseParams.CONTEXT,
+        geval_toolless_inst.kwargs['evaluation_params'],
+    )
+    self.assertIn(
+        FakeLLMTestCaseParams.RETRIEVAL_CONTEXT,
+        geval_toolless_inst.kwargs['evaluation_params'],
+    )
+
+    # 2. 2-turn tool-using BQAA trace:
+    #    - tool_rc precedes prior_rc in top-level retrieval_context
+    #    - evaluate_test_case default context excludes 'Prior turn 1: ...'
+    #    - single-turn geval strips 'Tool ... returned:' from retrieval_context
+    #      when tools_called has outputs, leaving only 'Prior turn 1: ...'
+    tool_mt_events = [
+        {
+            'timestamp': '2026-02-01T10:00:01Z',
+            'event_type': 'USER_MESSAGE_RECEIVED',
+            'agent': 'space_agent',
+            'invocation_id': 'inv-1',
+            'content': {'text_summary': 'Who owns the sales domain?'},
+        },
+        {
+            'timestamp': '2026-02-01T10:00:02Z',
+            'event_type': 'TOOL_COMPLETED',
+            'agent': 'space_agent',
+            'invocation_id': 'inv-1',
+            'content': {
+                'tool': 'lookup_owner',
+                'result': {'owner': 'Alice'},
+            },
+        },
+        {
+            'timestamp': '2026-02-01T10:00:03Z',
+            'event_type': 'AGENT_RESPONSE',
+            'agent': 'space_agent',
+            'invocation_id': 'inv-1',
+            'content': {'text_summary': 'Sales PO is Alice.'},
+        },
+        {
+            'timestamp': '2026-02-01T10:01:00Z',
+            'event_type': 'USER_MESSAGE_RECEIVED',
+            'agent': 'space_agent',
+            'invocation_id': 'inv-2',
+            'content': {'text_summary': 'And what table should I query?'},
+        },
+        {
+            'timestamp': '2026-02-01T10:01:01Z',
+            'event_type': 'TOOL_COMPLETED',
+            'agent': 'space_agent',
+            'invocation_id': 'inv-2',
+            'content': {
+                'tool': 'lookup_table',
+                'result': {'table': 'proj.sales.orders'},
+            },
+        },
+        {
+            'timestamp': '2026-02-01T10:01:02Z',
+            'event_type': 'AGENT_RESPONSE',
+            'agent': 'space_agent',
+            'invocation_id': 'inv-2',
+            'content': {'text_summary': 'Query proj.sales.orders (PO: Alice).'},
+        },
+    ]
+    parsed_tool_mt = json.loads(parse_trace(json.dumps(tool_mt_events)))
+    self.assertEqual(
+        parsed_tool_mt['retrieval_context'],
+        [
+            'Tool lookup_owner returned: {"owner": "Alice"}',
+            'Tool lookup_table returned: {"table": "proj.sales.orders"}',
+            (
+                'Prior turn 1: User: Who owns the sales domain? | Assistant:'
+                ' Sales PO is Alice.'
+            ),
+        ],
+    )
+    self.assertNotIn('context', parsed_tool_mt)
+
+    FakeBaseMetric.last_instances.clear()
+    evaluate_test_case(
+        json.dumps(parsed_tool_mt),
+        [
+            'hallucination',
+            'geval:DedupCheck:Check grounding',
+            'contextual_relevancy',
+            'faithfulness',
+        ],
+    )
+
+    hall_tool_inst, geval_tool_inst, ctx_rel_inst, faith_tool_inst = (
+        FakeBaseMetric.last_instances[-4:]
+    )
+    # Default context excludes 'Prior turn 1: ...'
+    self.assertEqual(
+        hall_tool_inst.measured_test_case.context,
+        [
+            'Tool lookup_owner returned: {"owner": "Alice"}',
+            'Tool lookup_table returned: {"table": "proj.sales.orders"}',
+        ],
+    )
+    # Single-turn geval keeps TOOLS_CALLED + RETRIEVAL_CONTEXT, but strips
+    # duplicate 'Tool ... returned:' strings from retrieval_context during geval
+    self.assertIn(
+        FakeLLMTestCaseParams.TOOLS_CALLED,
+        geval_tool_inst.kwargs['evaluation_params'],
+    )
+    self.assertIn(
+        FakeLLMTestCaseParams.RETRIEVAL_CONTEXT,
+        geval_tool_inst.kwargs['evaluation_params'],
+    )
+    self.assertEqual(
+        geval_tool_inst.measured_retrieval_context,
+        [
+            'Prior turn 1: User: Who owns the sales domain? | Assistant: Sales'
+            ' PO is Alice.'
+        ],
+    )
+    # contextual_* filters out 'Prior turn 1: ...' from retrieval_context
+    self.assertEqual(
+        ctx_rel_inst.measured_retrieval_context,
+        [
+            'Tool lookup_owner returned: {"owner": "Alice"}',
+            'Tool lookup_table returned: {"table": "proj.sales.orders"}',
+        ],
+    )
+    # Subsequent faithfulness metric still sees full retrieval_context
+    self.assertEqual(
+        faith_tool_inst.measured_retrieval_context,
+        parsed_tool_mt['retrieval_context'],
+    )
+
+    # 3. Multi-turn AgentData case (with tools and tool-less):
+    agent_data_mt = {
+        'agents': {'root_agent': {'instruction': 'You are RootAgent.'}},
+        'turns': [
+            {
+                'turn_index': 0,
+                'events': [
+                    {
+                        'author': 'user',
+                        'content': {
+                            'role': 'user',
+                            'parts': [{'text': 'Find order 42.'}],
+                        },
+                    },
+                    {
+                        'author': 'root_agent',
+                        'content': {
+                            'role': 'model',
+                            'parts': [{
+                                'function_call': {
+                                    'name': 'get_order',
+                                    'args': {'id': 42},
+                                }
+                            }],
+                        },
+                    },
+                    {
+                        'author': 'root_agent',
+                        'content': {
+                            'role': 'user',
+                            'parts': [{
+                                'function_response': {
+                                    'name': 'get_order',
+                                    'response': {'status': 'shipped'},
+                                }
+                            }],
+                        },
+                    },
+                    {
+                        'author': 'root_agent',
+                        'content': {
+                            'role': 'model',
+                            'parts': [{'text': 'Order 42 is shipped.'}],
+                        },
+                    },
+                ],
+            },
+            {
+                'turn_index': 1,
+                'events': [
+                    {
+                        'author': 'user',
+                        'content': {
+                            'role': 'user',
+                            'parts': [{'text': 'Summarize its status.'}],
+                        },
+                    },
+                    {
+                        'author': 'root_agent',
+                        'content': {
+                            'role': 'model',
+                            'parts': [{'text': 'Order 42 has shipped.'}],
+                        },
+                    },
+                ],
+            },
+        ],
+    }
+    parsed_ad = json.loads(parse_trace(json.dumps(agent_data_mt)))
+    self.assertEqual(
+        parsed_ad['retrieval_context'],
+        [
+            'Tool get_order returned: {"status": "shipped"}',
+            (
+                'Prior turn 1: User: Find order 42. | Assistant: Order 42 is'
+                ' shipped.'
+            ),
+        ],
+    )
+    self.assertEqual(
+        parsed_ad['turns'][0]['retrieval_context'],
+        ['Tool get_order returned: {"status": "shipped"}'],
+    )
+    self.assertEqual(parsed_ad['turns'][1]['retrieval_context'], [])
+
+    # Tool-less 2-turn AgentData preserves context=[primary_instr]
+    agent_data_toolless = {
+        'agents': {'root_agent': {'instruction': 'You are RootAgent.'}},
+        'turns': [
+            {
+                'turn_index': 0,
+                'events': [
+                    {
+                        'author': 'user',
+                        'content': {'role': 'user', 'parts': [{'text': 'Hi'}]},
+                    },
+                    {
+                        'author': 'root_agent',
+                        'content': {
+                            'role': 'model',
+                            'parts': [{'text': 'Hello!'}],
+                        },
+                    },
+                ],
+            },
+            {
+                'turn_index': 1,
+                'events': [
+                    {
+                        'author': 'user',
+                        'content': {
+                            'role': 'user',
+                            'parts': [{'text': 'Who are you?'}],
+                        },
+                    },
+                    {
+                        'author': 'root_agent',
+                        'content': {
+                            'role': 'model',
+                            'parts': [{'text': 'I am RootAgent.'}],
+                        },
+                    },
+                ],
+            },
+        ],
+    }
+    parsed_ad_tl = json.loads(parse_trace(json.dumps(agent_data_toolless)))
+    self.assertEqual(parsed_ad_tl['context'], ['You are RootAgent.'])
+    self.assertEqual(
+        parsed_ad_tl['retrieval_context'],
+        ['Prior turn 1: User: Hi | Assistant: Hello!'],
+    )
+
+    # 4. Single-turn no-op check: 1-turn trace has no 'Prior turn' entries
+    single_turn_events = multi_turn_events[:3]
+    parsed_st = json.loads(parse_trace(json.dumps(single_turn_events)))
+    self.assertEqual(parsed_st['retrieval_context'], [])
+    self.assertEqual(parsed_st['context'], ['You are SpaceAgent.'])
 
   def test_install_sh_help_and_end_to_end_with_fake_clis(self):
     install_sh = self.script_dir / 'install.sh'

@@ -31,17 +31,46 @@
 -- you inspect the parsed traces before spending Gemini quota. (Use
 -- `CREATE OR REPLACE VIEW` instead if you prefer a zero-storage virtual view
 -- over a live streaming `agent_events` table.)
+--
+-- Performance Tip: Grouping in a CTE and projecting only the 9 BQAA columns
+-- read by the parser (rather than `ARRAY_AGG(t ORDER BY t.timestamp)`)
+-- substantially reduces serialized JSON payload size and slot consumption; for
+-- sampled queries (such as Section 3's `grouped_sessions`), applying
+-- `ORDER BY ... LIMIT` inside the grouping CTE also ensures BigQuery applies
+-- `LIMIT` before executing `deepeval_parse_trace`.
 CREATE OR REPLACE TABLE `YOUR_PROJECT_ID.YOUR_DATASET_ID.parsed_invocation_traces` AS
+WITH grouped_invocations AS (
+  SELECT
+    ARRAY_FIRST(ARRAY_AGG(t.agent IGNORE NULLS ORDER BY t.timestamp)) AS agent,
+    t.session_id,
+    t.invocation_id,
+    MIN(t.timestamp) AS started_at,
+    ARRAY_AGG(
+      STRUCT(
+        t.timestamp,
+        t.event_type,
+        t.invocation_id,
+        t.agent,
+        t.span_id,
+        t.error_message,
+        t.attributes,
+        t.content,
+        t.content_parts
+      )
+      ORDER BY t.timestamp
+    ) AS events
+  FROM `bigquery-public-data.agent_analytic_sample_dataset.agent_events_v2` AS t
+  GROUP BY t.session_id, t.invocation_id
+)
 SELECT
-  ARRAY_FIRST(ARRAY_AGG(t.agent IGNORE NULLS ORDER BY t.timestamp)) AS agent,
-  t.session_id,
-  t.invocation_id,
-  MIN(t.timestamp) AS started_at,
+  agent,
+  session_id,
+  invocation_id,
+  started_at,
   `YOUR_PROJECT_ID.YOUR_DATASET_ID.deepeval_parse_trace`(
-    TO_JSON_STRING(ARRAY_AGG(t ORDER BY t.timestamp))
+    TO_JSON_STRING(events)
   ) AS parsed_trace
-FROM `bigquery-public-data.agent_analytic_sample_dataset.agent_events_v2` AS t
-GROUP BY t.session_id, t.invocation_id;
+FROM grouped_invocations;
 
 -- Inspect the parsed traces without spending Gemini quota:
 SELECT
@@ -86,27 +115,48 @@ LIMIT 10;
 -- -----------------------------------------------------------------------------
 -- 3. Multi-Turn Session Evaluation (`deepeval_parse_trace` + `deepeval_evaluate`)
 -- -----------------------------------------------------------------------------
--- Groups raw BQAA event rows by `session_id` across multiple turns, parses the
--- multi-turn session trace with `deepeval_parse_trace`, and evaluates with
--- `deepeval_evaluate`:
+-- Groups raw BQAA event rows by `session_id` across multiple turns and applies
+-- `ORDER BY ... LIMIT` in `grouped_sessions` BEFORE invoking `deepeval_parse_trace`,
+-- then evaluates with `deepeval_evaluate`:
 --   - turn_relevancy
 --   - knowledge_retention
 --   - conversation_completeness
 --   - role_adherence
 --   - conversational_geval:<Name>:<Criteria>
-WITH parsed_session_traces AS (
+WITH grouped_sessions AS (
   SELECT
     ARRAY_FIRST(ARRAY_AGG(t.agent IGNORE NULLS ORDER BY t.timestamp)) AS agent,
     t.session_id,
     COUNT(DISTINCT t.invocation_id) AS num_invocations,
-    `YOUR_PROJECT_ID.YOUR_DATASET_ID.deepeval_parse_trace`(
-      TO_JSON_STRING(ARRAY_AGG(t ORDER BY t.timestamp))
-    ) AS parsed_trace
+    ARRAY_AGG(
+      STRUCT(
+        t.timestamp,
+        t.event_type,
+        t.invocation_id,
+        t.agent,
+        t.span_id,
+        t.error_message,
+        t.attributes,
+        t.content,
+        t.content_parts
+      )
+      ORDER BY t.timestamp
+    ) AS events
   FROM `bigquery-public-data.agent_analytic_sample_dataset.agent_events_v2` AS t
   GROUP BY t.session_id
   HAVING COUNT(DISTINCT t.invocation_id) > 1
   ORDER BY t.session_id
   LIMIT 10
+),
+parsed_session_traces AS (
+  SELECT
+    agent,
+    session_id,
+    num_invocations,
+    `YOUR_PROJECT_ID.YOUR_DATASET_ID.deepeval_parse_trace`(
+      TO_JSON_STRING(events)
+    ) AS parsed_trace
+  FROM grouped_sessions
 )
 SELECT
   agent,

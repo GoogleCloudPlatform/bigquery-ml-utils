@@ -22,10 +22,10 @@ Secret Manager secrets are required**.
 ## UDF Signatures, BQAA Input Format & Output Schema
 
 `deepeval_parse_trace` normalizes **BigQuery Agent Analytics (BQAA)** event
-rows (`BigQueryAgentAnalyticsPlugin`) via
-`TO_JSON_STRING(ARRAY_AGG(t ORDER BY t.timestamp))` (as well as canonical
-`AgentData` JSON) into a trace JSON string without spending Gemini quota, and
-`deepeval_evaluate` evaluates the parsed trace:
+rows (`BigQueryAgentAnalyticsPlugin`) via `TO_JSON_STRING(events)` (where
+`events` aggregates the 9 required BQAA columns ordered by `t.timestamp`, as
+well as canonical `AgentData` JSON) into a trace JSON string without spending
+Gemini quota, and `deepeval_evaluate` evaluates the parsed trace:
 
 ```sql
 -- 1. Offline Trace Parser
@@ -55,18 +55,35 @@ metric (not the tokens consumed by the agent trace being evaluated).
 
 ### Usage on a BQAA Table (`agent_events` / `agent_events_v2`)
 
+> **Performance Tip:** Group, order, and `LIMIT` in a CTE *before* invoking
+> `deepeval_parse_trace` (projecting the 9 required BQAA columns rather than
+> `ARRAY_AGG(t)`).
+
 - **Single-Turn Evaluation (`GROUP BY session_id, invocation_id`)**:
   ```sql
   -- Step 1: Materialize parsed invocation traces (runs offline without spending Gemini quota)
   CREATE OR REPLACE TABLE `<PROJECT_ID>.<DATASET_ID>.parsed_invocation_traces` AS
+  WITH grouped_invocations AS (
+    SELECT
+      t.session_id,
+      t.invocation_id,
+      ARRAY_AGG(
+        STRUCT(
+          t.timestamp, t.event_type, t.invocation_id, t.agent, t.span_id,
+          t.error_message, t.attributes, t.content, t.content_parts
+        )
+        ORDER BY t.timestamp
+      ) AS events
+    FROM `bigquery-public-data.agent_analytic_sample_dataset.agent_events_v2` AS t
+    GROUP BY t.session_id, t.invocation_id
+  )
   SELECT
-    t.session_id,
-    t.invocation_id,
+    session_id,
+    invocation_id,
     `<PROJECT_ID>.<DATASET_ID>.deepeval_parse_trace`(
-      TO_JSON_STRING(ARRAY_AGG(t ORDER BY t.timestamp))
+      TO_JSON_STRING(events)
     ) AS parsed_trace
-  FROM `bigquery-public-data.agent_analytic_sample_dataset.agent_events_v2` AS t
-  GROUP BY t.session_id, t.invocation_id;
+  FROM grouped_invocations;
 
   -- Step 2: Evaluate parsed invocation traces
   SELECT
@@ -81,17 +98,31 @@ metric (not the tokens consumed by the agent trace being evaluated).
   ```
 - **Multi-Turn Session Evaluation (`GROUP BY session_id`)**:
   ```sql
-  WITH parsed_session_traces AS (
+  WITH grouped_sessions AS (
     SELECT
       t.session_id,
       COUNT(DISTINCT t.invocation_id) AS num_invocations,
-      `<PROJECT_ID>.<DATASET_ID>.deepeval_parse_trace`(
-        TO_JSON_STRING(ARRAY_AGG(t ORDER BY t.timestamp))
-      ) AS parsed_trace
+      ARRAY_AGG(
+        STRUCT(
+          t.timestamp, t.event_type, t.invocation_id, t.agent, t.span_id,
+          t.error_message, t.attributes, t.content, t.content_parts
+        )
+        ORDER BY t.timestamp
+      ) AS events
     FROM `bigquery-public-data.agent_analytic_sample_dataset.agent_events_v2` AS t
     GROUP BY t.session_id
     HAVING COUNT(DISTINCT t.invocation_id) > 1
+    ORDER BY t.session_id
     LIMIT 10
+  ),
+  parsed_session_traces AS (
+    SELECT
+      session_id,
+      num_invocations,
+      `<PROJECT_ID>.<DATASET_ID>.deepeval_parse_trace`(
+        TO_JSON_STRING(events)
+      ) AS parsed_trace
+    FROM grouped_sessions
   )
   SELECT
     session_id,

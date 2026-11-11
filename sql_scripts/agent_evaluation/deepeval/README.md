@@ -181,20 +181,33 @@ normalized `test_case_json` object consumed by `deepeval_evaluate` (so you can
 materialize or inspect parsed traces in a table or view before spending Gemini
 quota):
 
-1. **BQAA Event Array (`deepeval_parse_trace(TO_JSON_STRING(ARRAY_AGG(t ORDER BY t.timestamp)))`)**:
+1. **BQAA Event Array (`deepeval_parse_trace(TO_JSON_STRING(events))`)**:
    - Parse rows from any BQAA table (`agent_events` / `agent_events_v2`):
      - **Single-Turn (`GROUP BY session_id, invocation_id`)**: Builds a
        single-turn trace (`LLMTestCase`).
      - **Multi-Turn (`GROUP BY session_id`)**: Automatically groups BQAA events
        by `invocation_id` in chronological order into a multi-turn trace
-       (`ConversationalTestCase`).
+       (`ConversationalTestCase`), while carrying over prior turns' dialogue and
+       tool outputs in top-level `retrieval_context` if evaluated with
+       single-turn metrics.
+   - **Performance Best Practice**:
+     - Apply `GROUP BY` (and `ORDER BY ... LIMIT` when sampling) in a CTE
+       **before** calling `deepeval_parse_trace`, and project only the 9 BQAA
+       columns read by the parser (`timestamp`, `event_type`, `invocation_id`,
+       `agent`, `span_id`, `error_message`, `attributes`, `content`,
+       `content_parts`) rather than `ARRAY_AGG(t)` in the same `SELECT` block as
+       `LIMIT` (in GoogleSQL, `SELECT` expressions run before
+       `ORDER BY ... LIMIT`). If your `BigQueryAgentAnalyticsPlugin` uses
+       `payload_column_denylist` to omit `content`, `content_parts`, or
+       `attributes` from the table schema, drop those denied columns from the
+       `STRUCT(...)` projection as well.
    - To supply optional reference fields (such as `expected_output`,
      `expected_tools`, or `judge_model`) alongside BQAA rows, wrap the event
      array in a `STRUCT` passed to `deepeval_parse_trace`:
      ```sql
      `${PROJECT_ID}.${DATASET_ID}.deepeval_parse_trace`(
        TO_JSON_STRING(STRUCT(
-         ARRAY_AGG(t ORDER BY t.timestamp) AS events,
+         events,  -- 9-column BQAA event array from grouped_invocations CTE
          'Expected response text' AS expected_output,
          [STRUCT('OrderTool' AS name, '{"order_id": "999"}' AS args)] AS expected_tools
        ))
@@ -215,11 +228,11 @@ or a single-turn `STRUCT`, `deepeval_evaluate` builds a DeepEval `LLMTestCase`.
 #### Optional / Ad-Hoc JSON Fields (`test_case_json`)
 | Field | Type | Required | Description |
 | :--- | :--- | :--- | :--- |
-| `events` | `ARRAY<STRUCT>` | Direct BQAA | Array of raw BQAA event rows (`ARRAY_AGG(t ORDER BY t.timestamp)`). You can also pass `TO_JSON_STRING(ARRAY_AGG(t ORDER BY t.timestamp))` directly as the top-level JSON array. |
+| `events` | `ARRAY<STRUCT>` | Direct BQAA | Array of the 9 required BQAA event columns (`ARRAY_AGG(STRUCT(t.timestamp, t.event_type, t.invocation_id, t.agent, t.span_id, t.error_message, t.attributes, t.content, t.content_parts) ORDER BY t.timestamp)`). You can also pass `TO_JSON_STRING(events)` directly as the top-level JSON array to `deepeval_parse_trace`. |
 | `input` (or `input_query`) | `STRING` | Automatic from BQAA | The user prompt or question sent to the agent (automatically extracted from `USER_MESSAGE_RECEIVED` / `LLM_REQUEST` when using BQAA input). |
 | `actual_output` | `STRING` | Automatic from BQAA | The agent's final response (automatically extracted from `AGENT_RESPONSE` / `LLM_RESPONSE` when using BQAA input). |
-| `retrieval_context` | `ARRAY<STRING>` | Automatic from BQAA | Grounding context or tool outputs retrieved by the agent (automatically extracted from `TOOL_COMPLETED` / `TOOL_ERROR` when using BQAA input; required for `faithfulness`, `contextual_relevancy`, `contextual_precision`, `contextual_recall`). |
-| `context` | `ARRAY<STRING>` | Conditional | Ground-truth context (defaults to `retrieval_context` if omitted; required for `hallucination`). |
+| `retrieval_context` | `ARRAY<STRING>` | Automatic from BQAA | Grounding context or tool outputs retrieved by the agent (automatically extracted from `TOOL_COMPLETED` / `TOOL_ERROR`—plus prior-turn user-assistant dialogue for multi-turn traces—when using `deepeval_parse_trace`; required for `faithfulness`, `contextual_relevancy`, `contextual_precision`, `contextual_recall`, with `Prior turn N:` entries filtered out for `contextual_*`). |
+| `context` | `ARRAY<STRING>` | Conditional | Ground-truth context (defaults to `retrieval_context` excluding `Prior turn N:` entries if omitted, or the extracted agent instruction when no tool outputs exist; required for `hallucination`). |
 | `expected_output` | `STRING` | Conditional | Reference/golden answer (required for `contextual_precision` and `contextual_recall`). |
 | `tools_called` | `ARRAY<STRUCT>` | Automatic from BQAA | Tools invoked by the agent (automatically extracted from `TOOL_STARTING` / `TOOL_COMPLETED` / `TOOL_ERROR` when using BQAA input; used by `task_completion` and `tool_correctness`). |
 | `expected_tools` | `ARRAY<STRUCT>` | Conditional | Expected tool calls (required for `tool_correctness`). |
@@ -258,10 +271,12 @@ or a single-turn `STRUCT`, `deepeval_evaluate` builds a DeepEval `LLMTestCase`.
   numbers from the tool output.'`). Prefixing `<Criteria>` with `steps:` (or
   supplying `evaluation_steps` in `test_case_json`) passes explicit
   `evaluation_steps` to `GEval`, skipping LLM step-generation and cutting
-  evaluation from 2 LLM passes to 1 pass. When `tools_called` is present and
-  `retrieval_context` consists solely of auto-extracted tool outputs, the UDF
-  automatically omits redundant `RETRIEVAL_CONTEXT` / `CONTEXT` parameters to
-  avoid sending duplicate tool payloads in the prompt.
+  evaluation from 2 LLM passes to 1 pass. When every entry in `tools_called` has
+  an output, the UDF automatically strips auto-extracted
+  `Tool <name> returned: ...` entries from `retrieval_context` (and omits
+  `RETRIEVAL_CONTEXT` altogether when no other retrieval context such as
+  prior-turn dialogue remains) to avoid sending duplicate tool payloads in the
+  prompt.
 
 ---
 
@@ -274,7 +289,7 @@ When `test_case_json` is a multi-turn trace produced by `deepeval_parse_trace`
 #### Supported JSON Fields
 | Field | Type | Required | Description |
 | :--- | :--- | :--- | :--- |
-| `events` (or top-level BQAA array in `deepeval_parse_trace`) | `ARRAY<STRUCT>` | BQAA Input | Raw BQAA event rows across a session (`ARRAY_AGG(t ORDER BY t.timestamp)`), automatically grouped by `deepeval_parse_trace` into ordered `turns` by `invocation_id`. |
+| `events` (or top-level BQAA array in `deepeval_parse_trace`) | `ARRAY<STRUCT>` | BQAA Input | Array of the 9 required BQAA event columns across a session (`ARRAY_AGG(STRUCT(t.timestamp, t.event_type, t.invocation_id, t.agent, t.span_id, t.error_message, t.attributes, t.content, t.content_parts) ORDER BY t.timestamp)`), automatically grouped by `deepeval_parse_trace` into ordered `turns` by `invocation_id`. |
 | `turns` | `ARRAY<STRUCT>` | Required in `test_case_json` | Ordered array of conversation turns (automatically populated by `deepeval_parse_trace`, or supplied as explicit `{role, content, tools_called, retrieval_context}` / `{input, actual_output, tools_called, retrieval_context}` structs). |
 | `chatbot_role` (or `instruction`) | `STRING` | Optional | Persona/system role description (automatically extracted from `AGENT_STARTING` / `LLM_REQUEST` by `deepeval_parse_trace`; required for `role_adherence`, defaults to `'Helpful AI Assistant'`). |
 | `scenario` | `STRING` | Optional | Scenario description for the conversation. |
@@ -310,11 +325,15 @@ Agent Analytics (BQAA) logs from the public BigQuery dataset
 **`bigquery-public-data.agent_analytic_sample_dataset.agent_events_v2`** using
 `deepeval_parse_trace` and `deepeval_evaluate`.
 
-> **Note on Cost & Quota:** `deepeval_parse_trace` runs offline in Python with
-> zero Gemini quota cost, allowing you to materialize and inspect parsed traces
-> in a table before invoking `deepeval_evaluate`. Each row evaluated by
-> `deepeval_evaluate` invokes the LLM judge once per requested metric
-> (`LIMIT 10` is included below to bound LLM calls).
+> **Note on Cost & Slot Optimization:**
+> - `deepeval_parse_trace` runs offline in Python with zero Gemini quota cost,
+>   allowing you to materialize and inspect parsed traces in a table before
+>   invoking `deepeval_evaluate`.
+> - Grouping, ordering, and applying `LIMIT` in a CTE **before** calling
+>   `deepeval_parse_trace` (and projecting only the 9 required BQAA columns
+>   rather than `ARRAY_AGG(t)`) prevents BigQuery from running the Python UDF on
+>   all partitions prior to `LIMIT` and substantially reduces serialized JSON
+>   payload size and slot consumption.
 
 You can run the full workflow in
 [`agent_events_v2_eval_queries.sql`](agent_events_v2_eval_queries.sql) at once
@@ -330,24 +349,46 @@ sed \
 
 ### 1. Parse Raw BQAA Events (`deepeval_parse_trace`) & Run Single-Turn Evaluation (`deepeval_evaluate`)
 
-Group the BQAA table by `(session_id, invocation_id)`, parse the event array
-into a trace table (or CTE) with `deepeval_parse_trace`, and evaluate with
+Group the BQAA table by `(session_id, invocation_id)` in a CTE, parse the event
+array into a trace table with `deepeval_parse_trace`, and evaluate with
 `deepeval_evaluate`:
 
 ```bash
 bq query --project_id="${PROJECT_ID}" --location="${LOCATION}" --use_legacy_sql=false <<EOF
 -- Materialize parsed invocation traces (runs offline without spending Gemini quota)
 CREATE OR REPLACE TABLE \`${PROJECT_ID}.${DATASET_ID}.parsed_invocation_traces\` AS
+WITH grouped_invocations AS (
+  SELECT
+    ARRAY_FIRST(ARRAY_AGG(t.agent IGNORE NULLS ORDER BY t.timestamp)) AS agent,
+    t.session_id,
+    t.invocation_id,
+    MIN(t.timestamp) AS started_at,
+    ARRAY_AGG(
+      STRUCT(
+        t.timestamp,
+        t.event_type,
+        t.invocation_id,
+        t.agent,
+        t.span_id,
+        t.error_message,
+        t.attributes,
+        t.content,
+        t.content_parts
+      )
+      ORDER BY t.timestamp
+    ) AS events
+  FROM \`bigquery-public-data.agent_analytic_sample_dataset.agent_events_v2\` AS t
+  GROUP BY t.session_id, t.invocation_id
+)
 SELECT
-  ARRAY_FIRST(ARRAY_AGG(t.agent IGNORE NULLS ORDER BY t.timestamp)) AS agent,
-  t.session_id,
-  t.invocation_id,
-  MIN(t.timestamp) AS started_at,
+  agent,
+  session_id,
+  invocation_id,
+  started_at,
   \`${PROJECT_ID}.${DATASET_ID}.deepeval_parse_trace\`(
-    TO_JSON_STRING(ARRAY_AGG(t ORDER BY t.timestamp))
+    TO_JSON_STRING(events)
   ) AS parsed_trace
-FROM \`bigquery-public-data.agent_analytic_sample_dataset.agent_events_v2\` AS t
-GROUP BY t.session_id, t.invocation_id;
+FROM grouped_invocations;
 
 -- Evaluate the parsed invocation traces with DeepEval metrics
 SELECT
@@ -371,24 +412,46 @@ EOF
 
 ### 2. Run Multi-Turn Session Evaluation (`deepeval_parse_trace` + `deepeval_evaluate`)
 
-Group the BQAA table by `session_id`, parse the multi-turn session trace with
-`deepeval_parse_trace`, and pass the parsed trace to `deepeval_evaluate`:
+Group the BQAA table by `session_id` and apply `LIMIT` in `grouped_sessions`,
+parse the multi-turn session trace with `deepeval_parse_trace`, and pass the
+parsed trace to `deepeval_evaluate`:
 
 ```bash
 bq query --project_id="${PROJECT_ID}" --location="${LOCATION}" --use_legacy_sql=false <<EOF
-WITH parsed_session_traces AS (
+WITH grouped_sessions AS (
   SELECT
     ARRAY_FIRST(ARRAY_AGG(t.agent IGNORE NULLS ORDER BY t.timestamp)) AS agent,
     t.session_id,
     COUNT(DISTINCT t.invocation_id) AS num_invocations,
-    \`${PROJECT_ID}.${DATASET_ID}.deepeval_parse_trace\`(
-      TO_JSON_STRING(ARRAY_AGG(t ORDER BY t.timestamp))
-    ) AS parsed_trace
+    ARRAY_AGG(
+      STRUCT(
+        t.timestamp,
+        t.event_type,
+        t.invocation_id,
+        t.agent,
+        t.span_id,
+        t.error_message,
+        t.attributes,
+        t.content,
+        t.content_parts
+      )
+      ORDER BY t.timestamp
+    ) AS events
   FROM \`bigquery-public-data.agent_analytic_sample_dataset.agent_events_v2\` AS t
   GROUP BY t.session_id
   HAVING COUNT(DISTINCT t.invocation_id) > 1
   ORDER BY t.session_id
   LIMIT 10
+),
+parsed_session_traces AS (
+  SELECT
+    agent,
+    session_id,
+    num_invocations,
+    \`${PROJECT_ID}.${DATASET_ID}.deepeval_parse_trace\`(
+      TO_JSON_STRING(events)
+    ) AS parsed_trace
+  FROM grouped_sessions
 )
 SELECT
   agent,
