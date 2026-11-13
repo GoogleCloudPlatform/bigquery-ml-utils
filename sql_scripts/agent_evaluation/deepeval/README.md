@@ -201,13 +201,26 @@ quota):
        `payload_column_denylist` to omit `content`, `content_parts`, or
        `attributes` from the table schema, drop those denied columns from the
        `STRUCT(...)` projection as well.
-   - To supply optional reference fields (such as `expected_output`,
-     `expected_tools`, or `judge_model`) alongside BQAA rows, wrap the event
+   - For multi-agent ADK apps that delegate to sub-agents via `AgentTool`,
+     filter `WHERE t.agent = 'YOUR_ROOT_AGENT'` before `GROUP BY` to drop
+     sub-agent groups directly in SQL (note: row-level `WHERE t.agent` applies
+     to `AgentTool` delegates, not `sub_agents` / `transfer_to_agent` handoffs
+     where the sub-agent emits the final response inside the root session).
+     Alternatively, pass `'YOUR_ROOT_AGENT' AS root_agent` in the wrapper
+     `STRUCT` so `deepeval_parse_trace` strips internal `AgentTool` sub-agent
+     events (while preserving `transfer_to_agent` handoffs) and returns SQL
+     `NULL` for sub-agent-only groups; when relying on `root_agent` in the
+     wrapper `STRUCT`, filter `WHERE parsed_trace IS NOT NULL` before calling
+     `deepeval_evaluate`.
+   - To supply optional reference or parser fields (such as `expected_output`,
+     `expected_tools`, `root_agent`, or `judge_model`) alongside BQAA rows, wrap
+     the event
      array in a `STRUCT` passed to `deepeval_parse_trace`:
      ```sql
      `${PROJECT_ID}.${DATASET_ID}.deepeval_parse_trace`(
        TO_JSON_STRING(STRUCT(
          events,  -- 9-column BQAA event array from grouped_invocations CTE
+         'YOUR_ROOT_AGENT' AS root_agent,
          'Expected response text' AS expected_output,
          [STRUCT('OrderTool' AS name, '{"order_id": "999"}' AS args)] AS expected_tools
        ))
@@ -237,6 +250,7 @@ or a single-turn `STRUCT`, `deepeval_evaluate` builds a DeepEval `LLMTestCase`.
 | `tools_called` | `ARRAY<STRUCT>` | Automatic from BQAA | Tools invoked by the agent (automatically extracted from `TOOL_STARTING` / `TOOL_COMPLETED` / `TOOL_ERROR` when using BQAA input; used by `task_completion` and `tool_correctness`). |
 | `expected_tools` | `ARRAY<STRUCT>` | Conditional | Expected tool calls (required for `tool_correctness`). |
 | `evaluation_steps` | `ARRAY<STRING>` | Optional | Explicit scoring steps for `geval` / `conversational_geval` (skips Pass 1 step generation and evaluates in a single LLM pass). |
+| `root_agent` | `STRING` | Optional (in `deepeval_parse_trace`) | Filters BQAA events to invocations containing the specified root coordinator agent name (excluding internal `AgentTool` sub-agent events while preserving `transfer_to_agent` handoffs and shared-invocation workflow agents; keep `t.attributes` in the projection so single-turn `GROUP BY session_id, invocation_id` queries retain follow-up turns logged under a transferred sub-agent via `attributes.root_agent_name`; returns `NULL` when no invocation in the group matches). |
 | `judge_model` | `STRING` | Optional | Primary Gemini judge model ID (defaults to `'gemini-3.8-flash'`). |
 | `fallback_judge_model` | `STRING` | Optional | Fallback Gemini judge model ID used on final retry (defaults to `'gemini-2.5-flash'`). |
 | `location` | `STRING` | Optional | Per-row Gemini endpoint location override (defaults to `'global'` for Gemini 3.x models and the configured regional endpoint for regional models such as `'gemini-2.5-flash'`). |
@@ -295,6 +309,7 @@ When `test_case_json` is a multi-turn trace produced by `deepeval_parse_trace`
 | `scenario` | `STRING` | Optional | Scenario description for the conversation. |
 | `expected_outcome` | `STRING` | Optional | Expected outcome of the multi-turn session. |
 | `evaluation_steps` | `ARRAY<STRING>` | Optional | Explicit scoring steps for `conversational_geval` (skips Pass 1 step generation and evaluates in a single LLM pass). |
+| `root_agent` | `STRING` | Optional (in `deepeval_parse_trace`) | Filters BQAA events to invocations containing the specified root coordinator agent name (excluding internal `AgentTool` sub-agent events while preserving `transfer_to_agent` handoffs; returns `NULL` when no invocation in the session contains a `root_agent` row). |
 | `judge_model` | `STRING` | Optional | Primary Gemini judge model ID (defaults to `'gemini-3.8-flash'`). |
 | `fallback_judge_model` | `STRING` | Optional | Fallback Gemini judge model ID used on final retry (defaults to `'gemini-2.5-flash'`). |
 | `location` | `STRING` | Optional | Per-row Gemini endpoint location override (defaults to `'global'` for Gemini 3.x models and the configured regional endpoint for regional models such as `'gemini-2.5-flash'`). |
@@ -378,6 +393,8 @@ WITH grouped_invocations AS (
       ORDER BY t.timestamp
     ) AS events
   FROM \`bigquery-public-data.agent_analytic_sample_dataset.agent_events_v2\` AS t
+  -- Optional for AgentTool multi-agent apps (do not enable for sub_agents / transfer_to_agent handoffs):
+  -- WHERE t.agent = 'YOUR_ROOT_AGENT'
   GROUP BY t.session_id, t.invocation_id
 )
 SELECT

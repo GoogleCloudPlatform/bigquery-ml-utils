@@ -75,6 +75,8 @@ metric (not the tokens consumed by the agent trace being evaluated).
         ORDER BY t.timestamp
       ) AS events
     FROM `bigquery-public-data.agent_analytic_sample_dataset.agent_events_v2` AS t
+    -- Optional for AgentTool multi-agent apps (do not enable for sub_agents / transfer_to_agent handoffs):
+    -- WHERE t.agent = 'YOUR_ROOT_AGENT'
     GROUP BY t.session_id, t.invocation_id
   )
   SELECT

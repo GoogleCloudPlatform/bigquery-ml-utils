@@ -60,6 +60,10 @@ WITH grouped_invocations AS (
       ORDER BY t.timestamp
     ) AS events
   FROM `bigquery-public-data.agent_analytic_sample_dataset.agent_events_v2` AS t
+  -- For multi-agent ADK apps using AgentTool (not sub_agents / transfer_to_agent handoffs),
+  -- filter to your root coordinator agent so sub-agent internal invocations are not
+  -- evaluated as separate user turns:
+  -- WHERE t.agent = 'YOUR_ROOT_AGENT'
   GROUP BY t.session_id, t.invocation_id
 )
 SELECT

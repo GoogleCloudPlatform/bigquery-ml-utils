@@ -61,6 +61,7 @@ _BQAA_PHASE = {
     "HITL_INPUT_REQUEST": 5,
     "TOOL_COMPLETED": 6,
     "TOOL_ERROR": 6,
+    "AGENT_TRANSFER": 6,
     "HITL_CONFIRMATION_REQUEST_COMPLETED": 6,
     "HITL_INPUT_REQUEST_COMPLETED": 6,
     "AGENT_RESPONSE": 7,
@@ -195,7 +196,7 @@ def _collect_turn_rc(normalized_turns: list[dict]) -> tuple[list[str], list[str]
     return tool_rc, tool_rc + prior_rc
 
 
-def _parse_bqaa_events(ev_list: list, wrapper: dict) -> dict:
+def _parse_bqaa_events(ev_list: list, wrapper: dict) -> dict | None:
     """Converts BQAA event rows into normalized DeepEval test_case fields."""
     if not isinstance(ev_list, list) or not ev_list:
         raise ValueError("BQAA events list cannot be empty")
@@ -222,7 +223,94 @@ def _parse_bqaa_events(ev_list: list, wrapper: dict) -> dict:
         inv_id = str(ev.get("invocation_id") or "turn_0")
         invocations.setdefault(inv_id, []).append(ev)
 
-    primary_agent_id = str(wrapper.get("agent_id") or wrapper.get("agent") or "")
+    root_filter = str(wrapper.get("root_agent") or "").strip()
+    if root_filter:
+        allowed_agents = {root_filter}
+        kept_invocations: dict[str, list[dict]] = {}
+        for inv_id, inv_events in invocations.items():
+            is_root_inv = any(
+                str(ev.get("agent") or "").strip() in allowed_agents
+                or (
+                    isinstance(
+                        attrs := _parse_json_field(ev.get("attributes"), {}),
+                        dict,
+                    )
+                    and str(attrs.get("root_agent_name") or "").strip()
+                    == root_filter
+                )
+                for ev in inv_events
+            )
+            if not is_root_inv:
+                continue
+            kept_invocations[inv_id] = inv_events
+            has_transfer = False
+            for ev in inv_events:
+                ev_type = str(ev.get("event_type") or "").upper()
+                if ev_type not in (
+                    "AGENT_TRANSFER",
+                    "TOOL_STARTING",
+                    "TOOL_COMPLETED",
+                ):
+                    continue
+                c_val = _parse_json_field(ev.get("content"), None)
+                c_dict = c_val if isinstance(c_val, dict) else {}
+                c_str = (
+                    ev.get("content")
+                    if isinstance(ev.get("content"), str)
+                    else ""
+                )
+                attrs = _parse_json_field(ev.get("attributes"), {})
+                if not isinstance(attrs, dict):
+                    attrs = {}
+                if ev_type == "AGENT_TRANSFER":
+                    has_transfer = True
+                    target = str(
+                        c_dict.get("to_agent")
+                        or c_dict.get("agent_name")
+                        or attrs.get("to_agent")
+                        or attrs.get("agent_name")
+                        or ""
+                    ).strip()
+                    if target:
+                        allowed_agents.add(target)
+                elif ev_type in ("TOOL_STARTING", "TOOL_COMPLETED"):
+                    t_name = str(
+                        c_dict.get("tool_name") or c_dict.get("tool") or ""
+                    ).strip()
+                    if not t_name and c_str.startswith("Tool Name:"):
+                        m_tn = re.match(r"^Tool Name:\s*([^,\n]+)", c_str)
+                        t_name = m_tn.group(1).strip() if m_tn else ""
+                    if t_name == "transfer_to_agent":
+                        has_transfer = True
+                        raw_args = (
+                            c_dict.get("tool_input")
+                            if "tool_input" in c_dict
+                            else c_dict.get("args")
+                        )
+                        t_args = _parse_json_field(raw_args, {})
+                        if isinstance(t_args, dict):
+                            target = str(
+                                t_args.get("agent_name")
+                                or t_args.get("to_agent")
+                                or ""
+                            ).strip()
+                            if target:
+                                allowed_agents.add(target)
+            if has_transfer:
+                for ev in inv_events:
+                    ev_agent = str(ev.get("agent") or "").strip()
+                    if ev_agent:
+                        allowed_agents.add(ev_agent)
+        if not kept_invocations:
+            return None
+        invocations = kept_invocations
+
+    primary_agent_id = str(
+        wrapper.get("agent_id")
+        or wrapper.get("agent")
+        or wrapper.get("root_agent")
+        or ""
+    )
     extracted_instruction = ""
     normalized_turns = []
 
@@ -608,7 +696,7 @@ def _parse_agent_data_dict(raw_dict: dict) -> dict:
     return result
 
 
-def _normalize_input_payload(events_json) -> dict:
+def _normalize_input_payload(events_json) -> dict | None:
     """Parses BQAA event arrays, wrapped BQAA events, canonical AgentData, or test_case dicts."""
     decoded = json.loads(events_json) if isinstance(events_json, str) else events_json
     if isinstance(decoded, list):
@@ -636,7 +724,8 @@ def parse_trace(events_json: str) -> str | None:
     """UDF entry point converting raw BQAA or AgentData JSON into a DeepEval trace."""
     if not events_json:
         return None
-    return json.dumps(_normalize_input_payload(events_json))
+    norm = _normalize_input_payload(events_json)
+    return json.dumps(norm) if norm is not None else None
 ''';
 
 

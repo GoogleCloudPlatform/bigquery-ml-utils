@@ -1894,6 +1894,493 @@ class AgentEvaluationDeepevalTest(unittest.TestCase):
     self.assertEqual(parsed_st['retrieval_context'], [])
     self.assertEqual(parsed_st['context'], ['You are SpaceAgent.'])
 
+  def test_root_agent_filtering_excludes_agent_tool_sub_invocations(self):
+    ns = _load_udf_module()
+    parse_trace = ns['parse_trace']
+    evaluate_test_case = ns['evaluate_test_case']
+    adk_multi_events = [
+        {
+            'timestamp': '2026-02-01T10:00:01Z',
+            'event_type': 'USER_MESSAGE_RECEIVED',
+            'agent': 'space_agent',
+            'invocation_id': 'inv-1',
+            'content': {'text_summary': 'Who owns the sales domain?'},
+        },
+        {
+            'timestamp': '2026-02-01T10:00:01.5Z',
+            'event_type': 'TOOL_STARTING',
+            'agent': 'space_agent',
+            'invocation_id': 'inv-1',
+            'content': {
+                'tool_name': 'search_documentation_agent',
+                'tool_input': {'request': 'Find sales domain owner'},
+            },
+        },
+        {
+            'timestamp': '2026-02-01T10:00:02Z',
+            'event_type': 'USER_MESSAGE_RECEIVED',
+            'agent': 'search_documentation_agent',
+            'invocation_id': 'sub-inv-1',
+            'attributes': {'root_agent_name': 'search_documentation_agent'},
+            'content': {'text_summary': 'internal subagent rag query'},
+        },
+        {
+            'timestamp': '2026-02-01T10:00:02.1Z',
+            'event_type': 'TOOL_STARTING',
+            'agent': 'search_documentation_agent',
+            'invocation_id': 'sub-inv-1',
+            'attributes': {'root_agent_name': 'search_documentation_agent'},
+            'content': {
+                'tool_name': 'internal_rag_search',
+                'tool_input': {'q': 'sales'},
+            },
+        },
+        {
+            'timestamp': '2026-02-01T10:00:02.2Z',
+            'event_type': 'TOOL_COMPLETED',
+            'agent': 'search_documentation_agent',
+            'invocation_id': 'sub-inv-1',
+            'attributes': {'root_agent_name': 'search_documentation_agent'},
+            'content': {
+                'tool_name': 'internal_rag_search',
+                'tool_output': {'doc': 'Alice'},
+            },
+        },
+        {
+            'timestamp': '2026-02-01T10:00:02.3Z',
+            'event_type': 'AGENT_RESPONSE',
+            'agent': None,
+            'invocation_id': 'sub-inv-1',
+            'attributes': {'root_agent_name': 'search_documentation_agent'},
+            'content': {},
+        },
+        {
+            'timestamp': '2026-02-01T10:00:02.5Z',
+            'event_type': 'TOOL_COMPLETED',
+            'agent': 'space_agent',
+            'invocation_id': 'inv-1',
+            'content': {
+                'tool_name': 'search_documentation_agent',
+                'tool_output': {'owner': 'Alice'},
+            },
+        },
+        {
+            'timestamp': '2026-02-01T10:00:03Z',
+            'event_type': 'AGENT_RESPONSE',
+            'agent': 'space_agent',
+            'invocation_id': 'inv-1',
+            'content': {'text_summary': 'Sales PO is Alice.'},
+        },
+        {
+            'timestamp': '2026-02-01T10:01:00Z',
+            'event_type': 'USER_MESSAGE_RECEIVED',
+            'agent': 'space_agent',
+            'invocation_id': 'inv-2',
+            'content': {'text_summary': 'And what table should I query?'},
+        },
+        {
+            'timestamp': '2026-02-01T10:01:02Z',
+            'event_type': 'AGENT_RESPONSE',
+            'agent': 'space_agent',
+            'invocation_id': 'inv-2',
+            'content': {'text_summary': 'Query proj.sales.orders (PO: Alice).'},
+        },
+    ]
+    # 1. Baseline without root_agent includes sub-inv-1 and internal_rag_search
+    parsed_no_filter = json.loads(
+        parse_trace(json.dumps({'events': adk_multi_events}))
+    )
+    self.assertEqual(len(parsed_no_filter['turns']), 3)
+    self.assertEqual(
+        [t['name'] for t in parsed_no_filter['tools_called']],
+        ['search_documentation_agent', 'internal_rag_search'],
+    )
+
+    # 2. With root_agent='space_agent', sub-inv-1 (including its agent=None
+    #    callback and internal_rag_search tool calls) is excluded
+    parsed_adk = json.loads(
+        parse_trace(
+            json.dumps({
+                'events': adk_multi_events,
+                'root_agent': 'space_agent',
+            })
+        )
+    )
+    self.assertEqual(parsed_adk['agent_id'], 'space_agent')
+    self.assertEqual(len(parsed_adk['turns']), 2)
+    self.assertEqual(
+        [t['name'] for t in parsed_adk['tools_called']],
+        ['search_documentation_agent'],
+    )
+    self.assertEqual(
+        parsed_adk['turns'][0]['actual_output'], 'Sales PO is Alice.'
+    )
+    self.assertEqual(
+        parsed_adk['actual_output'], 'Query proj.sales.orders (PO: Alice).'
+    )
+
+    # 3. Sub-agent-only group (even with an agent=None callback row) returns
+    #    None from parse_trace so evaluate_test_case safely returns []
+    sub_only_events = [
+        ev for ev in adk_multi_events if ev['invocation_id'] == 'sub-inv-1'
+    ]
+    self.assertIsNone(
+        parse_trace(
+            json.dumps({
+                'events': sub_only_events,
+                'root_agent': 'space_agent',
+            })
+        )
+    )
+    self.assertEqual(evaluate_test_case(None, ['answer_relevancy']), [])
+
+  def test_root_agent_filtering_preserves_transfer_to_agent_and_followups(self):
+    ns = _load_udf_module()
+    parse_trace = ns['parse_trace']
+    transfer_events = [
+        {
+            'timestamp': '2026-02-01T10:02:00Z',
+            'event_type': 'USER_MESSAGE_RECEIVED',
+            'agent': 'space_agent',
+            'invocation_id': 'inv-transfer-1',
+            'content': {'text_summary': 'Run billing SQL'},
+        },
+        {
+            'timestamp': '2026-02-01T10:02:01Z',
+            'event_type': 'TOOL_STARTING',
+            'agent': 'space_agent',
+            'invocation_id': 'inv-transfer-1',
+            'content': {
+                'tool_name': 'transfer_to_agent',
+                'tool_input': {'agent_name': 'billing_sub_agent'},
+            },
+        },
+        {
+            'timestamp': '2026-02-01T10:02:02Z',
+            'event_type': 'TOOL_COMPLETED',
+            'agent': 'space_agent',
+            'invocation_id': 'inv-transfer-1',
+            'content': {'tool_name': 'transfer_to_agent', 'tool_output': 'ok'},
+        },
+        {
+            'timestamp': '2026-02-01T10:02:03Z',
+            'event_type': 'TOOL_COMPLETED',
+            'agent': 'billing_sub_agent',
+            'invocation_id': 'inv-transfer-1',
+            'content': {
+                'tool_name': 'execute_sql',
+                'tool_output': {'rows': 5},
+            },
+        },
+        {
+            'timestamp': '2026-02-01T10:02:04Z',
+            'event_type': 'AGENT_RESPONSE',
+            'agent': 'billing_sub_agent',
+            'invocation_id': 'inv-transfer-1',
+            'content': {'text_summary': 'Found 5 billing rows.'},
+        },
+        # Follow-up Turn 2 (all rows logged under billing_sub_agent with
+        # attributes.root_agent_name stamped by TraceManager.init_trace)
+        {
+            'timestamp': '2026-02-01T10:03:00Z',
+            'event_type': 'USER_MESSAGE_RECEIVED',
+            'agent': 'billing_sub_agent',
+            'invocation_id': 'inv-transfer-2',
+            'attributes': {'root_agent_name': 'space_agent'},
+            'content': {'text_summary': 'Filter to Q1 only'},
+        },
+        {
+            'timestamp': '2026-02-01T10:03:01Z',
+            'event_type': 'TOOL_COMPLETED',
+            'agent': 'billing_sub_agent',
+            'invocation_id': 'inv-transfer-2',
+            'attributes': {'root_agent_name': 'space_agent'},
+            'content': {
+                'tool_name': 'execute_q1_sql',
+                'tool_output': {'rows': 2},
+            },
+        },
+        {
+            'timestamp': '2026-02-01T10:03:02Z',
+            'event_type': 'AGENT_RESPONSE',
+            'agent': 'billing_sub_agent',
+            'invocation_id': 'inv-transfer-2',
+            'attributes': {'root_agent_name': 'space_agent'},
+            'content': {'text_summary': 'Found 2 Q1 billing rows.'},
+        },
+        # Follow-up Turn 3 (USER_MESSAGE_RECEIVED logged under root_agent while
+        # TOOL_* and AGENT_RESPONSE run under billing_sub_agent)
+        {
+            'timestamp': '2026-02-01T10:04:00Z',
+            'event_type': 'USER_MESSAGE_RECEIVED',
+            'agent': 'space_agent',
+            'invocation_id': 'inv-transfer-3',
+            'content': {'text_summary': 'Export those 2 rows'},
+        },
+        {
+            'timestamp': '2026-02-01T10:04:01Z',
+            'event_type': 'TOOL_COMPLETED',
+            'agent': 'billing_sub_agent',
+            'invocation_id': 'inv-transfer-3',
+            'content': {
+                'tool_name': 'export_csv',
+                'tool_output': {'status': 'exported'},
+            },
+        },
+        {
+            'timestamp': '2026-02-01T10:04:02Z',
+            'event_type': 'AGENT_RESPONSE',
+            'agent': 'billing_sub_agent',
+            'invocation_id': 'inv-transfer-3',
+            'content': {'text_summary': 'Exported 2 rows to CSV.'},
+        },
+    ]
+    parsed_transfer = json.loads(
+        parse_trace(
+            json.dumps({
+                'events': transfer_events,
+                'root_agent': 'space_agent',
+            })
+        )
+    )
+    self.assertEqual(len(parsed_transfer['turns']), 3)
+    self.assertEqual(
+        parsed_transfer['turns'][0]['actual_output'], 'Found 5 billing rows.'
+    )
+    self.assertEqual(
+        parsed_transfer['turns'][1]['actual_output'], 'Found 2 Q1 billing rows.'
+    )
+    self.assertEqual(
+        parsed_transfer['actual_output'], 'Exported 2 rows to CSV.'
+    )
+    self.assertEqual(
+        [t['name'] for t in parsed_transfer['tools_called']],
+        ['execute_sql', 'execute_q1_sql', 'export_csv'],
+    )
+    # Single-turn GROUP BY session_id, invocation_id on inv-transfer-2 alone
+    # succeeds via attributes.root_agent_name, and returns None if stripped
+    inv_transfer_2_only = [
+        ev for ev in transfer_events if ev['invocation_id'] == 'inv-transfer-2'
+    ]
+    parsed_t2_alone = json.loads(
+        parse_trace(
+            json.dumps({
+                'events': inv_transfer_2_only,
+                'root_agent': 'space_agent',
+            })
+        )
+    )
+    self.assertEqual(
+        parsed_t2_alone['actual_output'], 'Found 2 Q1 billing rows.'
+    )
+    inv_transfer_2_no_attr = [
+        {k: v for k, v in ev.items() if k != 'attributes'}
+        for ev in inv_transfer_2_only
+    ]
+    self.assertIsNone(
+        parse_trace(
+            json.dumps({
+                'events': inv_transfer_2_no_attr,
+                'root_agent': 'space_agent',
+            })
+        )
+    )
+
+  def test_root_agent_filtering_preserves_programmatic_agent_transfer(self):
+    ns = _load_udf_module()
+    parse_trace = ns['parse_trace']
+    agent_transfer_events = [
+        {
+            'timestamp': '2026-02-01T10:05:00Z',
+            'event_type': 'USER_MESSAGE_RECEIVED',
+            'agent': 'space_agent',
+            'invocation_id': 'inv-at-1',
+            'content': {'text_summary': 'Check refund status'},
+        },
+        {
+            'timestamp': '2026-02-01T10:05:01Z',
+            'event_type': 'AGENT_TRANSFER',
+            'agent': 'space_agent',
+            'invocation_id': 'inv-at-1',
+            'content': {
+                'from_agent': 'space_agent',
+                'to_agent': 'refund_sub_agent',
+            },
+        },
+        {
+            'timestamp': '2026-02-01T10:05:02Z',
+            'event_type': 'TOOL_COMPLETED',
+            'agent': 'refund_sub_agent',
+            'invocation_id': 'inv-at-1',
+            'content': {
+                'tool_name': 'lookup_refund',
+                'tool_output': {'status': 'approved'},
+            },
+        },
+        {
+            'timestamp': '2026-02-01T10:05:03Z',
+            'event_type': 'AGENT_RESPONSE',
+            'agent': 'refund_sub_agent',
+            'invocation_id': 'inv-at-1',
+            'content': {'text_summary': 'Refund is approved.'},
+        },
+        {
+            'timestamp': '2026-02-01T10:06:00Z',
+            'event_type': 'USER_MESSAGE_RECEIVED',
+            'agent': 'refund_sub_agent',
+            'invocation_id': 'inv-at-2',
+            'content': {'text_summary': 'When will it arrive?'},
+        },
+        {
+            'timestamp': '2026-02-01T10:06:01Z',
+            'event_type': 'AGENT_RESPONSE',
+            'agent': 'refund_sub_agent',
+            'invocation_id': 'inv-at-2',
+            'content': {'text_summary': 'In 3-5 business days.'},
+        },
+    ]
+    parsed_at = json.loads(
+        parse_trace(
+            json.dumps({
+                'events': agent_transfer_events,
+                'root_agent': 'space_agent',
+            })
+        )
+    )
+    self.assertEqual(len(parsed_at['turns']), 2)
+    self.assertEqual(
+        parsed_at['turns'][0]['actual_output'], 'Refund is approved.'
+    )
+    self.assertEqual(parsed_at['actual_output'], 'In 3-5 business days.')
+    self.assertEqual(
+        [t['name'] for t in parsed_at['tools_called']], ['lookup_refund']
+    )
+
+  def test_root_agent_filtering_preserves_sequential_workflow_children(self):
+    ns = _load_udf_module()
+    parse_trace = ns['parse_trace']
+    sequential_events = [
+        {
+            'timestamp': '2026-02-01T10:07:00Z',
+            'event_type': 'USER_MESSAGE_RECEIVED',
+            'agent': 'seq_pipeline_root',
+            'invocation_id': 'inv-seq-1',
+            'content': {'text_summary': 'Fetch and summarize report'},
+        },
+        {
+            'timestamp': '2026-02-01T10:07:01Z',
+            'event_type': 'TOOL_COMPLETED',
+            'agent': 'fetcher_child_agent',
+            'invocation_id': 'inv-seq-1',
+            'content': {
+                'tool_name': 'fetch_report_data',
+                'tool_output': {'items': 10},
+            },
+        },
+        {
+            'timestamp': '2026-02-01T10:07:02Z',
+            'event_type': 'AGENT_RESPONSE',
+            'agent': 'summarizer_child_agent',
+            'invocation_id': 'inv-seq-1',
+            'content': {'text_summary': 'Summary of 10 report items.'},
+        },
+    ]
+    parsed_seq = json.loads(
+        parse_trace(
+            json.dumps({
+                'events': sequential_events,
+                'root_agent': 'seq_pipeline_root',
+            })
+        )
+    )
+    self.assertEqual(parsed_seq['actual_output'], 'Summary of 10 report items.')
+    self.assertEqual(
+        [t['name'] for t in parsed_seq['tools_called']], ['fetch_report_data']
+    )
+
+  def test_root_agent_filtering_ignores_transfer_text_in_non_transfer_prompts(
+      self,
+  ):
+    ns = _load_udf_module()
+    parse_trace = ns['parse_trace']
+    non_transfer_events = [
+        {
+            'timestamp': '2026-02-01T10:08:00Z',
+            'event_type': 'USER_MESSAGE_RECEIVED',
+            'agent': 'space_agent',
+            'invocation_id': 'inv-nt-1',
+            'content': {
+                'text_summary': 'Explain how transfer_to_agent works in ADK'
+            },
+        },
+        {
+            'timestamp': '2026-02-01T10:08:01Z',
+            'event_type': 'LLM_REQUEST',
+            'agent': 'space_agent',
+            'invocation_id': 'inv-nt-1',
+            'content': {
+                'system_prompt': (
+                    'You have other agents: billing_sub_agent. Call'
+                    ' transfer_to_agent to hand off.'
+                )
+            },
+        },
+        {
+            'timestamp': '2026-02-01T10:08:02Z',
+            'event_type': 'AGENT_RESPONSE',
+            'agent': 'space_agent',
+            'invocation_id': 'inv-nt-1',
+            'content': {'text_summary': 'transfer_to_agent delegates control.'},
+        },
+        {
+            'timestamp': '2026-02-01T10:08:03Z',
+            'event_type': 'LLM_REQUEST',
+            'agent': 'billing_sub_agent',
+            'invocation_id': 'sub-inv-nt-1',
+            'content': {
+                'system_prompt': 'Sub-agent mentioning transfer_to_agent.'
+            },
+        },
+        {
+            'timestamp': '2026-02-01T10:08:04Z',
+            'event_type': 'TOOL_COMPLETED',
+            'agent': 'billing_sub_agent',
+            'invocation_id': 'sub-inv-nt-1',
+            'content': {
+                'tool_name': 'sub_agent_only_tool',
+                'tool_output': 'ignored',
+            },
+        },
+        {
+            'timestamp': '2026-02-01T10:08:05Z',
+            'event_type': 'AGENT_RESPONSE',
+            'agent': 'billing_sub_agent',
+            'invocation_id': 'sub-inv-nt-1',
+            'content': {'text_summary': 'Untransferred sub-agent output.'},
+        },
+    ]
+    parsed_nt = json.loads(
+        parse_trace(
+            json.dumps({
+                'events': non_transfer_events,
+                'root_agent': 'space_agent',
+            })
+        )
+    )
+    self.assertEqual(len(parsed_nt['turns']), 1)
+    self.assertEqual(
+        parsed_nt['actual_output'], 'transfer_to_agent delegates control.'
+    )
+    self.assertEqual(parsed_nt['tools_called'], [])
+    self.assertIsNone(
+        parse_trace(
+            json.dumps({
+                'events': non_transfer_events[3:],
+                'root_agent': 'space_agent',
+            })
+        )
+    )
+
   def test_install_sh_help_and_end_to_end_with_fake_clis(self):
     install_sh = self.script_dir / 'install.sh'
 
