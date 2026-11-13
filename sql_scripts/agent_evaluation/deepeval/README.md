@@ -213,8 +213,8 @@ quota):
      wrapper `STRUCT`, filter `WHERE parsed_trace IS NOT NULL` before calling
      `deepeval_evaluate`.
    - To supply optional reference or parser fields (such as `expected_output`,
-     `expected_tools`, `root_agent`, or `judge_model`) alongside BQAA rows, wrap
-     the event
+     `expected_tools`, `root_agent`, `output_response_field`, or `judge_model`)
+     alongside BQAA rows, wrap the event
      array in a `STRUCT` passed to `deepeval_parse_trace`:
      ```sql
      `${PROJECT_ID}.${DATASET_ID}.deepeval_parse_trace`(
@@ -222,7 +222,8 @@ quota):
          events,  -- 9-column BQAA event array from grouped_invocations CTE
          'YOUR_ROOT_AGENT' AS root_agent,
          'Expected response text' AS expected_output,
-         [STRUCT('OrderTool' AS name, '{"order_id": "999"}' AS args)] AS expected_tools
+         [STRUCT('OrderTool' AS name, '{"order_id": "999"}' AS args)] AS expected_tools,
+         'response' AS output_response_field
        ))
      )
      ```
@@ -251,6 +252,7 @@ or a single-turn `STRUCT`, `deepeval_evaluate` builds a DeepEval `LLMTestCase`.
 | `expected_tools` | `ARRAY<STRUCT>` | Conditional | Expected tool calls (required for `tool_correctness`). |
 | `evaluation_steps` | `ARRAY<STRING>` | Optional | Explicit scoring steps for `geval` / `conversational_geval` (skips Pass 1 step generation and evaluates in a single LLM pass). |
 | `root_agent` | `STRING` | Optional (in `deepeval_parse_trace`) | Filters BQAA events to invocations containing the specified root coordinator agent name (excluding internal `AgentTool` sub-agent events while preserving `transfer_to_agent` handoffs and shared-invocation workflow agents; keep `t.attributes` in the projection so single-turn `GROUP BY session_id, invocation_id` queries retain follow-up turns logged under a transferred sub-agent via `attributes.root_agent_name`; returns `NULL` when no invocation in the group matches). |
+| `output_response_field` | `STRING` | Optional (in `deepeval_parse_trace`) | Unwraps a structured JSON response field (such as `'response'` when ADK `output_schema` emits `{"response": "...", "usefulness": 0.95}`) and strips JSON-schema output constraints from `chatbot_role` so `role_adherence` does not penalize unwrapped Markdown. Also auto-detected when the trace-extracted agent instruction mentions `output_schema` / `AgentResponse` / `strictly as a JSON object` and `actual_output` is a multi-key JSON object containing a `"response"` string (pass `''` to opt out). |
 | `judge_model` | `STRING` | Optional | Primary Gemini judge model ID (defaults to `'gemini-3.8-flash'`). |
 | `fallback_judge_model` | `STRING` | Optional | Fallback Gemini judge model ID used on final retry (defaults to `'gemini-2.5-flash'`). |
 | `location` | `STRING` | Optional | Per-row Gemini endpoint location override (defaults to `'global'` for Gemini 3.x models and the configured regional endpoint for regional models such as `'gemini-2.5-flash'`). |
@@ -310,6 +312,7 @@ When `test_case_json` is a multi-turn trace produced by `deepeval_parse_trace`
 | `expected_outcome` | `STRING` | Optional | Expected outcome of the multi-turn session. |
 | `evaluation_steps` | `ARRAY<STRING>` | Optional | Explicit scoring steps for `conversational_geval` (skips Pass 1 step generation and evaluates in a single LLM pass). |
 | `root_agent` | `STRING` | Optional (in `deepeval_parse_trace`) | Filters BQAA events to invocations containing the specified root coordinator agent name (excluding internal `AgentTool` sub-agent events while preserving `transfer_to_agent` handoffs; returns `NULL` when no invocation in the session contains a `root_agent` row). |
+| `output_response_field` | `STRING` | Optional (in `deepeval_parse_trace`) | Unwraps a structured JSON response field across all turns and strips JSON-schema output constraints from `chatbot_role` so `role_adherence` does not penalize unwrapped Markdown. Also auto-detected when the trace-extracted agent instruction mentions `output_schema` / `AgentResponse` / `strictly as a JSON object` and `actual_output` is a multi-key JSON object containing a `"response"` string (pass `''` to opt out). |
 | `judge_model` | `STRING` | Optional | Primary Gemini judge model ID (defaults to `'gemini-3.8-flash'`). |
 | `fallback_judge_model` | `STRING` | Optional | Fallback Gemini judge model ID used on final retry (defaults to `'gemini-2.5-flash'`). |
 | `location` | `STRING` | Optional | Per-row Gemini endpoint location override (defaults to `'global'` for Gemini 3.x models and the configured regional endpoint for regional models such as `'gemini-2.5-flash'`). |

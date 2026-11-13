@@ -2381,6 +2381,218 @@ class AgentEvaluationDeepevalTest(unittest.TestCase):
         )
     )
 
+  def test_unwrap_output_schema_and_chatbot_role_stripping(self):
+    ns = _load_udf_module()
+    parse_trace = ns['parse_trace']
+    adk_events = [
+        {
+            'timestamp': '2026-02-01T10:00:00Z',
+            'event_type': 'AGENT_STARTING',
+            'agent': 'space_agent',
+            'invocation_id': 'inv-1',
+            'content': (
+                'You are Current Phoenix, the enterprise data assistant.\n1.'
+                ' Strict Output Format: You MUST output your final response'
+                ' strictly as a JSON object matching the AgentResponse schema.'
+            ),
+        },
+        {
+            'timestamp': '2026-02-01T10:00:01Z',
+            'event_type': 'USER_MESSAGE_RECEIVED',
+            'agent': 'space_agent',
+            'invocation_id': 'inv-1',
+            'content': {'text_summary': 'Who owns the sales domain?'},
+        },
+        {
+            'timestamp': '2026-02-01T10:00:03Z',
+            'event_type': 'AGENT_RESPONSE',
+            'agent': 'space_agent',
+            'invocation_id': 'inv-1',
+            'content': {
+                'text_summary': json.dumps({
+                    'response': 'Sales PO is Alice.',
+                    'usefulness': 0.95,
+                })
+            },
+        },
+        {
+            'timestamp': '2026-02-01T10:01:01Z',
+            'event_type': 'USER_MESSAGE_RECEIVED',
+            'agent': 'space_agent',
+            'invocation_id': 'inv-2',
+            'content': {'text_summary': 'And who owns finance?'},
+        },
+        {
+            'timestamp': '2026-02-01T10:01:03Z',
+            'event_type': 'AGENT_RESPONSE',
+            'agent': 'space_agent',
+            'invocation_id': 'inv-2',
+            'content': {
+                'text_summary': json.dumps({
+                    'response': 'Finance PO is Bob.',
+                    'usefulness': 0.98,
+                })
+            },
+        },
+    ]
+    parsed_adk = json.loads(parse_trace(json.dumps(adk_events)))
+    self.assertEqual(parsed_adk['actual_output'], 'Finance PO is Bob.')
+    self.assertEqual(
+        [t['actual_output'] for t in parsed_adk['turns']],
+        ['Sales PO is Alice.', 'Finance PO is Bob.'],
+    )
+    self.assertEqual(
+        parsed_adk['retrieval_context'],
+        [
+            'Prior turn 1: User: Who owns the sales domain? | Assistant: Sales'
+            ' PO is Alice.'
+        ],
+    )
+    self.assertEqual(
+        parsed_adk['chatbot_role'],
+        'You are Current Phoenix, the enterprise data assistant.',
+    )
+
+    # Explicit output_response_field unwraps a custom field name (even on a
+    # single-key JSON object without schema keywords in AGENT_STARTING) and
+    # strips schema-mandate lines from a wrapper-supplied chatbot_role
+    custom_events = [
+        {
+            'timestamp': '2026-02-01T10:00:01Z',
+            'event_type': 'USER_MESSAGE_RECEIVED',
+            'agent': 'space_agent',
+            'invocation_id': 'inv-c1',
+            'content': {'text_summary': 'Summarize status'},
+        },
+        {
+            'timestamp': '2026-02-01T10:00:02Z',
+            'event_type': 'AGENT_RESPONSE',
+            'agent': 'space_agent',
+            'invocation_id': 'inv-c1',
+            'content': {
+                'text_summary': json.dumps({'markdown_answer': 'All green.'})
+            },
+        },
+    ]
+    parsed_custom = json.loads(
+        parse_trace(
+            json.dumps({
+                'events': custom_events,
+                'output_response_field': 'markdown_answer',
+                'chatbot_role': (
+                    'You are a status monitor.\nOutput strictly as a JSON'
+                    ' object matching the AgentResponse schema.'
+                ),
+            })
+        )
+    )
+    self.assertEqual(parsed_custom['actual_output'], 'All green.')
+    self.assertEqual(parsed_custom['chatbot_role'], 'You are a status monitor.')
+
+    # Single-line schema-only chatbot_role falls back to 'Helpful AI Assistant'
+    # instead of restoring the unstripped JSON-schema mandate; also verify
+    # AgentData (_parse_agent_data_dict) unwrapping
+    agent_data_schema = {
+        'agents': {
+            'root_agent': {
+                'instruction': (
+                    'You MUST output your final response strictly as a JSON'
+                    ' object matching the AgentResponse schema.'
+                )
+            }
+        },
+        'turns': [{
+            'turn_index': 0,
+            'events': [
+                {
+                    'author': 'user',
+                    'content': {'role': 'user', 'parts': [{'text': 'Status?'}]},
+                },
+                {
+                    'author': 'root_agent',
+                    'content': {
+                        'role': 'model',
+                        'parts': [{
+                            'text': json.dumps(
+                                {'response': 'Healthy.', 'score': 1.0}
+                            )
+                        }],
+                    },
+                },
+            ],
+        }],
+    }
+    parsed_ad_schema = json.loads(parse_trace(json.dumps(agent_data_schema)))
+    self.assertEqual(parsed_ad_schema['actual_output'], 'Healthy.')
+    self.assertEqual(parsed_ad_schema['chatbot_role'], 'Helpful AI Assistant')
+
+    # Without output_response_field or ADK output_schema instruction, a JSON
+    # response and AGENT_STARTING instruction mentioning 'JSON schema' are
+    # preserved untouched
+    caller_role = 'You help users query tables and explain their JSON schema.'
+    plain_json_events = [
+        {
+            'timestamp': '2026-02-01T10:00:00Z',
+            'event_type': 'AGENT_STARTING',
+            'agent': 'space_agent',
+            'invocation_id': 'inv-p1',
+            'content': caller_role,
+        },
+        {
+            'timestamp': '2026-02-01T10:00:01Z',
+            'event_type': 'USER_MESSAGE_RECEIVED',
+            'agent': 'space_agent',
+            'invocation_id': 'inv-p1',
+            'content': {'text_summary': 'Return a JSON payload'},
+        },
+        {
+            'timestamp': '2026-02-01T10:00:02Z',
+            'event_type': 'AGENT_RESPONSE',
+            'agent': 'space_agent',
+            'invocation_id': 'inv-p1',
+            'content': {
+                'text_summary': json.dumps(
+                    {'response': 'raw payload', 'code': 200}
+                )
+            },
+        },
+    ]
+    parsed_plain = json.loads(parse_trace(json.dumps(plain_json_events)))
+    self.assertEqual(
+        json.loads(parsed_plain['actual_output']),
+        {'response': 'raw payload', 'code': 200},
+    )
+    self.assertEqual(parsed_plain['chatbot_role'], caller_role)
+
+    empty_resp_events = [
+        *plain_json_events[:2],
+        {
+            'timestamp': '2026-02-01T10:00:02Z',
+            'event_type': 'AGENT_RESPONSE',
+            'agent': 'space_agent',
+            'invocation_id': 'inv-p1',
+            'content': {
+                'text_summary': json.dumps(
+                    {'response': '   ', 'error': 'timeout'}
+                )
+            },
+        },
+    ]
+    parsed_empty_resp = json.loads(
+        parse_trace(
+            json.dumps({
+                'events': empty_resp_events,
+                'output_response_field': 'response',
+                'chatbot_role': caller_role,
+            })
+        )
+    )
+    self.assertEqual(
+        json.loads(parsed_empty_resp['actual_output']),
+        {'response': '   ', 'error': 'timeout'},
+    )
+    self.assertEqual(parsed_empty_resp['chatbot_role'], caller_role)
+
   def test_install_sh_help_and_end_to_end_with_fake_clis(self):
     install_sh = self.script_dir / 'install.sh'
 

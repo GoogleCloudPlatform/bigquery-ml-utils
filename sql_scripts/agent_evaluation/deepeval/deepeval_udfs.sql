@@ -134,6 +134,22 @@ def _extract_bqaa_user_text(ev: dict, content_dict: dict, content_str: str) -> s
     return match.group(1) if match else raw
 
 
+def _unwrap_output_schema(
+    text: str, resp_field: str, require_multi_key: bool = False
+) -> tuple[str, bool]:
+    if not text or not resp_field or not text.strip().startswith("{"):
+        return text, False
+    obj = _parse_json_field(text, None)
+    val = obj.get(resp_field) if isinstance(obj, dict) else None
+    if (
+        isinstance(val, str)
+        and val.strip()
+        and (not require_multi_key or len(obj) > 1)
+    ):
+        return val.strip(), True
+    return text, False
+
+
 def _extract_bqaa_response_text(
     content_dict: dict, content_str: str, ev: dict | None = None
 ) -> str:
@@ -595,18 +611,60 @@ def _parse_bqaa_events(ev_list: list, wrapper: dict) -> dict | None:
             "tools_called": turn_tools,
             "retrieval_context": turn_rc,
         })
+    return _finalize_parsed_trace(
+        wrapper, normalized_turns, primary_agent_id, extracted_instruction
+    )
 
+
+def _finalize_parsed_trace(
+    wrapper: dict,
+    normalized_turns: list[dict],
+    primary_agent_id: str,
+    extracted_instruction: str,
+    fallback_context_from_primary: bool = False,
+) -> dict:
+    resp_field = str(wrapper.get("output_response_field") or "").strip()
+    schema_re = re.compile(
+        r"output_schema|AgentResponse|strictly as a JSON object",
+        re.IGNORECASE,
+    )
+    has_schema_instr = "output_response_field" not in wrapper and bool(
+        schema_re.search(extracted_instruction or "")
+    )
+    unwrapped_any = False
+    if resp_field or has_schema_instr:
+        field_key = resp_field or "response"
+        for turn in normalized_turns:
+            turn["actual_output"], did_unwrap = _unwrap_output_schema(
+                turn["actual_output"],
+                field_key,
+                require_multi_key=not bool(resp_field),
+            )
+            unwrapped_any = unwrapped_any or did_unwrap
+
+    result = dict(wrapper)
+    if unwrapped_any:
+        line_re = re.compile(
+            r"(?im)^[^\n]*(?:Strict Output Format|output_schema|AgentResponse|strictly as a JSON object)[^\n]*\n?"
+        )
+        if extracted_instruction:
+            extracted_instruction = line_re.sub(
+                "", extracted_instruction
+            ).strip()
+        for role_key in ("chatbot_role", "instruction"):
+            if isinstance(result.get(role_key), str) and result[role_key]:
+                result[role_key] = line_re.sub("", result[role_key]).strip()
     primary_instr = str(
-        wrapper.get("chatbot_role")
-        or wrapper.get("instruction")
+        result.get("chatbot_role")
+        or result.get("instruction")
         or extracted_instruction
         or "Helpful AI Assistant"
     )
     last_turn = normalized_turns[-1]
     tool_rc, all_rc = _collect_turn_rc(normalized_turns)
-    result = dict(wrapper)
     result.setdefault("agent_id", primary_agent_id or "root_agent")
-    result.setdefault("chatbot_role", primary_instr)
+    if not result.get("chatbot_role"):
+        result["chatbot_role"] = primary_instr
     result.setdefault("input", last_turn["input"])
     result.setdefault("actual_output", last_turn["actual_output"])
     result.setdefault(
@@ -614,8 +672,11 @@ def _parse_bqaa_events(ev_list: list, wrapper: dict) -> dict | None:
         [t for turn in normalized_turns for t in turn["tools_called"]],
     )
     result.setdefault("retrieval_context", all_rc)
-    if not tool_rc and not wrapper.get("retrieval_context") and extracted_instruction:
-        result.setdefault("context", [extracted_instruction])
+    ctx_instr = (
+        primary_instr if fallback_context_from_primary else extracted_instruction
+    )
+    if not tool_rc and not wrapper.get("retrieval_context") and ctx_instr:
+        result.setdefault("context", [ctx_instr])
     result["turns"] = normalized_turns
     return result
 
@@ -631,11 +692,8 @@ def _parse_agent_data_dict(raw_dict: dict) -> dict:
     primary_agent_id = str(
         raw_dict.get("agent_id") or raw_dict.get("agent") or next(iter(raw_agents), "root_agent")
     )
-    primary_instr = str(
-        raw_dict.get("chatbot_role")
-        or raw_dict.get("instruction")
-        or (raw_agents.get(primary_agent_id) or {}).get("instruction")
-        or "Helpful AI Assistant"
+    extracted_instr = str(
+        (raw_agents.get(primary_agent_id) or {}).get("instruction") or ""
     )
     normalized_turns = []
     for t_obj in raw_turns:
@@ -681,19 +739,9 @@ def _parse_agent_data_dict(raw_dict: dict) -> dict:
         })
     if not normalized_turns:
         raise ValueError("AgentData turns list cannot be empty")
-    last_turn = normalized_turns[-1]
-    tool_rc, all_rc = _collect_turn_rc(normalized_turns)
-    result = dict(raw_dict)
-    result.setdefault("agent_id", primary_agent_id)
-    result.setdefault("chatbot_role", primary_instr)
-    result.setdefault("input", last_turn["input"])
-    result.setdefault("actual_output", last_turn["actual_output"])
-    result.setdefault("tools_called", [t for turn in normalized_turns for t in turn["tools_called"]])
-    result.setdefault("retrieval_context", all_rc)
-    if not tool_rc and not raw_dict.get("retrieval_context") and primary_instr:
-        result.setdefault("context", [primary_instr])
-    result["turns"] = normalized_turns
-    return result
+    return _finalize_parsed_trace(
+        raw_dict, normalized_turns, primary_agent_id, extracted_instr, True
+    )
 
 
 def _normalize_input_payload(events_json) -> dict | None:
