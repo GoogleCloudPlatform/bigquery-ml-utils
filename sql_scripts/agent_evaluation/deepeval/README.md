@@ -82,25 +82,27 @@ export MODEL_ID="gemini-3.8-flash"
 >   `eu` → `europe-west4`, and passing explicit regions such as `us-east4`,
 >   `europe-west1`, or `asia-northeast1` directly; if the location is
 >   unconfigured or invalid, the UDF fails fast with a `ValueError`). Because
->   Gemini 3.x models such as the default `gemini-3.8-flash` and fallback
->   `gemini-3.5-flash` are not served on all single-region endpoints (and
->   BigQuery datasets/connections cannot be created in `global`), **Gemini 3.x
->   models route evaluation requests to the `global` endpoint by default** when
->   no per-row `location` is specified, meaning prompt traffic may be processed
->   outside `${LOCATION}`. Explicit per-row `location` overrides in
->   `test_case_json` (as well as non-`gemini-3*` regional model IDs) always stay
->   on the configured regional endpoint and never fall back across regions. For
->   strict in-region data residency compliance, specify a regional `location` in
->   `test_case_json` for a region that serves your chosen Gemini 3.x model (such
->   as `gemini-3.8-flash` or `gemini-3.5-flash`).
+>   Gemini 3.x and 4.x models such as the default `gemini-3.8-flash`, fallback
+>   `gemini-3.5-flash`, and `gemini-4-hydrogen` are not served on all
+>   single-region endpoints (and BigQuery datasets/connections cannot be created
+>   in `global`), **Gemini 3.x and 4.x models route evaluation requests to the
+>   `global` endpoint by default** when no per-row `location` is specified,
+>   meaning prompt traffic may be processed outside `${LOCATION}`. Explicit
+>   per-row `location` overrides in `test_case_json` (as well as non-`gemini-3*`
+>   / non-`gemini-4*` regional model IDs) always stay on the configured regional
+>   endpoint and never fall back across regions. For strict in-region data
+>   residency compliance, specify a regional `location` in `test_case_json` for
+>   a region that serves your chosen Gemini model (such as `gemini-3.8-flash` or
+>   `gemini-3.5-flash`).
 > - **Judge Model Selection:** The default primary judge model is
 >   `gemini-3.8-flash` (routed to `global` unless a per-row `location` is set,
->   with `thinking_level="LOW"` configured automatically for Gemini 3.x models
->   to minimize thinking-token overhead and evaluation latency), with
->   `gemini-3.5-flash` as the fallback model on the final retry attempt for
->   transient or invalid-JSON evaluation errors (deterministic HTTP 4xx errors
->   other than 408/429 fail fast without retrying). You can override the model
->   at install time via `MODEL_ID` (5th argument to `./install.sh`, e.g.,
+>   with `thinking_level="LOW"` configured automatically for Gemini 3.x and 4.x
+>   models such as `gemini-3.8-flash` and `gemini-4-hydrogen` to minimize
+>   thinking-token overhead and evaluation latency), with `gemini-3.5-flash` as
+>   the fallback model on the final retry attempt for transient or invalid-JSON
+>   evaluation errors (deterministic HTTP 4xx errors other than 408/429 fail
+>   fast without retrying). You can override the model at install time via
+>   `MODEL_ID` (5th argument to `./install.sh`, e.g., `gemini-4-hydrogen` or
 >   `gemini-3.5-flash`) or per query via `judge_model`, `fallback_judge_model`,
 >   and `location` in `test_case_json`.
 > - **Memory & Batching:** Because `deepeval` has a substantial runtime
@@ -252,9 +254,9 @@ or a single-turn `STRUCT`, `deepeval_evaluate` builds a DeepEval `LLMTestCase`.
 | `evaluation_steps` | `ARRAY<STRING>` | Optional | Explicit scoring steps for `geval` / `conversational_geval` (skips Pass 1 step generation and evaluates in a single LLM pass). |
 | `root_agent` | `STRING` | Optional (in `deepeval_parse_trace`) | Filters BQAA events to invocations containing the specified root coordinator agent name (excluding internal `AgentTool` sub-agent events while preserving `transfer_to_agent` handoffs and shared-invocation workflow agents; keep `t.attributes` in the projection so single-turn `GROUP BY session_id, invocation_id` queries retain follow-up turns logged under a transferred sub-agent via `attributes.root_agent_name`; returns `NULL` when no invocation in the group matches). |
 | `output_response_field` | `STRING` | Optional (in `deepeval_parse_trace`) | Unwraps a structured JSON response field (such as `'response'` when ADK `output_schema` emits `{"response": "...", "usefulness": 0.95}`) and strips JSON-schema output constraints from `chatbot_role` so `role_adherence` does not penalize unwrapped Markdown. Also auto-detected when the trace-extracted agent instruction mentions `output_schema` / `AgentResponse` / `strictly as a JSON object` and `actual_output` is a multi-key JSON object containing a `"response"` string (pass `''` to opt out). |
-| `judge_model` | `STRING` | Optional | Primary Gemini judge model ID (defaults to `'gemini-3.8-flash'`; also supports other Gemini 3.x models such as `'gemini-3.5-flash'`). |
+| `judge_model` | `STRING` | Optional | Primary Gemini judge model ID (defaults to `'gemini-3.8-flash'`; also supports other Gemini 3.x models such as `'gemini-3.5-flash'` and Gemini 4.x models such as `'gemini-4-hydrogen'`). |
 | `fallback_judge_model` | `STRING` | Optional | Fallback Gemini judge model ID used on final retry (defaults to `'gemini-3.5-flash'`). |
-| `location` | `STRING` | Optional | Per-row Gemini endpoint location override (defaults to `'global'` for Gemini 3.x models when unset, or the specified regional endpoint when set). |
+| `location` | `STRING` | Optional | Per-row Gemini endpoint location override (defaults to `'global'` for Gemini 3.x / 4.x models when unset, or the specified regional endpoint when set). |
 
 #### Supported Single-Turn Metrics (`metrics`)
 
@@ -312,9 +314,9 @@ When `test_case_json` is a multi-turn trace produced by `deepeval_parse_trace`
 | `evaluation_steps` | `ARRAY<STRING>` | Optional | Explicit scoring steps for `conversational_geval` (skips Pass 1 step generation and evaluates in a single LLM pass). |
 | `root_agent` | `STRING` | Optional (in `deepeval_parse_trace`) | Filters BQAA events to invocations containing the specified root coordinator agent name (excluding internal `AgentTool` sub-agent events while preserving `transfer_to_agent` handoffs; returns `NULL` when no invocation in the session contains a `root_agent` row). |
 | `output_response_field` | `STRING` | Optional (in `deepeval_parse_trace`) | Unwraps a structured JSON response field across all turns and strips JSON-schema output constraints from `chatbot_role` so `role_adherence` does not penalize unwrapped Markdown. Also auto-detected when the trace-extracted agent instruction mentions `output_schema` / `AgentResponse` / `strictly as a JSON object` and `actual_output` is a multi-key JSON object containing a `"response"` string (pass `''` to opt out). |
-| `judge_model` | `STRING` | Optional | Primary Gemini judge model ID (defaults to `'gemini-3.8-flash'`; also supports other Gemini 3.x models such as `'gemini-3.5-flash'`). |
+| `judge_model` | `STRING` | Optional | Primary Gemini judge model ID (defaults to `'gemini-3.8-flash'`; also supports other Gemini 3.x models such as `'gemini-3.5-flash'` and Gemini 4.x models such as `'gemini-4-hydrogen'`). |
 | `fallback_judge_model` | `STRING` | Optional | Fallback Gemini judge model ID used on final retry (defaults to `'gemini-3.5-flash'`). |
-| `location` | `STRING` | Optional | Per-row Gemini endpoint location override (defaults to `'global'` for Gemini 3.x models when unset, or the specified regional endpoint when set). |
+| `location` | `STRING` | Optional | Per-row Gemini endpoint location override (defaults to `'global'` for Gemini 3.x / 4.x models when unset, or the specified regional endpoint when set). |
 
 #### Supported Multi-Turn Metrics (`metrics`)
 

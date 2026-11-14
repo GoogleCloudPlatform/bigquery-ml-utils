@@ -433,6 +433,21 @@ class AgentEvaluationDeepevalTest(unittest.TestCase):
       self.assertEqual(
           FakeBaseMetric.last_instances[-1].model.location, 'global'
       )
+      gemini4_res = ns_regional['evaluate_test_case'](
+          json.dumps({
+              'input': 'Q',
+              'actual_output': 'A',
+              'judge_model': 'gemini-4-hydrogen',
+          }),
+          ['answer_relevancy'],
+      )
+      self.assertTrue(gemini4_res[0]['passed'])
+      self.assertEqual(
+          FakeBaseMetric.last_instances[-1].model.model, 'gemini-4-hydrogen'
+      )
+      self.assertEqual(
+          FakeBaseMetric.last_instances[-1].model.location, 'global'
+      )
       explicit_loc_res = ns_regional['evaluate_test_case'](
           json.dumps({
               'input': 'Q',
@@ -783,12 +798,23 @@ class AgentEvaluationDeepevalTest(unittest.TestCase):
         kw_none['config'], {'thinking_config': {'thinking_level': 'LOW'}}
     )
 
-    # 2. Positional model argument on Gemini 3.x also injects thinking_level
+    # 2. Positional model argument on Gemini 3.x / 4.x also injects
+    #    thinking_level='LOW'
     kw_pos = apply_thinking(
         ('publishers/google/models/gemini-3.8-flash', 'p'), {}
     )
     self.assertEqual(
         kw_pos['config'], {'thinking_config': {'thinking_level': 'LOW'}}
+    )
+    kw_g4 = apply_thinking((), {'model': 'gemini-4-hydrogen', 'contents': 'p'})
+    self.assertEqual(
+        kw_g4['config'], {'thinking_config': {'thinking_level': 'LOW'}}
+    )
+    kw_g4_pub = apply_thinking(
+        ('publishers/google/models/gemini-4-hydrogen', 'p'), {}
+    )
+    self.assertEqual(
+        kw_g4_pub['config'], {'thinking_config': {'thinking_level': 'LOW'}}
     )
 
     # 3. Dict config without thinking_config merges thinking_config
@@ -890,6 +916,22 @@ class AgentEvaluationDeepevalTest(unittest.TestCase):
     )
     self.assertEqual(
         call_kw_38_cfg['config'].thinking_config.thinking_level, 'LOW'
+    )
+
+    genai_models_mod.Models.calls.clear()
+    evaluate_test_case(
+        json.dumps({
+            'input': 'Q',
+            'actual_output': 'A',
+            'judge_model': 'gemini-4-hydrogen',
+        }),
+        ['answer_relevancy'],
+    )
+    self.assertEqual(len(genai_models_mod.Models.calls), 1)
+    _, call_kw_4h = genai_models_mod.Models.calls[0]
+    self.assertEqual(call_kw_4h['model'], 'gemini-4-hydrogen')
+    self.assertEqual(
+        call_kw_4h['config'], {'thinking_config': {'thinking_level': 'LOW'}}
     )
 
     genai_models_mod.Models.calls.clear()

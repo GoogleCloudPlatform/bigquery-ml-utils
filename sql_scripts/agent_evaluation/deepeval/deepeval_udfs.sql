@@ -816,9 +816,9 @@ from deepeval.test_case import (
 from google.genai import models as _genai_models
 
 _TOKEN_USAGE = [0, 0]
-# Matches Gemini 3.x model IDs (e.g. "gemini-3.8-flash", "publishers/google/models/gemini-3.8-flash").
+# Matches Gemini 3.x / 4.x model IDs (e.g. "gemini-3.8-flash", "gemini-4-hydrogen").
 _GEMINI_3_MODEL_RE = re.compile(
-    r"^(?:publishers/google/models/)?gemini-3(?:\b|[.-])",
+    r"^(?:publishers/google/models/)?gemini-[34](?:\b|[.-])",
     re.IGNORECASE,
 )
 
@@ -1005,11 +1005,12 @@ _MODEL_CACHE: dict[tuple[str, str, str], SafeGeminiModel] = {}
 def _get_judge_model(model_id: str, location: str = "") -> SafeGeminiModel:
     """Returns a module-cached SafeGeminiModel instance to avoid per-row re-initialization.
 
-    Gemini 3.x models (such as gemini-3.8-flash and gemini-3.5-flash) are served on the global
-    endpoint rather than all single-region endpoints (e.g. us-central1), while BigQuery datasets
-    and connections must be created in a regional or multi-region location. When no per-row
-    location override is set, Gemini 3.x models route to 'global'; regional models and explicit
-    per-row location overrides use GCP_LOCATION.
+    Gemini 3.x and 4.x models (such as gemini-3.8-flash, gemini-3.5-flash, and
+    gemini-4-hydrogen) are served on the global endpoint rather than all single-region
+    endpoints, while BigQuery datasets and connections must be created in a regional or
+    multi-region location. When no per-row location override is set, Gemini 3.x / 4.x models
+    route to 'global'; regional models and explicit per-row location overrides use
+    GCP_LOCATION.
     """
     resolved_loc = _resolve_gcp_location(location) if location else (GCP_LOCATION or _resolve_gcp_location())
     if _is_gemini_3_model(model_id) and not location:
