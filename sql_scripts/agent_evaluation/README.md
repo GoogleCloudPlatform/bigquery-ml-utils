@@ -166,7 +166,7 @@ The unit tests in [`tests/`](tests/) use only the Python standard library
 (`unittest`) with lightweight fakes for hermetic CI (no network calls or
 external packages required). When upgrading the pinned package versions in
 [`deepeval/deepeval_udfs.sql`](deepeval/deepeval_udfs.sql) (such as
-`deepeval==3.8.0` or `google-genai==1.15.0`), run a manual end-to-end smoke
+`deepeval==3.8.0` or `google-genai==1.52.0`), run a manual end-to-end smoke
 test in BigQuery in addition to the unit tests:
 
 ```bash

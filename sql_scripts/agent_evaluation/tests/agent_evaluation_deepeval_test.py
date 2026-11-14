@@ -123,6 +123,7 @@ class FakeGeminiModel:
   """Fake base GeminiModel recording initialization args and generate calls."""
 
   genai_models_mod: Any = None
+  default_config: Any = None
 
   def __init__(
       self, model: str = '', project: str = '', location: str = '', **kwargs
@@ -146,7 +147,10 @@ class FakeGeminiModel:
           ' input_type=bool]'
       )
     if self.genai_models_mod is not None:
-      self.genai_models_mod.Models().generate_content()
+      call_kwargs: dict[str, Any] = {'model': self.model, 'contents': prompt}
+      if self.default_config is not None:
+        call_kwargs['config'] = self.default_config
+      self.genai_models_mod.Models().generate_content(**call_kwargs)
     if schema is None:
       return '```json\n{"data": {"project": "demo-proj"}}\n```', 0.0
     return schema.model_validate({'data': {'project': 'demo-proj'}}), 0.0
@@ -166,7 +170,9 @@ class FakeGeminiModel:
           ' input_type=bool]'
       )
     if self.genai_models_mod is not None:
-      await self.genai_models_mod.AsyncModels().generate_content()
+      await self.genai_models_mod.AsyncModels().generate_content(
+          model=self.model, contents=prompt
+      )
     if schema is None:
       return '```json\n{"data": {"project": "demo-proj"}}\n```', 0.0
     return schema.model_validate({'data': {'project': 'demo-proj'}}), 0.0
@@ -266,9 +272,10 @@ def _load_udf_module(
   fake_google_genai_models: Any = types.ModuleType('google.genai.models')
 
   class FakeGenaiModels:
+    calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
 
     def generate_content(self, *args, **kwargs):
-      del args, kwargs
+      FakeGenaiModels.calls.append((args, kwargs))
       return types.SimpleNamespace(
           usage_metadata=types.SimpleNamespace(
               prompt_token_count=40,
@@ -279,9 +286,10 @@ def _load_udf_module(
       )
 
   class FakeGenaiAsyncModels:
+    calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
 
     async def generate_content(self, *args, **kwargs):
-      del args, kwargs
+      FakeGenaiAsyncModels.calls.append((args, kwargs))
       return types.SimpleNamespace(
           usage_metadata=types.SimpleNamespace(
               prompt_token_count=60,
@@ -408,10 +416,10 @@ class AgentEvaluationDeepevalTest(unittest.TestCase):
       ns_eu = _load_udf_module()
     self.assertEqual(ns_eu['GCP_LOCATION'], 'europe-west4')
 
-    # Gemini 3 models (such as the default gemini-3.8-flash) route to the
-    # global endpoint by default, while regional models (e.g. gemini-2.5-flash,
-    # including retry fallback), non-Gemini-3 model IDs, and explicit per-call
-    # location overrides preserve the regional endpoint.
+    # Gemini 3 models (such as the default gemini-3.8-flash and fallback
+    # gemini-3.5-flash) route to the global endpoint by default, while
+    # non-Gemini-3 model IDs and explicit per-call location overrides preserve
+    # the regional endpoint.
     with mock.patch.dict(
         os.environ, {'GOOGLE_CLOUD_LOCATION': 'asia-northeast1'}
     ):
@@ -424,18 +432,6 @@ class AgentEvaluationDeepevalTest(unittest.TestCase):
       self.assertTrue(default_res[0]['passed'])
       self.assertEqual(
           FakeBaseMetric.last_instances[-1].model.location, 'global'
-      )
-      regional_res = ns_regional['evaluate_test_case'](
-          json.dumps({
-              'input': 'Q',
-              'actual_output': 'A',
-              'judge_model': 'gemini-2.5-flash',
-          }),
-          ['answer_relevancy'],
-      )
-      self.assertTrue(regional_res[0]['passed'])
-      self.assertEqual(
-          FakeBaseMetric.last_instances[-1].model.location, 'asia-northeast1'
       )
       explicit_loc_res = ns_regional['evaluate_test_case'](
           json.dumps({
@@ -472,18 +468,29 @@ class AgentEvaluationDeepevalTest(unittest.TestCase):
             json.dumps({'input': 'Q', 'actual_output': 'A'}),
             ['answer_relevancy'],
         )
+        fallback_explicit_loc_res = ns_regional['evaluate_test_case'](
+            json.dumps({
+                'input': 'Q',
+                'actual_output': 'A',
+                'location': 'asia-northeast1',
+            }),
+            ['answer_relevancy'],
+        )
       FakeBaseMetric.fail_models = set()
-    self.assertEqual(mock_sleep_regional.call_count, 2)
+    self.assertEqual(mock_sleep_regional.call_count, 4)
     self.assertTrue(fallback_loc_res[0]['passed'])
-    self.assertIn('[Judge: gemini-2.5-flash]', fallback_loc_res[0]['reason'])
+    self.assertIn('[Judge: gemini-3.5-flash]', fallback_loc_res[0]['reason'])
     self.assertEqual(
-        FakeBaseMetric.last_instances[-2].model.model, 'gemini-3.8-flash'
+        FakeBaseMetric.last_instances[-4].model.model, 'gemini-3.8-flash'
     )
+    self.assertEqual(FakeBaseMetric.last_instances[-4].model.location, 'global')
     self.assertEqual(
-        FakeBaseMetric.last_instances[-2].model.location, 'global'
+        FakeBaseMetric.last_instances[-3].model.model, 'gemini-3.5-flash'
     )
+    self.assertEqual(FakeBaseMetric.last_instances[-3].model.location, 'global')
+    self.assertTrue(fallback_explicit_loc_res[0]['passed'])
     self.assertEqual(
-        FakeBaseMetric.last_instances[-1].model.model, 'gemini-2.5-flash'
+        FakeBaseMetric.last_instances[-1].model.model, 'gemini-3.5-flash'
     )
     self.assertEqual(
         FakeBaseMetric.last_instances[-1].model.location, 'asia-northeast1'
@@ -668,7 +675,7 @@ class AgentEvaluationDeepevalTest(unittest.TestCase):
     ns = _load_udf_module()
     safe_model_cls = ns['SafeGeminiModel']
     model = safe_model_cls(
-        model='gemini-2.5-flash', project='12345', location='us-central1'
+        model='gemini-3.5-flash', project='12345', location='global'
     )
 
     class Knowledge:
@@ -761,15 +768,162 @@ class AgentEvaluationDeepevalTest(unittest.TestCase):
 
     # Global sed replacement of YOUR_MODEL_ID by install.sh preserves the
     # user-supplied PRIMARY_MODEL_ID rather than resetting to gemini-3.8-flash.
-    ns_custom_model = _load_udf_module(default_model='gemini-2.5-flash')
-    self.assertEqual(ns_custom_model['PRIMARY_MODEL_ID'], 'gemini-2.5-flash')
+    ns_custom_model = _load_udf_module(default_model='gemini-3.5-flash')
+    self.assertEqual(ns_custom_model['PRIMARY_MODEL_ID'], 'gemini-3.5-flash')
+
+  def test_thinking_level_low_injected_for_gemini_3_models(self):
+    ns = _load_udf_module()
+    apply_thinking = ns['_apply_thinking_config']
+    genai_models_mod = ns['_genai_models']
+    evaluate_test_case = ns['evaluate_test_case']
+
+    # 1. Gemini 3.x with no config injects thinking_level='LOW'
+    kw_none = apply_thinking((), {'model': 'gemini-3.8-flash', 'contents': 'p'})
+    self.assertEqual(
+        kw_none['config'], {'thinking_config': {'thinking_level': 'LOW'}}
+    )
+
+    # 2. Positional model argument on Gemini 3.x also injects thinking_level
+    kw_pos = apply_thinking(
+        ('publishers/google/models/gemini-3.8-flash', 'p'), {}
+    )
+    self.assertEqual(
+        kw_pos['config'], {'thinking_config': {'thinking_level': 'LOW'}}
+    )
+
+    # 3. Dict config without thinking_config merges thinking_config
+    kw_dict = apply_thinking(
+        (),
+        {
+            'model': 'gemini-3.8-flash',
+            'config': {'temperature': 0.0},
+        },
+    )
+    self.assertEqual(
+        kw_dict['config'],
+        {
+            'temperature': 0.0,
+            'thinking_config': {'thinking_level': 'LOW'},
+        },
+    )
+
+    # 4. Dict config with explicit thinking_config is preserved unchanged
+    kw_existing = apply_thinking(
+        (),
+        {
+            'model': 'gemini-3.8-flash',
+            'config': {
+                'temperature': 0.0,
+                'thinking_config': {'thinking_level': 'HIGH'},
+            },
+        },
+    )
+    self.assertEqual(
+        kw_existing['config']['thinking_config'], {'thinking_level': 'HIGH'}
+    )
+
+    # 5. Pydantic-like GenerateContentConfig with model_copy and ThinkingConfig
+    class FakeThinkingConfig:
+
+      def __init__(self, thinking_level: str):
+        self.thinking_level = thinking_level
+
+    class FakeGenerateContentConfig:
+
+      def __init__(self, temperature: float = 0.0, thinking_config: Any = None):
+        self.temperature = temperature
+        self.thinking_config = thinking_config
+
+      def model_copy(self, update: dict[str, Any]):
+        return FakeGenerateContentConfig(
+            temperature=self.temperature,
+            thinking_config=update.get('thinking_config', self.thinking_config),
+        )
+
+    genai_models_mod.types = types.SimpleNamespace(
+        ThinkingConfig=FakeThinkingConfig
+    )
+    orig_cfg = FakeGenerateContentConfig(temperature=0.0)
+    kw_obj = apply_thinking(
+        (), {'model': 'gemini-3.8-flash', 'config': orig_cfg}
+    )
+    self.assertIsNone(orig_cfg.thinking_config)
+    self.assertIsInstance(kw_obj['config'].thinking_config, FakeThinkingConfig)
+    self.assertEqual(kw_obj['config'].thinking_config.thinking_level, 'LOW')
+
+    # 6. Non-Gemini-3 models omit thinking_level
+    kw_non_3 = apply_thinking(
+        (), {'model': 'custom-judge-model', 'config': {'temperature': 0.0}}
+    )
+    self.assertEqual(kw_non_3['config'], {'temperature': 0.0})
+
+    # 7. End-to-end evaluate_test_case passes thinking_level="LOW" on
+    #    gemini-3.8-flash (both dict config and GenerateContentConfig.model_copy
+    #    branches) and omits it on non-Gemini-3 models.
+    genai_models_mod.Models.calls.clear()
+    evaluate_test_case(
+        json.dumps({'input': 'Q', 'actual_output': 'A'}),
+        ['answer_relevancy'],
+    )
+    self.assertEqual(len(genai_models_mod.Models.calls), 1)
+    _, call_kw_38 = genai_models_mod.Models.calls[0]
+    self.assertEqual(call_kw_38['model'], 'gemini-3.8-flash')
+    self.assertEqual(
+        call_kw_38['config'], {'thinking_config': {'thinking_level': 'LOW'}}
+    )
+
+    genai_models_mod.Models.calls.clear()
+    FakeGeminiModel.default_config = FakeGenerateContentConfig(temperature=0.0)
+    try:
+      evaluate_test_case(
+          json.dumps({'input': 'Q', 'actual_output': 'A'}),
+          ['answer_relevancy'],
+      )
+    finally:
+      FakeGeminiModel.default_config = None
+    self.assertEqual(len(genai_models_mod.Models.calls), 1)
+    _, call_kw_38_cfg = genai_models_mod.Models.calls[0]
+    self.assertEqual(call_kw_38_cfg['model'], 'gemini-3.8-flash')
+    self.assertIsInstance(call_kw_38_cfg['config'], FakeGenerateContentConfig)
+    self.assertIsInstance(
+        call_kw_38_cfg['config'].thinking_config, FakeThinkingConfig
+    )
+    self.assertEqual(
+        call_kw_38_cfg['config'].thinking_config.thinking_level, 'LOW'
+    )
+
+    genai_models_mod.Models.calls.clear()
+    evaluate_test_case(
+        json.dumps({
+            'input': 'Q',
+            'actual_output': 'A',
+            'judge_model': 'custom-judge-model',
+        }),
+        ['answer_relevancy'],
+    )
+    self.assertEqual(len(genai_models_mod.Models.calls), 1)
+    _, call_kw_custom = genai_models_mod.Models.calls[0]
+    self.assertEqual(call_kw_custom['model'], 'custom-judge-model')
+    self.assertNotIn('config', call_kw_custom)
+
+    genai_models_mod.AsyncModels.calls.clear()
+    asyncio.run(
+        genai_models_mod.AsyncModels().generate_content(
+            model='gemini-3.8-flash', contents='async_p'
+        )
+    )
+    self.assertEqual(len(genai_models_mod.AsyncModels.calls), 1)
+    _, async_kw = genai_models_mod.AsyncModels.calls[0]
+    self.assertEqual(
+        async_kw['config'], {'thinking_config': {'thinking_level': 'LOW'}}
+    )
 
   def test_retry_fallback_to_flash_lite_and_error_handling(self):
     ns = _load_udf_module()
     evaluate_test_case = ns['evaluate_test_case']
 
     # Fail primary model ('gemini-3.8-flash') so attempt 3 falls back to
-    # 'gemini-2.5-flash'.
+    # 'gemini-3.5-flash'.
     FakeBaseMetric.fail_models = {'gemini-3.8-flash'}
     with mock.patch.object(ns['time'], 'sleep', autospec=True) as mock_sleep:
       results = evaluate_test_case(
@@ -778,12 +932,12 @@ class AgentEvaluationDeepevalTest(unittest.TestCase):
       )
     self.assertEqual(len(results), 1)
     self.assertTrue(results[0]['passed'])
-    self.assertIn('[Judge: gemini-2.5-flash]', results[0]['reason'])
+    self.assertIn('[Judge: gemini-3.5-flash]', results[0]['reason'])
     self.assertEqual(mock_sleep.call_count, 2)
 
     # Exhausting all 3 attempts (both primary and fallback fail) sleeps twice
     # and emits passed=None.
-    FakeBaseMetric.fail_models = {'gemini-3.8-flash', 'gemini-2.5-flash'}
+    FakeBaseMetric.fail_models = {'gemini-3.8-flash', 'gemini-3.5-flash'}
     with mock.patch.object(
         ns['time'], 'sleep', autospec=True
     ) as mock_sleep_all:
@@ -2737,7 +2891,7 @@ exit 0
               'custom_dataset',
               'us-central1',
               'custom_ge_conn',
-              'gemini-2.5-pro',
+              'gemini-3.5-flash',
           ],
           env=env,
           capture_output=True,
@@ -2746,7 +2900,7 @@ exit 0
       )
       self.assertEqual(model_proc.returncode, 0)
       custom_rendered_sql = captured_sql_file.read_text(encoding='utf-8')
-      self.assertIn('"gemini-2.5-pro"', custom_rendered_sql)
+      self.assertIn('"gemini-3.5-flash"', custom_rendered_sql)
       custom_py_bodies = _extract_udf_python_bodies(custom_rendered_sql)
       self.assertEqual(len(custom_py_bodies), 2)
       for custom_py_body in custom_py_bodies:

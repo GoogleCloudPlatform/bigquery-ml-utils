@@ -790,7 +790,7 @@ WITH CONNECTION `YOUR_PROJECT_ID.YOUR_LOCATION.YOUR_CONNECTION_ID`
 OPTIONS (
   runtime_version = 'python-3.11',
   entry_point = 'evaluate_test_case',
-  packages = ['deepeval==3.8.0', 'google-genai==1.15.0', 'google-auth==2.40.0'],
+  packages = ['deepeval==3.8.0', 'google-genai==1.52.0', 'google-auth==2.40.0'],
   max_batching_rows = 1
 )
 AS r'''
@@ -816,6 +816,15 @@ from deepeval.test_case import (
 from google.genai import models as _genai_models
 
 _TOKEN_USAGE = [0, 0]
+# Matches Gemini 3.x model IDs (e.g. "gemini-3.8-flash", "publishers/google/models/gemini-3.8-flash").
+_GEMINI_3_MODEL_RE = re.compile(
+    r"^(?:publishers/google/models/)?gemini-3(?:\b|[.-])",
+    re.IGNORECASE,
+)
+
+
+def _is_gemini_3_model(model_id: str) -> bool:
+    return bool(_GEMINI_3_MODEL_RE.match(model_id.strip()))
 
 
 def _add_usage(u) -> None:
@@ -828,18 +837,39 @@ def _add_usage(u) -> None:
         )
 
 
+def _apply_thinking_config(a: tuple, kw: dict) -> dict:
+    if not _is_gemini_3_model(str(kw.get("model") or (a[0] if a else ""))):
+        return kw
+    kw, cfg, tc = dict(kw), kw.get("config"), {"thinking_level": "LOW"}
+    if cfg is None:
+        kw["config"] = {"thinking_config": tc}
+    elif isinstance(cfg, dict) and cfg.get("thinking_config") is None:
+        kw["config"] = {**cfg, "thinking_config": tc}
+    elif not isinstance(cfg, dict) and getattr(cfg, "thinking_config", None) is None:
+        try:
+            tc_cls = getattr(getattr(_genai_models, "types", None), "ThinkingConfig", None)
+            tc_val = tc_cls(thinking_level="LOW") if tc_cls else tc
+            if hasattr(cfg, "model_copy"):
+                kw["config"] = cfg.model_copy(update={"thinking_config": tc_val})
+            else:
+                cfg.thinking_config = tc_val
+        except Exception:
+            pass
+    return kw
+
+
 _orig_generate_content = _genai_models.Models.generate_content
 _orig_async_generate_content = _genai_models.AsyncModels.generate_content
 
 
 def _wrapped_generate_content(self, *a, **kw):
-    resp = _orig_generate_content(self, *a, **kw)
+    resp = _orig_generate_content(self, *a, **_apply_thinking_config(a, kw))
     _add_usage(getattr(resp, "usage_metadata", None))
     return resp
 
 
 async def _wrapped_async_generate_content(self, *a, **kw):
-    resp = await _orig_async_generate_content(self, *a, **kw)
+    resp = await _orig_async_generate_content(self, *a, **_apply_thinking_config(a, kw))
     _add_usage(getattr(resp, "usage_metadata", None))
     return resp
 
@@ -901,14 +931,14 @@ PRIMARY_MODEL_ID = (
     if not _RAW_MODEL_ID or _RAW_MODEL_ID.lower() == "your_model_id"
     else _RAW_MODEL_ID
 )
-FALLBACK_MODEL_ID = "gemini-2.5-flash"
+FALLBACK_MODEL_ID = "gemini-3.5-flash"
 
 
 class SafeGeminiModel(GeminiModel):
     """GeminiModel wrapper with JSON-prompt fallback for unsupported Pydantic JSON schemas.
 
     Metrics like KnowledgeRetentionMetric emit `additionalProperties` / `additional_properties`
-    in Pydantic JSON schemas, which `google-genai==1.15.0` and Gemini's structured output API
+    in Pydantic JSON schemas, which `google-genai` and Gemini's structured output API
     reject. When that occurs, this wrapper falls back to requesting raw JSON in the prompt and
     validating client-side.
     """
@@ -970,27 +1000,16 @@ class SafeGeminiModel(GeminiModel):
 
 
 _MODEL_CACHE: dict[tuple[str, str, str], SafeGeminiModel] = {}
-# Matches Gemini 3.x model IDs (e.g. "gemini-3.8-flash", "publishers/google/models/gemini-3.8-flash")
-# without matching unrelated identifiers containing "gemini-3" as a non-prefix substring.
-_GEMINI_3_MODEL_RE = re.compile(
-    r"^(?:publishers/google/models/)?gemini-3(?:\b|[.-])",
-    re.IGNORECASE,
-)
-
-
-def _is_gemini_3_model(model_id: str) -> bool:
-    """Returns True if model_id is a Gemini 3.x model identifier."""
-    return bool(_GEMINI_3_MODEL_RE.match(model_id.strip()))
 
 
 def _get_judge_model(model_id: str, location: str = "") -> SafeGeminiModel:
     """Returns a module-cached SafeGeminiModel instance to avoid per-row re-initialization.
 
-    Gemini 3.x models (such as gemini-3.8-flash) are served on the global endpoint rather
-    than single-region endpoints (e.g. us-central1), while BigQuery datasets and connections
-    must be created in a regional or multi-region location. When no per-row location override
-    is set, Gemini 3.x models route to 'global'; regional models (e.g. gemini-2.5-flash,
-    including retry fallback) and explicit per-row location overrides use GCP_LOCATION.
+    Gemini 3.x models (such as gemini-3.8-flash and gemini-3.5-flash) are served on the global
+    endpoint rather than all single-region endpoints (e.g. us-central1), while BigQuery datasets
+    and connections must be created in a regional or multi-region location. When no per-row
+    location override is set, Gemini 3.x models route to 'global'; regional models and explicit
+    per-row location overrides use GCP_LOCATION.
     """
     resolved_loc = _resolve_gcp_location(location) if location else (GCP_LOCATION or _resolve_gcp_location())
     if _is_gemini_3_model(model_id) and not location:
