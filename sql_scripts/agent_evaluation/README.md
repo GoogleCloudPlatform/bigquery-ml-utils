@@ -15,6 +15,7 @@ Secret Manager secrets are required**.
 
 | Directory | UDF Names | Evaluation Backend | Supported Capabilities |
 | :--- | :--- | :--- | :--- |
+| **[`geap/`](geap/)** | `geap_evaluate` | [Gemini Enterprise Agent Platform Evaluation Service](https://docs.cloud.google.com/gemini-enterprise-agent-platform) | Evaluates single-turn and multi-turn agent execution traces against GEAP's 7 managed agent evaluation metrics (`tool_use_quality_v2`, `final_response_quality_v2`, `hallucination_v2`, `safety_v2`, `multi_turn_task_success_v1`, `multi_turn_tool_use_quality_v1`, `multi_turn_trajectory_quality_v1`) or custom prompt-based metrics. Returns numeric scores, natural-language explanations, and fine-grained rubric verdicts. |
 | **[`deepeval/`](deepeval/)** | `deepeval_parse_trace`, `deepeval_evaluate` | [DeepEval](https://github.com/confident-ai/deepeval) with [Gemini on Gemini Enterprise Agent Platform](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models) (`gemini-3.8-flash`) | Offline BQAA / `AgentData` trace normalization (`deepeval_parse_trace`) plus single-turn `LLMTestCase` metrics (`answer_relevancy`, `faithfulness`, `task_completion`, `tool_correctness`, `contextual_relevancy`, `contextual_precision`, `contextual_recall`, `hallucination`, `geval`) and multi-turn `ConversationalTestCase` metrics (`turn_relevancy`, `knowledge_retention`, `conversation_completeness`, `role_adherence`, `conversational_geval`). |
 
 ---

@@ -16,8 +16,11 @@
 
 import importlib.util
 import json
+import os
 import pathlib
 import re
+import stat
+import subprocess
 import sys
 import tempfile
 import threading
@@ -1861,6 +1864,316 @@ class AgentEvaluationGeapTest(unittest.TestCase):
         set(parsed_response["rubric_verdicts"][0].keys()),
         expected_rubric_fields,
     )
+
+  def _make_fake_cli_env(
+      self,
+      tmp_path: pathlib.Path,
+      cli_log_file: Optional[pathlib.Path] = None,
+      captured_sql_file: Optional[pathlib.Path] = None,
+  ) -> dict[str, str]:
+    """Creates hermetic fake gcloud and bq CLIs in tmp_path and returns env.
+
+    The fake dataset exists in FAKE_EXISTING_DS_LOC (default us-central1).
+    FAKE_DS_MISSING=1 makes it not exist, and FAKE_DS_SHOW_FAIL=1 makes the
+    lookup fail with a non-"not found" error.
+    """
+    log_target = str(cli_log_file) if cli_log_file else "/dev/null"
+    sql_target = str(captured_sql_file) if captured_sql_file else "/dev/null"
+
+    fake_gcloud = tmp_path / "gcloud"
+    fake_gcloud.write_text(
+        f"""#!/usr/bin/env bash
+echo "gcloud $*" >> "{log_target}"
+if [[ "$1" == "config" && "$2" == "get-value" ]]; then
+  echo "(unset)"
+  exit 0
+fi
+exit 0
+""",
+        encoding="utf-8",
+    )
+    fake_gcloud.chmod(0o755)
+
+    fake_bq = tmp_path / "bq"
+    fake_bq.write_text(
+        f"""#!/usr/bin/env bash
+echo "bq $*" >> "{log_target}"
+if [[ " $* " == *" --format=json "* && " $* " == *" --dataset "* ]]; then
+  if [[ "${{FAKE_DS_SHOW_FAIL:-}}" == "1" ]]; then
+    echo "BigQuery error in show operation: Access Denied" >&2
+    exit 1
+  fi
+  if [[ "${{FAKE_DS_MISSING:-}}" == "1" ]]; then
+    echo "BigQuery error in show operation: Not found: Dataset" >&2
+    exit 1
+  fi
+  echo "{{\\"location\\": \\"${{FAKE_EXISTING_DS_LOC:-us-central1}}\\"}}"
+  exit 0
+fi
+if [[ " $* " == *" --format=json "* ]]; then
+  echo '{{"cloudResource": {{"serviceAccountId": "bqcx-111222333-test@gcp-sa-bigquery-condel.iam.gserviceaccount.com"}}}}'
+  exit 0
+fi
+if [[ " $* " == *" show "* ]]; then
+  exit 1
+fi
+if [[ " $* " == *" query "* ]]; then
+  if [[ " $* " == *"smoke_test_metric"* ]]; then
+    if [[ "${{FAKE_SMOKE_QUERY_FAIL:-}}" == "1" ]]; then
+      echo "Error: INVALID_ARGUMENT in bq query flags" >&2
+      exit 1
+    fi
+    if [[ "${{FAKE_SMOKE_FAIL:-}}" == "1" ]]; then
+      echo "status"
+      echo "INTERNAL: service unavailable"
+      exit 0
+    fi
+    echo "status"
+    echo "INVALID_ARGUMENT: Managed metric smoke_test_metric is not supported."
+    exit 0
+  fi
+  cat > "{sql_target}"
+  exit 0
+fi
+exit 0
+""",
+        encoding="utf-8",
+    )
+    fake_bq.chmod(0o755)
+
+    env = os.environ.copy()
+    env["PATH"] = f"{tmp_path}:{env.get('PATH', '')}"
+    for var in ("PROJECT_ID", "DATASET_ID", "CONNECTION_ID"):
+      env.pop(var, None)
+    return env
+
+  def _run_install(
+      self, env: dict[str, str], *args: str
+  ) -> subprocess.CompletedProcess[str]:
+    """Runs install.sh with the given positional arguments and environment."""
+    install_sh = _find_geap_dir() / "install.sh"
+    return subprocess.run(
+        ["bash", str(install_sh), *args],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+  def test_geap_install_sh_requires_project_id(self):
+    with tempfile.TemporaryDirectory() as tmp_dir:
+      env = self._make_fake_cli_env(pathlib.Path(tmp_dir))
+      proc = self._run_install(env)
+      self.assertNotEqual(proc.returncode, 0)
+      self.assertIn("Error: PROJECT_ID is not set", proc.stderr)
+
+  def test_geap_install_sh_help(self):
+    proc = self._run_install(os.environ.copy(), "--help")
+    self.assertEqual(proc.returncode, 0)
+    self.assertIn("Usage:", proc.stdout)
+    self.assertIn("[PROJECT_ID] [DATASET_ID] [CONNECTION_ID]", proc.stdout)
+    self.assertNotIn("LOCATION", proc.stdout)
+
+  def test_geap_install_sh_validates_identifiers(self):
+    bad_cases = [
+        (
+            "PROJECT_ID",
+            ["bad project", "test_ds", "conn"],
+            (
+                "Error: PROJECT_ID must start with a lowercase letter and end"
+                " with a lowercase letter or number, and contain only"
+                " lowercase letters, numbers, and hyphens."
+            ),
+        ),
+        (
+            "DATASET_ID",
+            ["test-project-123", "bad|ds", "conn"],
+            (
+                "Error: DATASET_ID must contain only letters, numbers, and"
+                " underscores."
+            ),
+        ),
+        (
+            "CONNECTION_ID",
+            ["test-project-123", "test_ds", "bad&conn"],
+            (
+                "Error: CONNECTION_ID must contain only letters, numbers, and"
+                " underscores."
+            ),
+        ),
+    ]
+    with tempfile.TemporaryDirectory() as tmp_dir:
+      env = self._make_fake_cli_env(pathlib.Path(tmp_dir))
+      for var_name, args, expected_error in bad_cases:
+        with self.subTest(var=var_name):
+          proc = self._run_install(env, *args)
+          self.assertNotEqual(proc.returncode, 0)
+          self.assertIn(expected_error, proc.stderr)
+
+  def test_geap_install_sh_rejects_unsupported_dataset_region(self):
+    with tempfile.TemporaryDirectory() as tmp_dir:
+      env = self._make_fake_cli_env(pathlib.Path(tmp_dir))
+      env["FAKE_EXISTING_DS_LOC"] = "asia-east1"
+      proc = self._run_install(
+          env, "test-project-123", "agent_analytics", "conn"
+      )
+      self.assertNotEqual(proc.returncode, 0)
+      self.assertIn(
+          "Error: Unsupported location 'asia-east1' for GEAP evaluation"
+          " service.",
+          proc.stderr,
+      )
+
+  def test_geap_install_sh_stops_on_missing_dataset_without_creating_it(self):
+    with tempfile.TemporaryDirectory() as tmp_dir:
+      tmp_path = pathlib.Path(tmp_dir)
+      cli_log_file = tmp_path / "cli_calls.log"
+      env = self._make_fake_cli_env(tmp_path, cli_log_file=cli_log_file)
+      env["FAKE_DS_MISSING"] = "1"
+      proc = self._run_install(env, "customer-gcp-proj", "new_ds", "conn")
+      self.assertNotEqual(proc.returncode, 0)
+      self.assertIn(
+          "Error: Dataset customer-gcp-proj:new_ds does not exist.",
+          proc.stderr,
+      )
+      self.assertNotIn("mk --dataset", cli_log_file.read_text("utf-8"))
+
+  def test_geap_install_sh_stops_on_dataset_lookup_failure(self):
+    with tempfile.TemporaryDirectory() as tmp_dir:
+      env = self._make_fake_cli_env(pathlib.Path(tmp_dir))
+      env["FAKE_DS_SHOW_FAIL"] = "1"
+      proc = self._run_install(env, "customer-gcp-proj", "ds", "conn")
+      self.assertNotEqual(proc.returncode, 0)
+      self.assertIn(
+          "Error: Failed to inspect dataset customer-gcp-proj:ds", proc.stderr
+      )
+      self.assertIn("Access Denied", proc.stderr)
+
+  def test_geap_install_sh_end_to_end_with_fake_clis(self):
+    with tempfile.TemporaryDirectory() as tmp_dir:
+      tmp_path = pathlib.Path(tmp_dir)
+      captured_sql_file = tmp_path / "captured_query.sql"
+      cli_log_file = tmp_path / "cli_calls.log"
+      env = self._make_fake_cli_env(
+          tmp_path,
+          cli_log_file=cli_log_file,
+          captured_sql_file=captured_sql_file,
+      )
+
+      proc = self._run_install(
+          env, "customer-gcp-proj", "custom_dataset", "custom_ge_conn"
+      )
+      self.assertEqual(
+          proc.returncode,
+          0,
+          f"install.sh failed:\nstdout: {proc.stdout}\nstderr: {proc.stderr}",
+      )
+
+      # APIs are enabled before the dataset lookup, and IAM is never changed.
+      cli_calls = cli_log_file.read_text(encoding="utf-8")
+      self.assertLess(
+          cli_calls.index("services enable bigquery.googleapis.com"),
+          cli_calls.index("show --format=json --dataset"),
+      )
+      self.assertNotIn("iam-policy-binding", cli_calls)
+      service_account = "serviceAccount:bqcx-111222333-test@gcp-sa-bigquery-condel.iam.gserviceaccount.com"
+      self.assertIn(
+          "Grant  : gcloud projects add-iam-policy-binding customer-gcp-proj"
+          f" --member={service_account} --role=roles/aiplatform.user",
+          proc.stdout,
+      )
+      self.assertIn(
+          "Revoke : gcloud projects remove-iam-policy-binding"
+          f" customer-gcp-proj --member={service_account}"
+          " --role=roles/aiplatform.user",
+          proc.stdout,
+      )
+
+      rendered_sql = captured_sql_file.read_text(encoding="utf-8")
+      self.assertIn(
+          "CREATE OR REPLACE FUNCTION"
+          " `customer-gcp-proj.custom_dataset.geap_evaluate`",
+          rendered_sql,
+      )
+      self.assertIn(
+          "WITH CONNECTION `customer-gcp-proj.us-central1.custom_ge_conn`",
+          rendered_sql,
+      )
+      self.assertIn('_DEFAULT_GEAP_REGION = "us-central1"', rendered_sql)
+      # The global replace fills the project but leaves the "never filled in"
+      # sentinel intact, so the installed UDF calls the install project.
+      self.assertIn('_DEFAULT_PROJECT_ID = "customer-gcp-proj"', rendered_sql)
+      self.assertIn('"YOUR_" + "PROJECT_ID"', rendered_sql)
+      self.assertNotIn('!= "customer-gcp-proj"', rendered_sql)
+      for placeholder in (
+          "YOUR_PROJECT_ID",
+          "YOUR_DATASET_ID",
+          "YOUR_CONNECTION_LOCATION",
+          "YOUR_CONNECTION_ID",
+          "YOUR_GEAP_REGION",
+      ):
+        self.assertNotIn(placeholder, rendered_sql)
+
+  def test_geap_install_sh_maps_eu_dataset_to_europe_west4(self):
+    with tempfile.TemporaryDirectory() as tmp_dir:
+      tmp_path = pathlib.Path(tmp_dir)
+      captured_sql_file = tmp_path / "captured_query.sql"
+      env = self._make_fake_cli_env(
+          tmp_path, captured_sql_file=captured_sql_file
+      )
+      env["FAKE_EXISTING_DS_LOC"] = "EU"
+      proc = self._run_install(env, "customer-gcp-proj", "eu_dataset", "conn")
+      self.assertEqual(proc.returncode, 0, proc.stderr)
+      eu_sql = captured_sql_file.read_text(encoding="utf-8")
+      self.assertIn('_DEFAULT_GEAP_REGION = "europe-west4"', eu_sql)
+      self.assertIn("WITH CONNECTION `customer-gcp-proj.EU.conn`", eu_sql)
+
+  def test_geap_install_sh_stops_when_smoke_call_fails(self):
+    cases = [
+        (
+            "FAKE_SMOKE_FAIL",
+            "Smoke test call failed to return expected INVALID_ARGUMENT status",
+        ),
+        # A non-zero bq exit fails even if stderr mentions INVALID_ARGUMENT.
+        ("FAKE_SMOKE_QUERY_FAIL", "Smoke test query failed"),
+    ]
+    with tempfile.TemporaryDirectory() as tmp_dir:
+      base_env = self._make_fake_cli_env(pathlib.Path(tmp_dir))
+      for flag, expected_error in cases:
+        with self.subTest(flag=flag):
+          env = dict(base_env, **{flag: "1"})
+          proc = self._run_install(env, "customer-gcp-proj", "ds", "conn")
+          self.assertNotEqual(proc.returncode, 0)
+          self.assertIn(expected_error, proc.stderr)
+
+  def test_geap_files_exist_and_cleanliness(self):
+    geap_dir = _find_geap_dir()
+    install_sh = geap_dir / "install.sh"
+    readme_md = geap_dir / "README.md"
+    parent_readme = geap_dir.parent / "README.md"
+    geap_sql = geap_dir / "geap_evaluate.sql"
+
+    self.assertTrue(install_sh.is_file())
+    self.assertTrue(readme_md.is_file())
+    self.assertTrue(parent_readme.is_file())
+
+    # Check executable permission
+    self.assertNotEqual(
+        install_sh.stat().st_mode & stat.S_IXUSR,
+        0,
+        "install.sh must be executable (chmod +x)",
+    )
+
+    # Check license headers
+    for path in (install_sh, geap_sql):
+      content = path.read_text(encoding="utf-8")
+      self.assertIn("Copyright 2026 Google LLC", content)
+      self.assertIn("Licensed under the Apache License, Version 2.0", content)
+
+    # Check parent README contains GEAP integration row
+    parent_readme_content = parent_readme.read_text(encoding="utf-8")
+    self.assertIn("geap_evaluate", parent_readme_content)
+    self.assertIn("[`geap/`](geap/)", parent_readme_content)
 
 
 if __name__ == "__main__":
