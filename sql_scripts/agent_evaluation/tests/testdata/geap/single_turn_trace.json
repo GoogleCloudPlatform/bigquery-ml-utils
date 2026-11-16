@@ -1,0 +1,32 @@
+{
+  "turns": [
+    {
+      "turnIndex": 0,
+      "turnId": "turn_0",
+      "events": [
+        {
+          "author": "user",
+          "content": {
+            "role": "user",
+            "parts": [
+              {
+                "text": "What is the capital of France?"
+              }
+            ]
+          }
+        },
+        {
+          "author": "assistant",
+          "content": {
+            "role": "model",
+            "parts": [
+              {
+                "text": "The capital of France is Paris."
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

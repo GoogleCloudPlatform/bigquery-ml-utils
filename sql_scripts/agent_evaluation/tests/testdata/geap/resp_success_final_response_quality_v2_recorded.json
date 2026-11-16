@@ -1,0 +1,24 @@
+{
+  "metricResults": [
+    {
+      "score": 1,
+      "rubricVerdicts": [
+        {
+          "evaluatedRubric": {
+            "content": {
+              "property": {
+                "description": "The final answer states the correct capital of France."
+              }
+            },
+            "type": "",
+            "importance": "HIGH"
+          },
+          "verdict": true,
+          "reasoning": "The final answer correctly states that the capital of France is Paris."
+        }
+      ],
+      "explanation": "",
+      "error": {}
+    }
+  ]
+}

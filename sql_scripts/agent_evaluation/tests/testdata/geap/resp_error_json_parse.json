@@ -1,0 +1,7 @@
+{
+  "error": {
+    "code": 400,
+    "message": "Error parsing JSON. Last error: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)",
+    "status": "INVALID_ARGUMENT"
+  }
+}

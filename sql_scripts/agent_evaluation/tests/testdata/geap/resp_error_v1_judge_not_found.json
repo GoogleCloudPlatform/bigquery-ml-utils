@@ -1,0 +1,7 @@
+{
+  "error": {
+    "code": 404,
+    "message": "Failed to make GenerateContent request to autorater model projects/123456789012/locations/us-central1/publishers/google/models/gemini-2.5-pro. Autorater model not found. Please check that the model exists and try again.",
+    "status": "NOT_FOUND"
+  }
+}

@@ -1,0 +1,60 @@
+{
+  "turns": [
+    {
+      "turnIndex": 0,
+      "turnId": "turn_0",
+      "events": [
+        {
+          "author": "user",
+          "content": {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello"
+              }
+            ]
+          }
+        },
+        {
+          "author": "assistant",
+          "content": {
+            "role": "model",
+            "parts": [
+              {
+                "text": "Hello! How can I help you today?"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "turnIndex": 1,
+      "turnId": "turn_1",
+      "events": [
+        {
+          "author": "user",
+          "content": {
+            "role": "user",
+            "parts": [
+              {
+                "text": "What time is it?"
+              }
+            ]
+          }
+        },
+        {
+          "author": "assistant",
+          "content": {
+            "role": "model",
+            "parts": [
+              {
+                "text": "It is noon."
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
