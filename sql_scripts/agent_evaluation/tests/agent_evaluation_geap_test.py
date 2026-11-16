@@ -17,6 +17,7 @@
 import importlib.util
 import json
 import pathlib
+import re
 import sys
 import tempfile
 import threading
@@ -140,25 +141,36 @@ def _find_geap_dir() -> pathlib.Path:
   raise FileNotFoundError("Could not locate geap directory.")
 
 
-def _load_udf_module() -> Any:
-  """Dynamically loads the geap_evaluate_udf module from disk.
-
-  Returns:
-    Loaded geap_evaluate_udf module object.
-
-  Raises:
-    ImportError: If the module spec or loader fails to load.
-  """
-  geap_dir = _find_geap_dir()
-  module_path = geap_dir / "geap_evaluate_udf.py"
-  spec = importlib.util.spec_from_file_location(
-      "geap_evaluate_udf", module_path
-  )
+def _load_module_from_path(module_name: str, file_path: pathlib.Path) -> Any:
+  """Dynamically loads a Python module from disk by file path."""
+  spec = importlib.util.spec_from_file_location(module_name, file_path)
   if spec is None or spec.loader is None:
-    raise ImportError(f"Could not load module from {module_path}")
+    raise ImportError(f"Could not load module from {file_path}")
   module = importlib.util.module_from_spec(spec)
   spec.loader.exec_module(module)
   return module
+
+
+def _load_udf_module() -> Any:
+  """Dynamically loads the geap_evaluate_udf module from disk."""
+  return _load_module_from_path(
+      "geap_evaluate_udf", _find_geap_dir() / "geap_evaluate_udf.py"
+  )
+
+
+def _load_generator_module() -> Any:
+  """Dynamically loads the generate_udf_sql module from disk."""
+  return _load_module_from_path(
+      "generate_udf_sql", _find_geap_dir() / "tools" / "generate_udf_sql.py"
+  )
+
+
+def _extract_udf_python_bodies(sql_text: str) -> list[str]:
+  """Extracts all Python UDF definition bodies from raw string SQL options."""
+  bodies = re.findall(r"AS\s+r'''\n(.*?)\n''';", sql_text, flags=re.DOTALL)
+  if not bodies:
+    raise ValueError("Could not extract Python UDF body from SQL text.")
+  return bodies
 
 
 def _load_fixture(filename: str) -> dict[str, Any]:
@@ -375,28 +387,39 @@ class AgentEvaluationGeapTest(unittest.TestCase):
     multi_turn = json.dumps(_load_fixture("multi_turn_trace.json"))
 
     # Valid single-turn managed metric
-    self.udf.validate_inputs(
-        trace_str=single_turn,
-        managed_metric="tool_use_quality_v1",
-        prompt_template=None,
+    self.assertEqual(
+        self.udf.validate_inputs(
+            trace_str=single_turn,
+            managed_metric="tool_use_quality_v1",
+            prompt_template=None,
+        ),
+        json.loads(single_turn),
     )
     # Valid multi-turn managed metric
-    self.udf.validate_inputs(
-        trace_str=multi_turn,
-        managed_metric="multi_turn_task_success_v1",
-        prompt_template=None,
+    self.assertEqual(
+        self.udf.validate_inputs(
+            trace_str=multi_turn,
+            managed_metric="multi_turn_task_success_v1",
+            prompt_template=None,
+        ),
+        json.loads(multi_turn),
     )
     # Valid custom prompt template
-    self.udf.validate_inputs(
-        trace_str=single_turn,
-        managed_metric=None,
-        prompt_template="Check {agent_data}",
+    self.assertEqual(
+        self.udf.validate_inputs(
+            trace_str=single_turn,
+            managed_metric=None,
+            prompt_template="Check {agent_data}",
+        ),
+        json.loads(single_turn),
     )
     # Valid None trace (only validates metrics)
-    self.udf.validate_inputs(
-        trace_str=None,
-        managed_metric="tool_use_quality_v1",
-        prompt_template=None,
+    self.assertIsNone(
+        self.udf.validate_inputs(
+            trace_str=None,
+            managed_metric="tool_use_quality_v1",
+            prompt_template=None,
+        )
     )
 
   def test_single_turn_managed_metric_rejects_multi_turn_trace(self):
@@ -1668,6 +1691,176 @@ class AgentEvaluationGeapTest(unittest.TestCase):
       self.assertIsNone(result["explanation"])
       self.assertEqual(result["rubric_verdicts"], [])
       self.assertEqual(result["status"], "INTERNAL: unexpected runtime failure")
+
+  def test_geap_evaluate_sql_matches_generator_output(self):
+    geap_dir = _find_geap_dir()
+    sql_path = geap_dir / "geap_evaluate.sql"
+    udf_path = geap_dir / "geap_evaluate_udf.py"
+    self.assertTrue(sql_path.is_file(), f"Missing file: {sql_path}")
+    self.assertTrue(udf_path.is_file(), f"Missing file: {udf_path}")
+
+    generator_module = _load_generator_module()
+    expected_sql = generator_module.generate_sql(
+        udf_path.read_text(encoding="utf-8")
+    )
+    actual_sql = sql_path.read_text(encoding="utf-8")
+    self.assertEqual(
+        actual_sql,
+        expected_sql,
+        "geap_evaluate.sql does not match generate_udf_sql.py output. Run"
+        " python3 sql_scripts/agent_evaluation/geap/tools/generate_udf_sql.py"
+        " to regenerate.",
+    )
+
+  def test_generate_udf_sql_refuses_triple_single_quotes(self):
+    generator_module = _load_generator_module()
+    with self.assertRaisesRegex(ValueError, "triple single quotes"):
+      generator_module.generate_sql("bad_code = '''premature end'''")
+
+  def test_generate_udf_sql_body_size_limit(self):
+    generator_module = _load_generator_module()
+    # Content exactly at limit succeeds.
+    sql_at_limit = generator_module.generate_sql(
+        "#" * generator_module.MAX_UDF_BODY_BYTES
+    )
+    self.assertIn("CREATE OR REPLACE FUNCTION", sql_at_limit)
+
+    # Content exceeding limit by 1 byte raises ValueError.
+    with self.assertRaisesRegex(
+        ValueError, "exceeds the BigQuery inline limit"
+    ):
+      generator_module.generate_sql(
+          "#" * (generator_module.MAX_UDF_BODY_BYTES + 1)
+      )
+
+  def test_geap_evaluate_python_udf_body_size_within_limit(self):
+    geap_dir = _find_geap_dir()
+    sql_text = (geap_dir / "geap_evaluate.sql").read_text(encoding="utf-8")
+    py_bodies = _extract_udf_python_bodies(sql_text)
+    self.assertEqual(len(py_bodies), 1)
+    body_bytes_len = len(py_bodies[0].encode("utf-8"))
+    generator_module = _load_generator_module()
+    self.assertLessEqual(
+        body_bytes_len,
+        generator_module.MAX_UDF_BODY_BYTES,
+        f"Python UDF body ({body_bytes_len} bytes) exceeds BigQuery limit of"
+        f" {generator_module.MAX_UDF_BODY_BYTES} bytes.",
+    )
+
+  def test_geap_evaluate_sql_placeholders_and_signature_contract(self):
+    geap_dir = _find_geap_dir()
+    sql_text = (geap_dir / "geap_evaluate.sql").read_text(encoding="utf-8")
+    expected_placeholders = {
+        "YOUR_PROJECT_ID",
+        "YOUR_DATASET_ID",
+        "YOUR_CONNECTION_LOCATION",
+        "YOUR_CONNECTION_ID",
+        "YOUR_GEAP_REGION",
+    }
+    found_placeholders = set(re.findall(r"\bYOUR_[A-Z_]+\b", sql_text))
+    self.assertEqual(
+        found_placeholders,
+        expected_placeholders,
+        "Unexpected placeholders in SQL:"
+        f" {found_placeholders ^ expected_placeholders}",
+    )
+
+    # Verify that the SQL RETURNS STRUCT schema fields match the dictionary
+    # keys produced by geap_evaluate.
+    expected_top_level_fields = {
+        "score",
+        "explanation",
+        "rubric_verdicts",
+        "status",
+    }
+    expected_rubric_fields = {
+        "rubric_id",
+        "rubric_content",
+        "type",
+        "importance",
+        "verdict",
+        "reasoning",
+    }
+
+    # Extract field names from both SQL routine definitions:
+    # geap_evaluate_impl and geap_evaluate.
+    struct_matches = re.findall(
+        r"RETURNS\s+STRUCT<(?P<fields>.*?)>\s*(?:LANGUAGE|AS)",
+        sql_text,
+        flags=re.DOTALL,
+    )
+    self.assertEqual(
+        len(struct_matches),
+        2,
+        f"Expected 2 RETURNS STRUCT blocks in SQL, found {len(struct_matches)}",
+    )
+
+    for idx, fields_block in enumerate(struct_matches, 1):
+      # Match top-level fields (lines with 2 leading spaces)
+      top_level_names = set(
+          re.findall(r"^  ([a-z_]+)\s+", fields_block, flags=re.MULTILINE)
+      )
+      self.assertEqual(
+          top_level_names,
+          expected_top_level_fields,
+          f"SQL routine {idx} top-level return struct fields mismatch:"
+          f" {top_level_names ^ expected_top_level_fields}",
+      )
+
+      # Match inner rubric fields (lines with 4 leading spaces inside
+      # rubric_verdicts).
+      rubric_match = re.search(
+          r"rubric_verdicts\s+ARRAY<STRUCT<(?P<rubric_fields>.*?)>>",
+          fields_block,
+          flags=re.DOTALL,
+      )
+      self.assertIsNotNone(
+          rubric_match,
+          f"Could not find rubric_verdicts STRUCT in SQL routine {idx}.",
+      )
+      rubric_fields_block = rubric_match.group("rubric_fields")
+      rubric_field_names = set(
+          re.findall(
+              r"^    ([a-z_]+)\s+", rubric_fields_block, flags=re.MULTILINE
+          )
+      )
+      self.assertEqual(
+          rubric_field_names,
+          expected_rubric_fields,
+          f"SQL routine {idx} rubric verdict struct fields mismatch:"
+          f" {rubric_field_names ^ expected_rubric_fields}",
+      )
+
+    # Verify that the Python UDF returns dictionaries with matching keys.
+    dummy_result = self.udf.geap_evaluate(
+        trace_str=None, managed_metric=None, prompt_template=None
+    )
+    self.assertEqual(set(dummy_result.keys()), expected_top_level_fields)
+
+    inline_rubric_payload = {
+        "metricResults": [{
+            "rubricVerdicts": [{
+                "evaluatedRubric": {
+                    "rubricId": "politeness",
+                    "content": {
+                        "property": {
+                            "description": "The agent must respond politely."
+                        }
+                    },
+                    "type": "POLITENESS",
+                    "importance": "HIGH",
+                },
+                "verdict": True,
+                "reasoning": "Agent used respectful language.",
+            }]
+        }]
+    }
+    parsed_response = self.udf.parse_evaluation_response(inline_rubric_payload)
+    self.assertTrue(parsed_response["rubric_verdicts"])
+    self.assertEqual(
+        set(parsed_response["rubric_verdicts"][0].keys()),
+        expected_rubric_fields,
+    )
 
 
 if __name__ == "__main__":
