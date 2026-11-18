@@ -261,7 +261,6 @@ absl::StatusOr<std::string> GetSummaryString(absl::string_view str,
   // Check that <str> is valid UTF-8 and compute total UTF-8 length of input
   // string to see if we need to truncate it.
   SQL_ASSIGN_OR_RETURN(int32_t total_code_points, LengthUtf8(str_normalized));
-  std::string result;
   if (total_code_points <= max_code_points) {
     return std::string(str_normalized);  // No truncation necessary
   }
