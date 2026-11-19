@@ -794,11 +794,15 @@ OPTIONS (
   max_batching_rows = 1
 )
 AS r'''
+from concurrent.futures import ThreadPoolExecutor
+import contextvars
 from dataclasses import dataclass
 import importlib
 import json
 import os
+import random
 import re
+import threading
 import time
 import urllib.request
 import google.auth
@@ -816,6 +820,9 @@ from deepeval.test_case import (
 from google.genai import models as _genai_models
 
 _TOKEN_USAGE = [0, 0]
+_TOKEN_USAGE_VAR: contextvars.ContextVar[list[int]] = contextvars.ContextVar(
+    "_TOKEN_USAGE_VAR", default=_TOKEN_USAGE
+)
 # Matches Gemini 3.x / 4.x model IDs (e.g. "gemini-3.8-flash", "gemini-4-hydrogen").
 _GEMINI_3_MODEL_RE = re.compile(
     r"^(?:publishers/google/models/)?gemini-[34](?:\b|[.-])",
@@ -829,10 +836,11 @@ def _is_gemini_3_model(model_id: str) -> bool:
 
 def _add_usage(u) -> None:
     if u is not None:
-        _TOKEN_USAGE[0] += int(getattr(u, "prompt_token_count", 0) or 0) + int(
+        usage = _TOKEN_USAGE_VAR.get()
+        usage[0] += int(getattr(u, "prompt_token_count", 0) or 0) + int(
             getattr(u, "tool_use_prompt_token_count", 0) or 0
         )
-        _TOKEN_USAGE[1] += int(getattr(u, "candidates_token_count", 0) or 0) + int(
+        usage[1] += int(getattr(u, "candidates_token_count", 0) or 0) + int(
             getattr(u, "thoughts_token_count", 0) or 0
         )
 
@@ -1000,6 +1008,7 @@ class SafeGeminiModel(GeminiModel):
 
 
 _MODEL_CACHE: dict[tuple[str, str, str], SafeGeminiModel] = {}
+_CACHE_LOCK = threading.Lock()
 
 
 def _get_judge_model(model_id: str, location: str = "") -> SafeGeminiModel:
@@ -1016,11 +1025,12 @@ def _get_judge_model(model_id: str, location: str = "") -> SafeGeminiModel:
     if _is_gemini_3_model(model_id) and not location:
         resolved_loc = "global"
     key = (model_id, GCP_PROJECT, resolved_loc)
-    if key not in _MODEL_CACHE:
-        _MODEL_CACHE[key] = SafeGeminiModel(
-            model=model_id, project=GCP_PROJECT, location=resolved_loc
-        )
-    return _MODEL_CACHE[key]
+    with _CACHE_LOCK:
+        if key not in _MODEL_CACHE:
+            _MODEL_CACHE[key] = SafeGeminiModel(
+                model=model_id, project=GCP_PROJECT, location=resolved_loc
+            )
+        return _MODEL_CACHE[key]
 
 
 def _is_non_retryable_error(err: Exception) -> bool:
@@ -1172,6 +1182,20 @@ class _ParsedTestCase:
     is_conversational: bool
 
 
+def _metric_label(m_name: str) -> str:
+    """Normalizes a metric specification into its canonical output metric label."""
+    m_lower = m_name.lower()
+    if m_lower in METRIC_REGISTRY:
+        return m_lower
+    if m_lower in ("geval", "conversational_geval") or m_lower.startswith(("conversational_geval:", "geval:")):
+        parts = m_name.split(":", 2)
+        is_convo_geval = m_lower == "conversational_geval" or m_lower.startswith("conversational_geval:")
+        default_name = "Conversational Quality" if is_convo_geval else "Custom Quality"
+        g_name = parts[1].strip() if len(parts) > 1 and parts[1].strip() else default_name
+        return f"conversational_geval:{g_name}" if is_convo_geval else f"geval:{g_name}"
+    return m_name
+
+
 def _build_metric(m_name: str, judge_model, parsed: _ParsedTestCase):
     """Lazily imports and instantiates the requested DeepEval metric or custom G-Eval (GEval) rubric."""
     metrics_mod = importlib.import_module("deepeval.metrics")
@@ -1184,9 +1208,10 @@ def _build_metric(m_name: str, judge_model, parsed: _ParsedTestCase):
     turns = parsed.turns
     is_conversational = parsed.is_conversational
     m_lower = m_name.lower()
+    label = _metric_label(m_name)
     if m_lower in METRIC_REGISTRY:
         if m_lower in CONVERSATIONAL_METRICS and not is_conversational:
-            return m_lower, "MISSING_TURNS"
+            return label, "MISSING_TURNS"
         cls_name, threshold, req_fields = METRIC_REGISTRY[m_lower]
         eff_rc = (
             [c for c in retrieval_context if not _PRIOR_TURN_RC_RE.match(str(c))]
@@ -1200,23 +1225,22 @@ def _build_metric(m_name: str, judge_model, parsed: _ParsedTestCase):
             "expected_tools": bool(expected_tools),
         }
         if any(not available.get(f) for f in req_fields):
-            return m_lower, None
+            return label, None
         metric_cls = getattr(metrics_mod, cls_name)
-        return m_lower, metric_cls(threshold=threshold, model=judge_model, async_mode=False)
+        return label, metric_cls(threshold=threshold, model=judge_model, async_mode=False)
 
     # Custom single-turn or multi-turn DeepEval G-Eval rubric ("geval:<Name>:<Criteria>" or
     # "conversational_geval:<Name>:<Criteria>"). Note: GEval and ConversationalGEval are DeepEval's
     # built-in implementations of the academic G-Eval LLM-as-a-Judge framework.
     if m_lower in ("geval", "conversational_geval") or m_lower.startswith(("conversational_geval:", "geval:")):
         parts = m_name.split(":", 2)
-        is_convo_geval = m_lower == "conversational_geval" or m_lower.startswith("conversational_geval:")
-        default_name = "Conversational Quality" if is_convo_geval else "Custom Quality"
+        is_convo_geval = label.startswith("conversational_geval:")
+        g_name = label.split(":", 1)[1]
         default_criteria = (
             "Evaluate whether the multi-turn conversation is coherent, retains context across turns, and fulfills the user request."
             if is_convo_geval
             else "Evaluate whether the response is accurate, helpful, polite, and safe."
         )
-        g_name = parts[1].strip() if len(parts) > 1 and parts[1].strip() else default_name
         has_inline_crit = len(parts) > 2 and bool(parts[2].strip())
         g_criteria = parts[2].strip() if has_inline_crit else tc_data.get("criteria", default_criteria)
         eval_steps = None
@@ -1236,7 +1260,7 @@ def _build_metric(m_name: str, judge_model, parsed: _ParsedTestCase):
 
         if is_convo_geval:
             if not is_conversational:
-                return f"conversational_geval:{g_name}", "MISSING_TURNS"
+                return label, "MISSING_TURNS"
             turn_params = [TurnParams.ROLE, TurnParams.CONTENT]
             has_t_tools = any(getattr(t, "tools_called", None) for t in turns)
             all_t_tools_have_out = has_t_tools and all(
@@ -1258,7 +1282,7 @@ def _build_metric(m_name: str, judge_model, parsed: _ParsedTestCase):
             if has_t_tools and hasattr(TurnParams, "TOOLS_CALLED"):
                 turn_params.append(TurnParams.TOOLS_CALLED)
             convo_geval_cls = getattr(metrics_mod, "ConversationalGEval")
-            return f"conversational_geval:{g_name}", convo_geval_cls(
+            return label, convo_geval_cls(
                 name=g_name, evaluation_params=turn_params, model=judge_model,
                 threshold=0.7, async_mode=False, **g_kw
             )
@@ -1280,12 +1304,12 @@ def _build_metric(m_name: str, judge_model, parsed: _ParsedTestCase):
         if tools_called and hasattr(LLMTestCaseParams, "TOOLS_CALLED"):
             eval_params.append(LLMTestCaseParams.TOOLS_CALLED)
         geval_cls = getattr(metrics_mod, "GEval")
-        return f"geval:{g_name}", geval_cls(
+        return label, geval_cls(
             name=g_name, evaluation_params=eval_params, model=judge_model,
             threshold=0.7, async_mode=False, **g_kw
         )
 
-    return m_name, "UNSUPPORTED"
+    return label, "UNSUPPORTED"
 
 
 # -----------------------------------------------------------------------------
@@ -1349,77 +1373,91 @@ def evaluate_test_case(test_case_json: str, metrics: list[str]) -> list[dict]:
             is_conversational=is_conversational,
         )
 
-        # Build LLMTestCase for single-turn metrics and ConversationalTestCase when turns are provided
-        llm_test_case = LLMTestCase(
-            input=str(tc_data.get("input") or tc_data.get("input_query") or last_user or ""),
-            actual_output=str(tc_data.get("actual_output") or last_assistant or ""),
-            expected_output=str(expected_output) if expected_output is not None else None,
-            retrieval_context=retrieval_context or None,
-            context=context or None,
-            tools_called=tools_called,
-            expected_tools=expected_tools,
-        )
-        convo_test_case = (
-            ConversationalTestCase(
-                turns=turns,
-                chatbot_role=tc_data.get("chatbot_role") or "Helpful AI Assistant",
-                scenario=tc_data.get("scenario"),
-                expected_outcome=tc_data.get("expected_outcome"),
-                user_description=tc_data.get("user_description"),
-                context=context or None,
-            )
-            if is_conversational
-            else None
-        )
+        input_str = str(tc_data.get("input") or tc_data.get("input_query") or last_user or "")
+        actual_output_str = str(tc_data.get("actual_output") or last_assistant or "")
+        expected_output_str = str(expected_output) if expected_output is not None else None
+        chatbot_role_str = tc_data.get("chatbot_role") or "Helpful AI Assistant"
     except Exception as e:
         return [{"metric": "parse_error", "score": None, "passed": False, "reason": f"Invalid test_case_json: {e}", "judge_input_tokens": None, "judge_output_tokens": None}]
 
     primary_model_id = str(tc_data.get("judge_model") or PRIMARY_MODEL_ID).strip() or PRIMARY_MODEL_ID
     fallback_model_id = str(tc_data.get("fallback_judge_model") or FALLBACK_MODEL_ID).strip() or FALLBACK_MODEL_ID
     req_location = str(tc_data.get("location") or "").strip()
-    results = []
+    valid_metrics = [m.strip() for m in metrics if m and m.strip()]
+    if not valid_metrics:
+        return []
 
-    for m_spec in metrics:
-        if not m_spec:
-            continue
-        m_name = m_spec.strip()
+    results: list[dict | None] = [None] * len(valid_metrics)
+    tasks = []
+    for idx, m_name in enumerate(valid_metrics):
         try:
             primary_model = _get_judge_model(primary_model_id, req_location)
+            label, metric = _build_metric(m_name, primary_model, parsed_tc)
         except Exception as e:
-            results.append({
-                "metric": m_name.lower(),
+            results[idx] = {
+                "metric": _metric_label(m_name),
                 "score": None,
                 "passed": None,
                 "reason": f"Error: {type(e).__name__}: {str(e)}",
                 "judge_input_tokens": None,
                 "judge_output_tokens": None,
-            })
+            }
             continue
 
-        label, metric = _build_metric(m_name, primary_model, parsed_tc)
         if metric == "MISSING_TURNS":
-            results.append({"metric": label, "score": None, "passed": None, "reason": "N/A (Multi-turn metric requires 'turns' in test_case_json)", "judge_input_tokens": None, "judge_output_tokens": None})
+            results[idx] = {"metric": label, "score": None, "passed": None, "reason": "N/A (Multi-turn metric requires 'turns' in test_case_json)", "judge_input_tokens": None, "judge_output_tokens": None}
             continue
         if metric is None:
-            results.append({"metric": label, "score": None, "passed": None, "reason": "N/A (Missing required context, expected_output, or expected_tools in test_case)", "judge_input_tokens": None, "judge_output_tokens": None})
+            results[idx] = {"metric": label, "score": None, "passed": None, "reason": "N/A (Missing required context, expected_output, or expected_tools in test_case)", "judge_input_tokens": None, "judge_output_tokens": None}
             continue
         if metric == "UNSUPPORTED":
-            results.append({"metric": label, "score": None, "passed": False, "reason": f"Unsupported metric name: {m_name}", "judge_input_tokens": None, "judge_output_tokens": None})
+            results[idx] = {"metric": label, "score": None, "passed": False, "reason": f"Unsupported metric name: {m_name}", "judge_input_tokens": None, "judge_output_tokens": None}
             continue
 
         use_convo_case = label in CONVERSATIONAL_METRICS or label.startswith("conversational_geval:")
-        if not use_convo_case:
-            if label.startswith("geval:") and all_tools_have_out:
-                llm_test_case.retrieval_context = non_tool_rc or None
-            elif label.startswith("contextual_"):
-                llm_test_case.retrieval_context = default_context or None
+        try:
+            if use_convo_case:
+                target_case = ConversationalTestCase(
+                    turns=[
+                        Turn(
+                            role=t.role,
+                            content=t.content,
+                            tools_called=t.tools_called,
+                            retrieval_context=t.retrieval_context,
+                        )
+                        for t in turns
+                    ],
+                    chatbot_role=chatbot_role_str,
+                    scenario=tc_data.get("scenario"),
+                    expected_outcome=tc_data.get("expected_outcome"),
+                    user_description=tc_data.get("user_description"),
+                    context=context or None,
+                )
             else:
-                llm_test_case.retrieval_context = retrieval_context or None
-        target_case = convo_test_case if use_convo_case else llm_test_case
+                if label.startswith("geval:") and all_tools_have_out:
+                    eff_rc = non_tool_rc or None
+                elif label.startswith("contextual_"):
+                    eff_rc = default_context or None
+                else:
+                    eff_rc = retrieval_context or None
+                target_case = LLMTestCase(
+                    input=input_str,
+                    actual_output=actual_output_str,
+                    expected_output=expected_output_str,
+                    retrieval_context=eff_rc,
+                    context=context or None,
+                    tools_called=tools_called,
+                    expected_tools=expected_tools,
+                )
+        except Exception as e:
+            return [{"metric": "parse_error", "score": None, "passed": False, "reason": f"Invalid test_case_json: {e}", "judge_input_tokens": None, "judge_output_tokens": None}]
+        tasks.append((idx, m_name, label, metric, target_case))
 
-        # Retry up to 3 attempts; fall back to fallback_model_id on the final attempt
+    def _measure_one(task_tuple) -> tuple[int, dict]:
+        idx, m_name, label, metric, target_case = task_tuple
         last_err = None
-        _TOKEN_USAGE[:] = [0, 0]
+        usage = [0, 0]
+        _TOKEN_USAGE_VAR.set(usage)
         for attempt in range(3):
             try:
                 if attempt == 2:
@@ -1428,32 +1466,41 @@ def evaluate_test_case(test_case_json: str, metrics: list[str]) -> list[dict]:
                 reason_text = str(metric.reason or "")
                 if attempt == 2:
                     reason_text = f"[Judge: {fallback_model_id}] {reason_text}".strip()
-                results.append({
+                return idx, {
                     "metric": label,
                     "score": float(metric.score) if metric.score is not None else None,
                     "passed": bool(metric.is_successful()),
                     "reason": reason_text,
-                    "judge_input_tokens": _TOKEN_USAGE[0],
-                    "judge_output_tokens": _TOKEN_USAGE[1],
-                })
-                last_err = None
-                break
+                    "judge_input_tokens": usage[0],
+                    "judge_output_tokens": usage[1],
+                }
             except Exception as e:
                 last_err = e
                 if _is_non_retryable_error(e):
                     break
                 if attempt < 2:
-                    time.sleep(1.5 * (attempt + 1))
+                    time.sleep(1.5 * (attempt + 1) + random.uniform(0, 1.0))
 
-        if last_err is not None:
-            results.append({
-                "metric": label,
-                "score": None,
-                "passed": None,
-                "reason": f"Error: {type(last_err).__name__}: {str(last_err)}",
-                "judge_input_tokens": _TOKEN_USAGE[0] or None,
-                "judge_output_tokens": _TOKEN_USAGE[1] or None,
-            })
+        return idx, {
+            "metric": label,
+            "score": None,
+            "passed": None,
+            "reason": f"Error: {type(last_err).__name__}: {str(last_err)}",
+            "judge_input_tokens": usage[0] or None,
+            "judge_output_tokens": usage[1] or None,
+        }
 
+    if len(tasks) == 1:
+        idx, res_dict = contextvars.copy_context().run(_measure_one, tasks[0])
+        results[idx] = res_dict
+    elif len(tasks) > 1:
+        with ThreadPoolExecutor(max_workers=min(len(tasks), 8)) as pool:
+            futs = [
+                pool.submit(contextvars.copy_context().run, _measure_one, t)
+                for t in tasks
+            ]
+            for f in futs:
+                idx, res_dict = f.result()
+                results[idx] = res_dict
     return results
 ''';

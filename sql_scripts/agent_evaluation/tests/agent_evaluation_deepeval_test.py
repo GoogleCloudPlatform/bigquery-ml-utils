@@ -36,6 +36,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import threading
 import types
 from typing import Any
 import unittest
@@ -92,6 +93,18 @@ class FakeLLMTestCase:
   tools_called: list[FakeToolCall] | None = None
   expected_tools: list[FakeToolCall] | None = None
 
+  def __post_init__(self):
+    for field_name in ('input', 'actual_output'):
+      field_value = getattr(self, field_name)
+      if not isinstance(field_value, str):
+        raise ValueError(
+            f'{field_name} must be a string, got {type(field_value).__name__}'
+        )
+    if self.expected_output is not None and not isinstance(
+        self.expected_output, str
+    ):
+      raise ValueError('expected_output must be a string or None')
+
 
 @dataclasses.dataclass
 class FakeConversationalTestCase:
@@ -101,6 +114,20 @@ class FakeConversationalTestCase:
   expected_outcome: str | None = None
   user_description: str | None = None
   context: list[str] | None = None
+
+  def __post_init__(self):
+    for field_name in (
+        'chatbot_role',
+        'scenario',
+        'expected_outcome',
+        'user_description',
+    ):
+      field_value = getattr(self, field_name)
+      if field_value is not None and not isinstance(field_value, str):
+        raise ValueError(
+            f'{field_name} must be a string or None, got'
+            f' {type(field_value).__name__}'
+        )
 
 
 class FakeLLMTestCaseParams(enum.Enum):
@@ -188,6 +215,11 @@ class FakeBaseMetric:
   last_instances: list['FakeBaseMetric'] = []
 
   def __init__(self, threshold: float = 0.7, model: Any = None, **kwargs):
+    criteria = kwargs.get('criteria')
+    if criteria is not None and not isinstance(criteria, str):
+      raise ValueError(
+          f'criteria must be a string, got {type(criteria).__name__}'
+      )
     self.threshold = threshold
     self.model = model
     self.kwargs = kwargs
@@ -976,6 +1008,10 @@ class AgentEvaluationDeepevalTest(unittest.TestCase):
     self.assertTrue(results[0]['passed'])
     self.assertIn('[Judge: gemini-3.5-flash]', results[0]['reason'])
     self.assertEqual(mock_sleep.call_count, 2)
+    self.assertGreaterEqual(mock_sleep.call_args_list[0].args[0], 1.5)
+    self.assertLessEqual(mock_sleep.call_args_list[0].args[0], 2.5)
+    self.assertGreaterEqual(mock_sleep.call_args_list[1].args[0], 3.0)
+    self.assertLessEqual(mock_sleep.call_args_list[1].args[0], 4.0)
 
     # Exhausting all 3 attempts (both primary and fallback fail) sleeps twice
     # and emits passed=None.
@@ -3018,6 +3054,218 @@ exit 0
           "already exists in location 'EU'",
           mismatch_proc.stderr,
       )
+
+  def test_concurrent_metric_execution_and_contextvar_token_isolation(self):
+    ns = _load_udf_module()
+    evaluate_test_case = ns['evaluate_test_case']
+
+    barrier = threading.Barrier(5, timeout=5.0)
+    orig_measure = FakeBaseMetric.measure
+    post_barrier_calls = {
+        'AnswerRelevancyMetric': 0,
+        'FaithfulnessMetric': 1,
+        'GEval': 2,
+        'TurnRelevancyMetric': 1,
+        'RoleAdherenceMetric': 0,
+    }
+
+    def concurrent_measure(self: FakeBaseMetric, test_case: Any) -> float:
+      self.measured_test_case = test_case
+      self.measured_retrieval_context = list(
+          getattr(test_case, 'retrieval_context', None) or []
+      )
+      cls_name = self.__class__.__name__
+      if self.model is not None:
+        # First LLM pass before barrier, extra LLM passes after barrier so all 5
+        # active metrics interleave token accounting across threads.
+        self.model.generate(f'{cls_name}-pass1')
+        barrier.wait()
+        for i in range(post_barrier_calls[cls_name]):
+          self.model.generate(f'{cls_name}-pass{i + 2}')
+      self.score = 0.9
+      self.reason = f'Concurrent {cls_name} passed'
+      return 0.9
+
+    FakeBaseMetric.measure = concurrent_measure
+    try:
+      with mock.patch.object(ns['time'], 'sleep', autospec=True) as mock_sleep:
+        res = evaluate_test_case(
+            json.dumps({
+                'input': 'Where is order #42?',
+                'actual_output': 'Order #42 shipped via UPS.',
+                'turns': [
+                    {'role': 'user', 'content': 'Where is order #42?'},
+                    {
+                        'role': 'assistant',
+                        'content': 'Order #42 shipped via UPS.',
+                    },
+                ],
+                'retrieval_context': [
+                    'Prior turn 1: User: Hi | Assistant: Hello',
+                    'Tool lookup_order returned: {"status": "shipped"}',
+                ],
+                'tools_called': [{
+                    'name': 'lookup_order',
+                    'output': '{"status": "shipped"}',
+                }],
+            }),
+            [
+                'answer_relevancy',
+                'tool_correctness',  # skipped (missing expected_tools)
+                'faithfulness',
+                'geval:Completeness:steps:Check status;Check carrier',
+                'turn_relevancy',
+                'role_adherence',
+            ],
+        )
+    finally:
+      FakeBaseMetric.measure = orig_measure
+
+    self.assertFalse(barrier.broken)
+    mock_sleep.assert_not_called()
+    self.assertEqual(
+        [r['metric'] for r in res],
+        [
+            'answer_relevancy',
+            'tool_correctness',
+            'faithfulness',
+            'geval:Completeness',
+            'turn_relevancy',
+            'role_adherence',
+        ],
+    )
+    # Skipped metric at index 1 stays aligned without executing on the pool.
+    self.assertIsNone(res[1]['score'])
+    self.assertIsNone(res[1]['passed'])
+    self.assertTrue(res[1]['reason'].startswith('N/A'))
+    self.assertIsNone(res[1]['judge_input_tokens'])
+    self.assertIsNone(res[1]['judge_output_tokens'])
+
+    for active_idx in (0, 2, 3, 4, 5):
+      self.assertTrue(res[active_idx]['passed'])
+      self.assertTrue(res[active_idx]['reason'].startswith('Concurrent '))
+
+    # Each call records 50 input tokens (40 + 10) and 20 output tokens (15 + 5)
+    # in its own ContextVar without cross-thread token contamination.
+    self.assertEqual(res[0]['judge_input_tokens'], 50)
+    self.assertEqual(res[0]['judge_output_tokens'], 20)
+    self.assertEqual(res[2]['judge_input_tokens'], 100)
+    self.assertEqual(res[2]['judge_output_tokens'], 40)
+    self.assertEqual(res[3]['judge_input_tokens'], 150)
+    self.assertEqual(res[3]['judge_output_tokens'], 60)
+    self.assertEqual(res[4]['judge_input_tokens'], 100)
+    self.assertEqual(res[4]['judge_output_tokens'], 40)
+    self.assertEqual(res[5]['judge_input_tokens'], 50)
+    self.assertEqual(res[5]['judge_output_tokens'], 20)
+
+    # Verify each single-turn metric received its own isolated LLMTestCase.
+    ar_inst = FakeBaseMetric.last_instances[-5]
+    faith_inst = FakeBaseMetric.last_instances[-4]
+    geval_inst = FakeBaseMetric.last_instances[-3]
+    turn_rel_inst = FakeBaseMetric.last_instances[-2]
+    role_adh_inst = FakeBaseMetric.last_instances[-1]
+    self.assertIsNot(ar_inst.measured_test_case, faith_inst.measured_test_case)
+    self.assertIsNot(
+        faith_inst.measured_test_case, geval_inst.measured_test_case
+    )
+    self.assertEqual(
+        faith_inst.measured_retrieval_context,
+        [
+            'Prior turn 1: User: Hi | Assistant: Hello',
+            'Tool lookup_order returned: {"status": "shipped"}',
+        ],
+    )
+    self.assertEqual(
+        geval_inst.measured_retrieval_context,
+        ['Prior turn 1: User: Hi | Assistant: Hello'],
+    )
+
+    # Verify each conversational metric received a distinct cloned
+    # ConversationalTestCase and Turn list.
+    self.assertIsInstance(
+        turn_rel_inst.measured_test_case, FakeConversationalTestCase
+    )
+    self.assertIsInstance(
+        role_adh_inst.measured_test_case, FakeConversationalTestCase
+    )
+    self.assertIsNot(
+        turn_rel_inst.measured_test_case, role_adh_inst.measured_test_case
+    )
+    self.assertIsNot(
+        turn_rel_inst.measured_test_case.turns,
+        role_adh_inst.measured_test_case.turns,
+    )
+    self.assertIsNot(
+        turn_rel_inst.measured_test_case.turns[0],
+        role_adh_inst.measured_test_case.turns[0],
+    )
+
+  def test_malformed_target_case_and_build_metric_errors_do_not_abort(self):
+    ns = _load_udf_module()
+    evaluate_test_case = ns['evaluate_test_case']
+
+    # Non-string optional ConversationalTestCase field (e.g. scenario as a dict)
+    # returns a parse_error row instead of raising an uncaught exception.
+    bad_scenario_res = evaluate_test_case(
+        json.dumps({
+            'turns': [
+                {'role': 'user', 'content': 'I want a refund.'},
+                {'role': 'assistant', 'content': 'Sure, let me help.'},
+            ],
+            'scenario': {'goal': 'refund'},
+        }),
+        ['role_adherence'],
+    )
+    self.assertEqual(len(bad_scenario_res), 1)
+    self.assertEqual(bad_scenario_res[0]['metric'], 'parse_error')
+    self.assertFalse(bad_scenario_res[0]['passed'])
+    self.assertIn('Invalid test_case_json:', bad_scenario_res[0]['reason'])
+
+    # Non-string chatbot_role also returns a parse_error row.
+    bad_role_res = evaluate_test_case(
+        json.dumps({
+            'turns': [{'role': 'user', 'content': 'Hi'}],
+            'chatbot_role': ['Support Agent'],
+        }),
+        ['turn_relevancy'],
+    )
+    self.assertEqual(len(bad_role_res), 1)
+    self.assertEqual(bad_role_res[0]['metric'], 'parse_error')
+    self.assertFalse(bad_role_res[0]['passed'])
+
+    # Metric-builder failure (e.g. non-string criteria in test_case_json for
+    # geval without inline criteria) records an Error row using the canonical
+    # normalized metric label without aborting sibling metrics or the query.
+    bad_criteria_res = evaluate_test_case(
+        json.dumps({
+            'turns': [
+                {'role': 'user', 'content': 'Where is order #42?'},
+                {'role': 'assistant', 'content': 'Order #42 shipped via UPS.'},
+            ],
+            'criteria': {'rubric': 'must be string'},
+        }),
+        [
+            'geval:CustomCheck',
+            'geval:Completeness:steps:   ',
+            'Conversational_GEval:CarryOver',
+            'answer_relevancy',
+        ],
+    )
+    self.assertEqual(len(bad_criteria_res), 4)
+    self.assertEqual(
+        [r['metric'] for r in bad_criteria_res],
+        [
+            'geval:CustomCheck',
+            'geval:Completeness',
+            'conversational_geval:CarryOver',
+            'answer_relevancy',
+        ],
+    )
+    for err_row in bad_criteria_res[:3]:
+      self.assertIsNone(err_row['score'])
+      self.assertIsNone(err_row['passed'])
+      self.assertIn('Error: ValueError:', err_row['reason'])
+    self.assertTrue(bad_criteria_res[3]['passed'])
 
 
 if __name__ == '__main__':

@@ -105,14 +105,19 @@ export MODEL_ID="gemini-3.8-flash"
 >   `MODEL_ID` (5th argument to `./install.sh`, e.g., `gemini-4-hydrogen` or
 >   `gemini-3.5-flash`) or per query via `judge_model`, `fallback_judge_model`,
 >   and `location` in `test_case_json`.
-> - **Memory & Batching:** Because `deepeval` has a substantial runtime
->   dependency tree, the UDF sets `max_batching_rows = 1`, caches the judge
->   model client at module level, and lazily imports metric classes inside
->   `_build_metric` to minimize baseline memory overhead. For large multi-turn
->   evaluation queries or long conversation histories, consider evaluating in
->   batches (for example, using `LIMIT` / partition filters) or configuring
->   higher container memory limits if your BigQuery environment supports custom
->   container resource options.
+> - **Memory, Batching & Concurrent Metric Execution:** Because `deepeval` has a
+>   substantial runtime dependency tree, the UDF sets `max_batching_rows = 1`,
+>   caches the judge model client at module level, lazily imports metric classes
+>   inside `_build_metric` to minimize baseline memory overhead, and evaluates
+>   up to 8 requested metrics per row concurrently via `ThreadPoolExecutor`
+>   (`max_workers = min(len(tasks), 8)`, with `contextvars.ContextVar` isolating
+>   per-metric token usage counts and jittered retry backoff on transient
+>   errors). Because concurrent metric execution increases burst Gemini judge
+>   QPS per row, for large evaluation tables, strict regional quota limits, or
+>   long conversation histories, consider evaluating in batches (for example,
+>   using `LIMIT` / partition filters) or configuring higher container memory
+>   limits if your BigQuery environment supports custom container resource
+>   options.
 
 ---
 
