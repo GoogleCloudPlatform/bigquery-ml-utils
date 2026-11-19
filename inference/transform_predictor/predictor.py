@@ -246,7 +246,9 @@ class Predictor:
       model_tensorflow = tf.saved_model.load(model_dir)
       return cls(transform_savedmodel, model_tensorflow=model_tensorflow)
 
-    if tf.io.gfile.exists(os.path.join(model_dir, 'model.bst')):
+    if tf.io.gfile.exists(
+        os.path.join(model_dir, 'model.bst')
+    ) or tf.io.gfile.exists(os.path.join(model_dir, 'model.ubj')):
       model_xgboost = bqml_xgboost_predictor.Predictor.from_path(model_dir)
       return cls(transform_savedmodel, model_xgboost=model_xgboost)
 

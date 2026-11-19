@@ -14,6 +14,8 @@
 
 
 import importlib.resources as importlib_resources
+import os
+import shutil
 from unittest import mock
 
 from absl import flags
@@ -406,6 +408,41 @@ class PredictorTest(absltest.TestCase):
     self.assertSequenceAlmostEqual(
         [3.8022050857543945, 4.4091620445251465], predict_output
     )
+
+  def test_boosted_tree_regressor_ubj_only(self):
+    # XGBoost 2.1 training writes model.ubj instead of model.bst.
+    model_dir = self.create_tempdir().full_path
+    shutil.copytree(
+        str(
+            importlib_resources.files('bigquery_ml_utils').joinpath(
+                'tests/data/inference/xgboost_predictor/boosted_tree_regressor_model'
+            )
+        ),
+        model_dir,
+        dirs_exist_ok=True,
+    )
+    # copytree keeps the read-only mode of the runfiles directory.
+    os.chmod(model_dir, 0o755)
+    bst_path = os.path.join(model_dir, 'model.bst')
+    xgb.Booster(model_file=bst_path).save_model(
+        os.path.join(model_dir, 'model.ubj')
+    )
+    os.remove(bst_path)
+
+    test_predictor = xgboost_predictor.Predictor.from_path(model_dir)
+    predict_output = test_predictor.predict([
+        {'f1': 'b', 'f3': 3, 'f2': ['a']},
+        {'f1': 'f', 'f2': ['c', 'a', 'a', 'f'], 'f3': 0},
+        {'f1': 'f', 'f2': ['c', 'a', 'a', 'f'], 'f3': ''},
+    ])
+    self.assertSequenceAlmostEqual(
+        [1.0370053052902222, 1.9364699125289917, -9.593025207519531],
+        predict_output,
+    )
+
+  def test_missing_model_file_names_both_files(self):
+    with self.assertRaisesRegex(FileNotFoundError, 'model.bst nor model.ubj'):
+      xgboost_predictor.Predictor.from_path(self.create_tempdir().full_path)
 
 
 if __name__ == '__main__':

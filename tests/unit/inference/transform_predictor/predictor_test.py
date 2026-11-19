@@ -13,6 +13,8 @@
 # limitations under the License.
 
 """Tests for bqml transform predictor."""
+import os
+import shutil
 import sys
 from typing import Any
 
@@ -20,6 +22,7 @@ from absl import flags
 from absl.testing import absltest
 from bigquery_ml_utils.inference import transform_predictor
 import tensorflow as tf
+import xgboost as xgb
 
 # pylint: disable=g-import-not-at-top
 if sys.version_info >= (3, 9):  # `importlib.resources.files` was added in 3.9
@@ -423,6 +426,33 @@ class PredictorTest(absltest.TestCase):
           'f2': 2.5,
           'f3': 'a',
       }])
+
+  def test_boosted_tree_classifier_ubj_only(self):
+    # XGBoost 2.1 training writes model.ubj instead of model.bst.
+    bst_model_dir = str(
+        importlib_resources.files('bigquery_ml_utils').joinpath(
+            'tests/data/inference/transform_predictor/boosted_tree_classifier_model'
+        )
+    )
+    ubj_model_dir = self.create_tempdir().full_path
+    shutil.copytree(bst_model_dir, ubj_model_dir, dirs_exist_ok=True)
+    # copytree keeps the read-only mode of the runfiles directory.
+    os.chmod(ubj_model_dir, 0o755)
+    bst_path = os.path.join(ubj_model_dir, 'model.bst')
+    xgb.Booster(model_file=bst_path).save_model(
+        os.path.join(ubj_model_dir, 'model.ubj')
+    )
+    os.remove(bst_path)
+
+    instances = [{'f1': 1, 'f2': 2.5, 'f3': 'aaa', 'f4': ['aaa', 'noise1']}]
+    self._validate_prediction_results(
+        transform_predictor.Predictor.from_path(ubj_model_dir).predict(
+            instances
+        ),
+        transform_predictor.Predictor.from_path(bst_model_dir).predict(
+            instances
+        ),
+    )
 
 
 if __name__ == '__main__':

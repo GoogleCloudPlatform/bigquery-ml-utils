@@ -343,8 +343,15 @@ class Predictor(object):
     Returns:
       An instance of 'Predictor'.
     """
-    # Keep model name the same as ml::kXgboostFinalModelFilename.
+    # Keep model name aligned with ml::kXgboostFinalModelFilename and
+    # ml::kXgboostFinalModelFilenameUbj.
     model_path = os.path.join(model_dir, 'model.bst')
+    if not os.path.exists(model_path):
+      model_path = os.path.join(model_dir, 'model.ubj')
+    if not os.path.exists(model_path):
+      raise FileNotFoundError(
+          f'Neither model.bst nor model.ubj was found in {model_dir}.'
+      )
     model = xgb.Booster(model_file=model_path)
     assets_path = os.path.join(model_dir, 'assets')
     model_metadata_path = os.path.join(assets_path, 'model_metadata.json')
