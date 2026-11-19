@@ -16,6 +16,7 @@
 import os
 import shutil
 import sys
+import tempfile
 from typing import Any
 
 from absl import flags
@@ -434,7 +435,7 @@ class PredictorTest(absltest.TestCase):
             'tests/data/inference/transform_predictor/boosted_tree_classifier_model'
         )
     )
-    ubj_model_dir = self.create_tempdir().full_path
+    ubj_model_dir = self.enter_context(tempfile.TemporaryDirectory())
     shutil.copytree(bst_model_dir, ubj_model_dir, dirs_exist_ok=True)
     # copytree keeps the read-only mode of the runfiles directory.
     os.chmod(ubj_model_dir, 0o755)

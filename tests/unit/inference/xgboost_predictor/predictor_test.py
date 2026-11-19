@@ -16,6 +16,7 @@
 import importlib.resources as importlib_resources
 import os
 import shutil
+import tempfile
 from unittest import mock
 
 from absl import flags
@@ -411,7 +412,7 @@ class PredictorTest(absltest.TestCase):
 
   def test_boosted_tree_regressor_ubj_only(self):
     # XGBoost 2.1 training writes model.ubj instead of model.bst.
-    model_dir = self.create_tempdir().full_path
+    model_dir = self.enter_context(tempfile.TemporaryDirectory())
     shutil.copytree(
         str(
             importlib_resources.files('bigquery_ml_utils').joinpath(
@@ -442,7 +443,9 @@ class PredictorTest(absltest.TestCase):
 
   def test_missing_model_file_names_both_files(self):
     with self.assertRaisesRegex(FileNotFoundError, 'model.bst nor model.ubj'):
-      xgboost_predictor.Predictor.from_path(self.create_tempdir().full_path)
+      xgboost_predictor.Predictor.from_path(
+          self.enter_context(tempfile.TemporaryDirectory())
+      )
 
 
 if __name__ == '__main__':
