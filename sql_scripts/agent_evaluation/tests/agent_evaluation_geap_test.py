@@ -14,6 +14,7 @@
 
 """Unit tests for the GEAP BigQuery Python UDF module."""
 
+import importlib.metadata
 import importlib.util
 import json
 import os
@@ -2146,16 +2147,210 @@ exit 0
           self.assertNotEqual(proc.returncode, 0)
           self.assertIn(expected_error, proc.stderr)
 
+  def test_eval_traces_sql_shape_and_placeholders(self):
+    geap_dir = _find_geap_dir()
+    traces_sql_path = geap_dir / "traces" / "eval_traces.sql"
+    self.assertTrue(
+        traces_sql_path.is_file(), f"Missing file: {traces_sql_path}"
+    )
+    sql_text = traces_sql_path.read_text(encoding="utf-8")
+
+    self.assertRegex(sql_text, r"google-adk==\d+\.\d+\.\d+")
+    self.assertIn("schema_version=", sql_text)
+
+    tvf_matches = re.findall(
+        r"CREATE OR REPLACE TABLE FUNCTION"
+        r" `YOUR_PROJECT_ID\.YOUR_DATASET_ID\.(eval_sessions|eval_turns)`\(\s*"
+        r"start_ts TIMESTAMP\s*\)\s*AS\s*\(",
+        sql_text,
+    )
+    self.assertEqual(tvf_matches, ["eval_sessions", "eval_turns"])
+
+    expected_placeholders = {
+        "YOUR_PROJECT_ID",
+        "YOUR_DATASET_ID",
+        "YOUR_EVENTS_TABLE",
+    }
+    found_placeholders = set(re.findall(r"\bYOUR_[A-Z_]+\b", sql_text))
+    self.assertEqual(
+        found_placeholders,
+        expected_placeholders,
+        "Unexpected placeholders in eval_traces.sql:"
+        f" {found_placeholders ^ expected_placeholders}",
+    )
+    self.assertEqual(
+        sql_text.count("`YOUR_EVENTS_TABLE`"),
+        2,
+        "Expected `YOUR_EVENTS_TABLE` once in eval_sessions and once in"
+        " eval_turns",
+    )
+    self.assertNotIn("__EVENTS_PROJECT__", sql_text)
+    tvf_bodies = sql_text.split("CREATE OR REPLACE TABLE FUNCTION")[1:]
+    self.assertEqual(len(tvf_bodies), 2)
+    for body in tvf_bodies:
+      self.assertIn(
+          "timestamp >= TIMESTAMP_SUB(start_ts, INTERVAL 7 DAY)",
+          body,
+          "Expected 7-day lookback filter in each table function body",
+      )
+    self.assertIn("session_end_timestamp >= start_ts", sql_text)
+    self.assertIn("turn_end_timestamp >= start_ts", sql_text)
+    self.assertEqual(
+        re.findall(r"\{[a-zA-Z_][a-zA-Z0-9_]*\}", sql_text),
+        [],
+        "Unexpanded template placeholders found in eval_traces.sql",
+    )
+    self.assertEqual(
+        re.findall(r"@[a-zA-Z_][a-zA-Z0-9_]*", sql_text),
+        [],
+        "Unexpanded query parameters found in eval_traces.sql",
+    )
+
+  def test_generate_trace_sql_verifies_released_adk_and_renders_ddl(self):
+    gen_trace_mod = _load_module_from_path(
+        "generate_trace_sql",
+        _find_geap_dir() / "tools" / "generate_trace_sql.py",
+    )
+    with tempfile.TemporaryDirectory() as tmp_dir:
+      site_packages = pathlib.Path(tmp_dir) / "site-packages"
+      adk_init = site_packages / "google" / "adk" / "__init__.py"
+      adk_init.parent.mkdir(parents=True)
+      adk_init.write_text("", encoding="utf-8")
+
+      fake_adk: Any = types.ModuleType("google.adk")
+      fake_adk.__version__ = "2.15.0"
+      fake_adk.__file__ = str(adk_init)
+      calls: list[tuple[str, str, str, str]] = []
+
+      def _fake_session_sql(
+          full_table_id, *, raw_where_clause="", where_clause=""
+      ):
+        calls.append(("session", full_table_id, raw_where_clause, where_clause))
+        return (
+            f"SELECT * FROM `{full_table_id}` WHERE {raw_where_clause} AND"
+            f" {where_clause}"
+        )
+
+      def _fake_turn_sql(
+          full_table_id, *, raw_where_clause="", where_clause=""
+      ):
+        calls.append(("turn", full_table_id, raw_where_clause, where_clause))
+        return (
+            f"SELECT * FROM `{full_table_id}` WHERE {raw_where_clause} AND"
+            f" {where_clause}"
+        )
+
+      fake_plugins: Any = types.ModuleType("google.adk.plugins")
+      fake_plugins.build_eval_session_query_sql = _fake_session_sql
+      fake_plugins.build_eval_turn_query_sql = _fake_turn_sql
+      fake_google: Any = types.ModuleType("google")
+      fake_google.adk = fake_adk
+
+      def _make_dist(version="2.15.0", direct_url=None, root=site_packages):
+        dist = mock.MagicMock()
+        dist.version = version
+        dist.read_text.side_effect = lambda name: (
+            direct_url if name == "direct_url.json" else None
+        )
+        dist.locate_file.return_value = root
+        return dist
+
+      with mock.patch.dict(
+          sys.modules,
+          {
+              "google": fake_google,
+              "google.adk": fake_adk,
+              "google.adk.plugins": fake_plugins,
+          },
+      ):
+        with mock.patch(
+            "importlib.metadata.distribution",
+            side_effect=importlib.metadata.PackageNotFoundError("google-adk"),
+        ):
+          with self.assertRaisesRegex(RuntimeError, "metadata not found"):
+            gen_trace_mod.generate_trace_sql("2")
+
+        with mock.patch(
+            "importlib.metadata.distribution",
+            return_value=_make_dist(direct_url='{"url": "file:///src"}'),
+        ):
+          with self.assertRaisesRegex(RuntimeError, "direct_url.json"):
+            gen_trace_mod.generate_trace_sql("2")
+
+        with mock.patch(
+            "importlib.metadata.distribution",
+            return_value=_make_dist(version="2.14.1"),
+        ):
+          with self.assertRaisesRegex(RuntimeError, "does not match"):
+            gen_trace_mod.generate_trace_sql("2")
+
+        fake_adk.__version__ = "2.15.0rc1"
+        with mock.patch(
+            "importlib.metadata.distribution",
+            return_value=_make_dist(version="2.15.0rc1"),
+        ):
+          with self.assertRaisesRegex(RuntimeError, "final X.Y.Z release"):
+            gen_trace_mod.generate_trace_sql("2")
+        fake_adk.__version__ = "2.15.0"
+
+        with mock.patch(
+            "importlib.metadata.distribution",
+            return_value=_make_dist(root=pathlib.Path(tmp_dir) / "other-site"),
+        ):
+          with self.assertRaisesRegex(RuntimeError, "PYTHONPATH"):
+            gen_trace_mod.generate_trace_sql("2")
+
+        with mock.patch(
+            "importlib.metadata.distribution",
+            return_value=_make_dist(),
+        ):
+          sql = gen_trace_mod.generate_trace_sql("2")
+
+          fake_plugins.build_eval_session_query_sql = (
+              lambda *args, **kwargs: "SELECT * FROM `__EVENTS_PROJECT__.other`"
+          )
+          with self.assertRaisesRegex(RuntimeError, "Failed to substitute"):
+            gen_trace_mod.generate_trace_sql("2")
+
+          delattr(fake_plugins, "build_eval_turn_query_sql")
+          with self.assertRaisesRegex(RuntimeError, "does not export"):
+            gen_trace_mod.generate_trace_sql("2")
+
+    self.assertEqual(len(calls), 2)
+    self.assertEqual(
+        calls[0][2], "timestamp >= TIMESTAMP_SUB(start_ts, INTERVAL 7 DAY)"
+    )
+    self.assertEqual(
+        calls[1][2], "timestamp >= TIMESTAMP_SUB(start_ts, INTERVAL 7 DAY)"
+    )
+    self.assertEqual(calls[0][3], "session_end_timestamp >= start_ts")
+    self.assertEqual(calls[1][3], "turn_end_timestamp >= start_ts")
+    self.assertIn(
+        "CREATE OR REPLACE TABLE FUNCTION"
+        " `YOUR_PROJECT_ID.YOUR_DATASET_ID.eval_sessions`(",
+        sql,
+    )
+    self.assertIn(
+        "CREATE OR REPLACE TABLE FUNCTION"
+        " `YOUR_PROJECT_ID.YOUR_DATASET_ID.eval_turns`(",
+        sql,
+    )
+    self.assertIn("`YOUR_EVENTS_TABLE`", sql)
+    self.assertNotIn("__EVENTS_PROJECT__", sql)
+    self.assertIn("google-adk==2.15.0 (BQAA plugin schema_version=2)", sql)
+
   def test_geap_files_exist_and_cleanliness(self):
     geap_dir = _find_geap_dir()
     install_sh = geap_dir / "install.sh"
     readme_md = geap_dir / "README.md"
     parent_readme = geap_dir.parent / "README.md"
     geap_sql = geap_dir / "geap_evaluate.sql"
+    eval_traces_sql = geap_dir / "traces" / "eval_traces.sql"
 
     self.assertTrue(install_sh.is_file())
     self.assertTrue(readme_md.is_file())
     self.assertTrue(parent_readme.is_file())
+    self.assertTrue(eval_traces_sql.is_file())
 
     # Check executable permission
     self.assertNotEqual(
@@ -2165,7 +2360,7 @@ exit 0
     )
 
     # Check license headers
-    for path in (install_sh, geap_sql):
+    for path in (install_sh, geap_sql, eval_traces_sql):
       content = path.read_text(encoding="utf-8")
       self.assertIn("Copyright 2026 Google LLC", content)
       self.assertIn("Licensed under the Apache License, Version 2.0", content)
