@@ -2543,6 +2543,47 @@ exit 0
     self.assertNotIn("__EVENTS_PROJECT__", sql)
     self.assertIn("google-adk==2.15.0 (BQAA plugin schema_version=2)", sql)
 
+  def test_trace_readiness_check_sql_placeholders_and_limit(self):
+    geap_dir = _find_geap_dir()
+    readiness_sql = (
+        geap_dir / "traces" / "trace_readiness_check.sql"
+    ).read_text(encoding="utf-8")
+    expected_placeholders = {
+        "YOUR_PROJECT_ID",
+        "YOUR_DATASET_ID",
+        "YOUR_EVENTS_PROJECT",
+        "YOUR_EVENTS_DATASET",
+        "YOUR_EVENTS_TABLE_NAME",
+    }
+    found_placeholders = set(re.findall(r"\bYOUR_[A-Z_]+\b", readiness_sql))
+    self.assertEqual(
+        found_placeholders,
+        expected_placeholders,
+        "Unexpected placeholders in trace_readiness_check.sql:"
+        f" {found_placeholders ^ expected_placeholders}",
+    )
+    limit_match = re.search(
+        r"DECLARE\s+trace_size_limit_bytes\s+INT64\s+DEFAULT\s+(\d+);",
+        readiness_sql,
+    )
+    self.assertIsNotNone(
+        limit_match, "Missing trace_size_limit_bytes declaration"
+    )
+    generator_module = _load_generator_module()
+    self.assertEqual(
+        int(limit_match.group(1)),
+        generator_module.MAX_TRACE_BYTES,
+    )
+
+    eval_traces_sql = (geap_dir / "traces" / "eval_traces.sql").read_text(
+        encoding="utf-8"
+    )
+    tvf_bodies = eval_traces_sql.split("CREATE OR REPLACE TABLE FUNCTION")[1:]
+    self.assertEqual(len(tvf_bodies), 2)
+    for body in tvf_bodies:
+      for col in ("eval_ready", "has_truncated_content", "root_agent", "trace"):
+        self.assertIn(col, body)
+
   def test_geap_files_exist_and_cleanliness(self):
     geap_dir = _find_geap_dir()
     install_sh = geap_dir / "install.sh"
@@ -2550,11 +2591,13 @@ exit 0
     parent_readme = geap_dir.parent / "README.md"
     geap_sql = geap_dir / "geap_evaluate.sql"
     eval_traces_sql = geap_dir / "traces" / "eval_traces.sql"
+    readiness_sql = geap_dir / "traces" / "trace_readiness_check.sql"
 
     self.assertTrue(install_sh.is_file())
     self.assertTrue(readme_md.is_file())
     self.assertTrue(parent_readme.is_file())
     self.assertTrue(eval_traces_sql.is_file())
+    self.assertTrue(readiness_sql.is_file())
 
     # Check executable permission
     self.assertNotEqual(
@@ -2564,7 +2607,7 @@ exit 0
     )
 
     # Check license headers
-    for path in (install_sh, geap_sql, eval_traces_sql):
+    for path in (install_sh, geap_sql, eval_traces_sql, readiness_sql):
       content = path.read_text(encoding="utf-8")
       self.assertIn("Copyright 2026 Google LLC", content)
       self.assertIn("Licensed under the Apache License, Version 2.0", content)

@@ -53,8 +53,9 @@ retries. A retry after a timeout can pay for the same judge call twice.
 | Step | Action | Frequency | Notes |
 | :--- | :--- | :--- | :--- |
 | **1. Install** | Run `install.sh`, then grant IAM | Once per dataset | Deploys routines and the connection |
-| **2. Sample traces** | Materialize staging table | Every scoring run | Prevents excess slot and API costs |
-| **3. Score traces** | Call `geap_evaluate` | Every scoring run | One call per metric; writes to results table |
+| **2. Check traces** | Run `traces/trace_readiness_check.sql` | First run, and after a plugin upgrade | Read-only check; calls no judge |
+| **3. Sample traces** | Materialize staging table | Every scoring run | Prevents excess slot and API costs |
+| **4. Score traces** | Call `geap_evaluate` | Every scoring run | One call per metric; writes to results table |
 
 ### Step 1: Install routines
 
@@ -63,15 +64,21 @@ installer reads the dataset's location and picks the matching GEAP region; it
 never creates the dataset.
 
 ```bash
-./install.sh [PROJECT_ID] [DATASET_ID] [CONNECTION_ID]
+./install.sh [PROJECT_ID] [DATASET_ID] [CONNECTION_ID] [EVENTS_TABLE]
 ```
 
 All arguments are optional (and can also be set via environment variables):
 `PROJECT_ID` defaults to `gcloud config get-value project`, `DATASET_ID` to
-`agent_analytics`, and `CONNECTION_ID` to `gemini_enterprise_connection`. The
-script enables the required APIs, creates the Cloud Resource connection in the
-dataset's location if it is missing, deploys `geap_evaluate`, and runs a smoke
-test call.
+`agent_analytics`, `CONNECTION_ID` to `gemini_enterprise_connection`, and
+`EVENTS_TABLE` (`project.dataset.table`) is optional. The script enables the
+required APIs, creates the Cloud Resource connection in the dataset's location
+if it is missing, deploys `geap_evaluate`, and runs a smoke test call.
+
+When `EVENTS_TABLE` is provided, the script also checks that the events table is
+in the same location as the dataset and has the required payload columns
+(`content`, `content_parts`, `attributes`, `latency_ms`), warns if its
+`adk_schema_version` label is missing or differs from `traces/eval_traces.sql`,
+and deploys `eval_sessions` and `eval_turns`.
 
 The script never changes IAM. It prints a grant command and a revoke command
 for the connection's service account. Someone with rights on the project must
@@ -89,15 +96,39 @@ it also allows calling any model in the project. To remove access, run the
 printed revoke command (`gcloud projects remove-iam-policy-binding` with the
 same arguments).
 
-### Step 2: Sample traces
+### Step 2: Check traces (optional)
 
-Sample from the eval views that the ADK analytics plugin creates. The views
-exist only when the plugin runs with `create_eval_views=True` (and use its
-`view_prefix`, which defaults to `v_`). If you can't enable the views, build a
-table that holds one AgentData trace per row yourself. Raw rows from the events
-table are individual events, not traces, so don't score them directly.
+Before scoring, fill the placeholders in
+[`traces/trace_readiness_check.sql`](traces/trace_readiness_check.sql) and run
+it in BigQuery (this requires `eval_sessions` and `eval_turns`, which
+`install.sh` deploys when `EVENTS_TABLE` is passed in Step 1). It calls no
+judge, so its only cost is scanning the events table. It reports:
 
-Materialize a sample of ready conversations from `v_eval_session` for the
+*   total conversations and turns, and counts of ready (`eval_ready`), truncated
+    (`has_truncated_content`), and other not-ready rows;
+*   conversations per `root_agent`, so sub-agent sessions stand out;
+*   median and max trace byte size, plus `over_limit_count` compared with the
+    ~5 MiB UDF limit;
+*   the `adk_schema_version` label on the events table.
+
+If many traces aren't ready, sub-agent sessions dominate, or traces are empty,
+upgrade the BQAA plugin or filter on `root_agent` before paying to score.
+
+### Step 3: Sample traces
+
+Use `eval_sessions(start_ts)` for multi-turn metrics and `eval_turns(start_ts)`
+for single-turn metrics (or query the plugin's `v_eval_session` / `v_eval_turn`
+views directly if enabled). Raw rows from the events table are individual
+events, not traces, so don't score them directly.
+
+Each trace function returns traces ending at or after `start_ts`, reading raw
+events from up to 7 days before `start_ts` so BigQuery can prune older
+partitions. A conversation that began within that 7-day lookback is rebuilt
+whole; one that began earlier comes back partial, with `turn_index` renumbered
+from `0`, and can still report `eval_ready = TRUE` (use `invocation_id` as the
+stable turn key).
+
+Materialize a sample of ready conversations from `eval_sessions` for the
 multi-turn metrics:
 
 ```sql
@@ -105,13 +136,14 @@ CREATE OR REPLACE TABLE `my-project.my_dataset.sampled_session_traces` AS
 SELECT
   session_id,
   trace AS trace_json
-FROM `my-project.my_dataset.v_eval_session`
+FROM `my-project.my_dataset.eval_sessions`(
+  TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 7 DAY)
+)
 WHERE eval_ready = TRUE
-  AND session_end_timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 7 DAY)
 LIMIT 50;
 ```
 
-Materialize a sample of ready turns from `v_eval_turn` for the single-turn
+Materialize a sample of ready turns from `eval_turns` for the single-turn
 metrics:
 
 ```sql
@@ -120,13 +152,14 @@ SELECT
   session_id,
   invocation_id,
   trace AS trace_json
-FROM `my-project.my_dataset.v_eval_turn`
+FROM `my-project.my_dataset.eval_turns`(
+  TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 7 DAY)
+)
 WHERE eval_ready = TRUE
-  AND turn_end_timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 7 DAY)
 LIMIT 50;
 ```
 
-### Step 3: Score traces
+### Step 4: Score traces
 
 Score the sampled traces and store results in a table:
 
@@ -153,7 +186,7 @@ FROM `my-project.my_dataset.sampled_session_traces`;
 
 `geap_evaluate` accepts twelve managed metric names, all scored from 0 to 1.
 
-### Single-turn metrics (score a sample from `v_eval_turn`)
+### Single-turn metrics (score a sample from `eval_turns`)
 
 | Metric | Versions | What it checks |
 | :--- | :--- | :--- |
@@ -166,7 +199,7 @@ Use the `_v2` or `_v3` names. The single-turn `_v1` names only work in projects
 that have used Gemini 2.5 Pro before; in other projects every row returns a
 `NOT_FOUND` status that says the judge model was not found.
 
-### Multi-turn metrics (score a sample from `v_eval_session`)
+### Multi-turn metrics (score a sample from `eval_sessions`)
 
 | Metric | What it checks |
 | :--- | :--- |
@@ -289,5 +322,12 @@ Every other code needs the input or setup fixed first:
     service account, which needs `roles/aiplatform.user`. Anyone who can call
     the routine and use the connection can spend judge quota in the install
     project.
+*   **Sub-agent sessions:** `eval_sessions` and `eval_turns` exclude nested
+    `AgentTool` sub-agent sessions on events written by a plugin that marks
+    `attributes.adk.parent_session_id`. Older data still includes them; check
+    per-agent counts in `traces/trace_readiness_check.sql` and filter on
+    `root_agent` if needed.
+*   **Turn traces have no earlier context:** `eval_turns` scores turn N without
+    turns 1 through N-1. Use `eval_sessions` for multi-turn metrics.
 *   **Data sensitivity:** Explanations and rubric reasoning quote trace content,
     so the results table is as sensitive as the traces.
