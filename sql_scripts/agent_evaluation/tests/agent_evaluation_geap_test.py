@@ -1911,8 +1911,32 @@ if [[ " $* " == *" --format=json "* && " $* " == *" --dataset "* ]]; then
   echo "{{\\"location\\": \\"${{FAKE_EXISTING_DS_LOC:-us-central1}}\\"}}"
   exit 0
 fi
-if [[ " $* " == *" --format=json "* ]]; then
+if [[ " $* " == *" --format=json "* && " $* " == *" --connection "* ]]; then
   echo '{{"cloudResource": {{"serviceAccountId": "bqcx-111222333-test@gcp-sa-bigquery-condel.iam.gserviceaccount.com"}}}}'
+  exit 0
+fi
+if [[ " $* " == *" --format=json "* ]]; then
+  if [[ "${{FAKE_TBL_SHOW_FAIL:-}}" == "1" ]]; then
+    echo "RequestsDependencyWarning: urllib3 doesn't match" >&2
+    echo "BigQuery error in show operation: Not found: Table"
+    exit 1
+  fi
+  echo "RequestsDependencyWarning: urllib3 doesn't match" >&2
+  TBL_LOC="${{FAKE_TBL_LOC:-${{FAKE_EXISTING_DS_LOC:-us-central1}}}}"
+  CONTENT_COL="${{FAKE_CONTENT_COL_NAME:-content}}"
+  if [[ "${{FAKE_TBL_MISSING_COLS:-}}" == "1" ]]; then
+    TBL_FIELDS='[{{"name": "timestamp"}}, {{"name": "event_id"}}, {{"name": "event_type"}}, {{"name": "agent"}}, {{"name": "session_id"}}, {{"name": "invocation_id"}}, {{"name": "user_id"}}, {{"name": "content"}}, {{"name": "content_parts", "type": "RECORD", "fields": [{{"name": "attributes"}}]}}, {{"name": "latency_ms"}}, {{"name": "status"}}, {{"name": "error_message"}}, {{"name": "is_truncated"}}]'
+  elif [[ "${{FAKE_TBL_MISSING_EVENT_ID:-}}" == "1" ]]; then
+    TBL_FIELDS='[{{"name": "timestamp"}}, {{"name": "event_type"}}, {{"name": "agent"}}, {{"name": "session_id"}}, {{"name": "invocation_id"}}, {{"name": "user_id"}}, {{"name": "content"}}, {{"name": "content_parts", "type": "RECORD", "fields": [{{"name": "text"}}]}}, {{"name": "attributes"}}, {{"name": "latency_ms"}}, {{"name": "status"}}, {{"name": "error_message"}}, {{"name": "is_truncated"}}]'
+  else
+    TBL_FIELDS="[{{\\"name\\": \\"timestamp\\"}}, {{\\"name\\": \\"event_id\\"}}, {{\\"name\\": \\"event_type\\"}}, {{\\"name\\": \\"agent\\"}}, {{\\"name\\": \\"session_id\\"}}, {{\\"name\\": \\"invocation_id\\"}}, {{\\"name\\": \\"user_id\\"}}, {{\\"name\\": \\"${{CONTENT_COL}}\\"}}, {{\\"name\\": \\"content_parts\\", \\"type\\": \\"RECORD\\", \\"fields\\": [{{\\"name\\": \\"text\\"}}]}}, {{\\"name\\": \\"attributes\\"}}, {{\\"name\\": \\"latency_ms\\"}}, {{\\"name\\": \\"status\\"}}, {{\\"name\\": \\"error_message\\"}}, {{\\"name\\": \\"is_truncated\\"}}]"
+  fi
+  if [[ "${{FAKE_TBL_NO_LABEL:-}}" == "1" ]]; then
+    TBL_LABELS='{{"location": "eu"}}'
+  else
+    TBL_LABELS="{{\\"location\\": \\"eu\\", \\"adk_schema_version\\": \\"${{FAKE_TBL_SCHEMA_VER:-2}}\\"}}"
+  fi
+  echo "{{\\"description\\": \\"Events table; see location field\\", \\"labels\\": ${{TBL_LABELS}}, \\"schema\\": {{\\"fields\\": ${{TBL_FIELDS}}}}, \\"location\\": \\"${{TBL_LOC}}\\"}}"
   exit 0
 fi
 if [[ " $* " == *" show "* ]]; then
@@ -1933,7 +1957,7 @@ if [[ " $* " == *" query "* ]]; then
     echo "INVALID_ARGUMENT: Managed metric smoke_test_metric is not supported."
     exit 0
   fi
-  cat > "{sql_target}"
+  cat >> "{sql_target}"
   exit 0
 fi
 exit 0
@@ -1944,7 +1968,7 @@ exit 0
 
     env = os.environ.copy()
     env["PATH"] = f"{tmp_path}:{env.get('PATH', '')}"
-    for var in ("PROJECT_ID", "DATASET_ID", "CONNECTION_ID"):
+    for var in ("PROJECT_ID", "DATASET_ID", "CONNECTION_ID", "EVENTS_TABLE"):
       env.pop(var, None)
     return env
 
@@ -1972,7 +1996,9 @@ exit 0
     proc = self._run_install(os.environ.copy(), "--help")
     self.assertEqual(proc.returncode, 0)
     self.assertIn("Usage:", proc.stdout)
-    self.assertIn("[PROJECT_ID] [DATASET_ID] [CONNECTION_ID]", proc.stdout)
+    self.assertIn(
+        "[PROJECT_ID] [DATASET_ID] [CONNECTION_ID] [EVENTS_TABLE]", proc.stdout
+    )
     self.assertNotIn("LOCATION", proc.stdout)
 
   def test_geap_install_sh_validates_identifiers(self):
@@ -2000,6 +2026,22 @@ exit 0
             (
                 "Error: CONNECTION_ID must contain only letters, numbers, and"
                 " underscores."
+            ),
+        ),
+        (
+            "EVENTS_TABLE",
+            ["test-project-123", "test_ds", "conn", "not_qualified"],
+            (
+                "Error: EVENTS_TABLE must be a valid project.dataset.table"
+                " identifier."
+            ),
+        ),
+        (
+            "EVENTS_TABLE_UNSAFE",
+            ["test-project-123", "test_ds", "conn", "test-proj.ds.bad&tbl"],
+            (
+                "Error: EVENTS_TABLE must be a valid project.dataset.table"
+                " identifier."
             ),
         ),
     ]
@@ -2106,6 +2148,7 @@ exit 0
       self.assertIn('_DEFAULT_PROJECT_ID = "customer-gcp-proj"', rendered_sql)
       self.assertIn('"YOUR_" + "PROJECT_ID"', rendered_sql)
       self.assertNotIn('!= "customer-gcp-proj"', rendered_sql)
+      self.assertNotIn("eval_sessions", rendered_sql)
       for placeholder in (
           "YOUR_PROJECT_ID",
           "YOUR_DATASET_ID",
@@ -2128,6 +2171,149 @@ exit 0
       eu_sql = captured_sql_file.read_text(encoding="utf-8")
       self.assertIn('_DEFAULT_GEAP_REGION = "europe-west4"', eu_sql)
       self.assertIn("WITH CONNECTION `customer-gcp-proj.EU.conn`", eu_sql)
+
+  def test_geap_install_sh_stops_on_events_table_lookup_failure(self):
+    with tempfile.TemporaryDirectory() as tmp_dir:
+      tmp_path = pathlib.Path(tmp_dir)
+      cli_log_file = tmp_path / "cli_calls.log"
+      env = self._make_fake_cli_env(tmp_path, cli_log_file=cli_log_file)
+      env["FAKE_TBL_SHOW_FAIL"] = "1"
+      proc = self._run_install(
+          env, "customer-gcp-proj", "ds", "conn", "other-proj.bqaa.events"
+      )
+      self.assertNotEqual(proc.returncode, 0)
+      self.assertIn(
+          "Error: Failed to inspect events table other-proj.bqaa.events",
+          proc.stderr,
+      )
+      self.assertIn("Not found: Table", proc.stderr)
+      cli_calls = cli_log_file.read_text(encoding="utf-8")
+      self.assertNotIn("mk --connection", cli_calls)
+      self.assertNotIn("bq query", cli_calls)
+
+  def test_geap_install_sh_rejects_events_table_location_mismatch(self):
+    with tempfile.TemporaryDirectory() as tmp_dir:
+      tmp_path = pathlib.Path(tmp_dir)
+      cli_log_file = tmp_path / "cli_calls.log"
+      env = self._make_fake_cli_env(tmp_path, cli_log_file=cli_log_file)
+      env["FAKE_EXISTING_DS_LOC"] = "US"
+      env["FAKE_TBL_LOC"] = "EU"
+      proc = self._run_install(
+          env, "customer-gcp-proj", "ds", "conn", "other-proj.bqaa.events"
+      )
+      self.assertNotEqual(proc.returncode, 0)
+      self.assertIn(
+          "does not match dataset customer-gcp-proj:ds location 'US'",
+          proc.stderr,
+      )
+      cli_calls = cli_log_file.read_text(encoding="utf-8")
+      self.assertNotIn("mk --connection", cli_calls)
+      self.assertNotIn("bq query", cli_calls)
+
+  def test_geap_install_sh_rejects_events_table_missing_columns(self):
+    cases = [
+        ("FAKE_TBL_MISSING_COLS", "attributes"),
+        ("FAKE_TBL_MISSING_EVENT_ID", "event_id"),
+    ]
+    with tempfile.TemporaryDirectory() as tmp_dir:
+      tmp_path = pathlib.Path(tmp_dir)
+      for flag, missing_col in cases:
+        with self.subTest(flag=flag):
+          cli_log_file = tmp_path / f"cli_calls_{missing_col}.log"
+          env = self._make_fake_cli_env(tmp_path, cli_log_file=cli_log_file)
+          env[flag] = "1"
+          proc = self._run_install(
+              env, "customer-gcp-proj", "ds", "conn", "other-proj.bqaa.events"
+          )
+          self.assertNotEqual(proc.returncode, 0)
+          self.assertIn(
+              "Events table other-proj.bqaa.events is missing required"
+              f" columns: {missing_col}.",
+              proc.stderr,
+          )
+          cli_calls = cli_log_file.read_text(encoding="utf-8")
+          self.assertNotIn("mk --connection", cli_calls)
+          self.assertNotIn("bq query", cli_calls)
+
+  def test_geap_install_sh_warns_on_schema_version_label(self):
+    cases = [
+        ("FAKE_TBL_NO_LABEL", "has no 'adk_schema_version' label"),
+        ("FAKE_TBL_SCHEMA_VER", "has adk_schema_version='1' (expected '2')"),
+    ]
+    with tempfile.TemporaryDirectory() as tmp_dir:
+      base_env = self._make_fake_cli_env(pathlib.Path(tmp_dir))
+      for flag, expected_warn in cases:
+        with self.subTest(flag=flag):
+          env = dict(base_env, **{flag: "1"})
+          proc = self._run_install(
+              env, "customer-gcp-proj", "ds", "conn", "other-proj.bqaa.events"
+          )
+          self.assertEqual(proc.returncode, 0, proc.stderr)
+          self.assertIn(expected_warn, proc.stderr)
+
+  def test_geap_install_sh_deploys_trace_functions_with_events_table(self):
+    with tempfile.TemporaryDirectory() as tmp_dir:
+      tmp_path = pathlib.Path(tmp_dir)
+      captured_sql_file = tmp_path / "captured_query.sql"
+      cli_log_file = tmp_path / "cli_calls.log"
+      env = self._make_fake_cli_env(
+          tmp_path,
+          cli_log_file=cli_log_file,
+          captured_sql_file=captured_sql_file,
+      )
+      env["FAKE_CONTENT_COL_NAME"] = "CONTENT"
+      proc = self._run_install(
+          env,
+          "customer-gcp-proj",
+          "custom_dataset",
+          "custom_ge_conn",
+          "events-proj-123.bqaa_logs.agent-events",
+      )
+      self.assertEqual(proc.returncode, 0, proc.stderr)
+      self.assertEqual(proc.stderr, "")
+      cli_calls = cli_log_file.read_text(encoding="utf-8")
+      self.assertIn(
+          "bq --project_id=customer-gcp-proj show --format=json"
+          " events-proj-123:bqaa_logs.agent-events",
+          cli_calls,
+      )
+      self.assertLess(
+          cli_calls.index("events-proj-123:bqaa_logs.agent-events"),
+          cli_calls.index("mk --connection"),
+      )
+      rendered_sql = captured_sql_file.read_text(encoding="utf-8")
+      self.assertIn(
+          "CREATE OR REPLACE TABLE FUNCTION"
+          " `customer-gcp-proj.custom_dataset.eval_sessions`(",
+          rendered_sql,
+      )
+      self.assertIn(
+          "CREATE OR REPLACE TABLE FUNCTION"
+          " `customer-gcp-proj.custom_dataset.eval_turns`(",
+          rendered_sql,
+      )
+      self.assertIn(
+          "`events-proj-123.bqaa_logs.agent-events`",
+          rendered_sql,
+      )
+      self.assertNotIn("YOUR_EVENTS_TABLE", rendered_sql)
+
+  def test_geap_install_sh_supports_events_table_env_var(self):
+    with tempfile.TemporaryDirectory() as tmp_dir:
+      tmp_path = pathlib.Path(tmp_dir)
+      captured_sql_file = tmp_path / "captured_query.sql"
+      env = self._make_fake_cli_env(
+          tmp_path, captured_sql_file=captured_sql_file
+      )
+      env["EVENTS_TABLE"] = "events-proj-123.bqaa_logs.agent_events"
+      proc = self._run_install(
+          env, "customer-gcp-proj", "custom_dataset", "custom_ge_conn"
+      )
+      self.assertEqual(proc.returncode, 0, proc.stderr)
+      self.assertIn(
+          "`events-proj-123.bqaa_logs.agent_events`",
+          captured_sql_file.read_text(encoding="utf-8"),
+      )
 
   def test_geap_install_sh_stops_when_smoke_call_fails(self):
     cases = [
@@ -2205,6 +2391,24 @@ exit 0
         [],
         "Unexpanded query parameters found in eval_traces.sql",
     )
+
+    install_sh = (geap_dir / "install.sh").read_text(encoding="utf-8")
+    install_cols_match = re.search(r"for col in ([^;]+); do", install_sh)
+    self.assertIsNotNone(install_cols_match, "Missing column loop in install.sh")
+    install_cols = set(install_cols_match.group(1).split())
+    for body in tvf_bodies:
+      raw_events_match = re.search(
+          r"RawEvents AS \(\s*SELECT\s+(.*?)\s+FROM\s+`YOUR_EVENTS_TABLE`",
+          body,
+          flags=re.DOTALL,
+      )
+      self.assertIsNotNone(
+          raw_events_match, "Missing RawEvents projection in eval_traces.sql"
+      )
+      raw_events_cols = {
+          col.strip() for col in raw_events_match.group(1).split(",")
+      }
+      self.assertEqual(install_cols, raw_events_cols)
 
   def test_generate_trace_sql_verifies_released_adk_and_renders_ddl(self):
     gen_trace_mod = _load_module_from_path(
