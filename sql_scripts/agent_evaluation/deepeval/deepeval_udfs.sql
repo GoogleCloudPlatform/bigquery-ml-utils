@@ -57,12 +57,10 @@ _BQAA_PHASE = {
     "LLM_REQUEST": 3,
     "LLM_RESPONSE": 4,
     "TOOL_STARTING": 5,
-    "HITL_CONFIRMATION_REQUEST": 5,
     "HITL_INPUT_REQUEST": 5,
     "TOOL_COMPLETED": 6,
     "TOOL_ERROR": 6,
     "AGENT_TRANSFER": 6,
-    "HITL_CONFIRMATION_REQUEST_COMPLETED": 6,
     "HITL_INPUT_REQUEST_COMPLETED": 6,
     "AGENT_RESPONSE": 7,
     "AGENT_ERROR": 7,
@@ -431,7 +429,9 @@ def _parse_bqaa_events(ev_list: list, wrapper: dict) -> dict | None:
 
             elif ev_type in (
                 "TOOL_STARTING",
-                "HITL_CONFIRMATION_REQUEST",
+                # Only input HITL rows are tool calls (the model picks
+                # request_input); confirmation and credential rows are ADK
+                # framework steps, as in _AGENT_DATA_FRAMEWORK_TOOLS.
                 "HITL_INPUT_REQUEST",
             ):
                 t_name = content_dict.get("tool") or content_dict.get("tool_name")
@@ -482,7 +482,6 @@ def _parse_bqaa_events(ev_list: list, wrapper: dict) -> dict | None:
             elif ev_type in (
                 "TOOL_COMPLETED",
                 "TOOL_ERROR",
-                "HITL_CONFIRMATION_REQUEST_COMPLETED",
                 "HITL_INPUT_REQUEST_COMPLETED",
             ):
                 span_key = str(ev.get("span_id") or "")
@@ -681,6 +680,13 @@ def _finalize_parsed_trace(
     return result
 
 
+_AGENT_DATA_FRAMEWORK_TOOLS = frozenset((
+    "transfer_to_agent",
+    "adk_request_credential",
+    "adk_request_confirmation",
+))
+
+
 def _parse_agent_data_dict(raw_dict: dict) -> dict:
     """Normalizes a canonical AgentData JSON dict into DeepEval test_case fields."""
     inner = _parse_json_field(raw_dict.get("agent_eval_data") or raw_dict.get("trace"), None)
@@ -716,21 +722,22 @@ def _parse_agent_data_dict(raw_dict: dict) -> dict:
                         a_text = str(part["text"])
                 if isinstance(part.get("function_call"), dict):
                     fc = part["function_call"]
-                    fc_name = str(fc.get("name") or "unknown_tool")
-                    if fc_name != "transfer_to_agent":
+                    fc_name = str(fc.get("name") or "").strip() or "unknown_tool"
+                    if fc_name not in _AGENT_DATA_FRAMEWORK_TOOLS:
                         pending_args[fc_name] = fc.get("args") if isinstance(fc.get("args"), dict) else {}
                 if isinstance(part.get("function_response"), dict):
                     fr = part["function_response"]
-                    fr_name = str(fr.get("name") or "unknown_tool")
-                    fr_resp = fr.get("response")
-                    resp_dict = fr_resp if isinstance(fr_resp, dict) else {"result": fr_resp}
-                    turn_tools.append({
-                        "name": fr_name,
-                        "description": f"Tool {fr_name}",
-                        "input_parameters": pending_args.get(fr_name, {}),
-                        "output": resp_dict,
-                    })
-                    turn_rc.append(f"Tool {fr_name} returned: {json.dumps(fr_resp)}")
+                    fr_name = str(fr.get("name") or "").strip() or "unknown_tool"
+                    if fr_name not in _AGENT_DATA_FRAMEWORK_TOOLS:
+                        fr_resp = fr.get("response")
+                        resp_dict = fr_resp if isinstance(fr_resp, dict) else {"result": fr_resp}
+                        turn_tools.append({
+                            "name": fr_name,
+                            "description": f"Tool {fr_name}",
+                            "input_parameters": pending_args.get(fr_name, {}),
+                            "output": resp_dict,
+                        })
+                        turn_rc.append(f"Tool {fr_name} returned: {json.dumps(fr_resp)}")
         normalized_turns.append({
             "input": u_text,
             "actual_output": a_text,

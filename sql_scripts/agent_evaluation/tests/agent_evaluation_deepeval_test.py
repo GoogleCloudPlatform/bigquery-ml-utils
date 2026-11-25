@@ -3267,6 +3267,644 @@ exit 0
       self.assertIn('Error: ValueError:', err_row['reason'])
     self.assertTrue(bad_criteria_res[3]['passed'])
 
+  def test_agent_data_filters_framework_tools_symmetrically(self):
+    ns = _load_udf_module()
+    parse_trace = ns['parse_trace']
+
+    # 1. Paired transfer_to_agent call + response alone produces empty
+    #    tools_called and retrieval_context, restoring instruction context.
+    transfer_only = {
+        'trace': {
+            'agents': {
+                'billing_agent': {
+                    'instruction': 'Handle billing questions.',
+                }
+            },
+            'turns': [{
+                'turn_index': 0,
+                'events': [
+                    {
+                        'author': 'user',
+                        'content': {
+                            'role': 'user',
+                            'parts': [{'text': 'Help with my bill'}],
+                        },
+                    },
+                    {
+                        'author': 'root_agent',
+                        'content': {
+                            'role': 'model',
+                            'parts': [{
+                                'function_call': {
+                                    'name': 'transfer_to_agent',
+                                    'args': {'agent_name': 'billing_agent'},
+                                }
+                            }],
+                        },
+                    },
+                    {
+                        'author': 'root_agent',
+                        'content': {
+                            'role': 'user',
+                            'parts': [{
+                                'function_response': {
+                                    'name': 'transfer_to_agent',
+                                    'response': {},
+                                }
+                            }],
+                        },
+                    },
+                    {
+                        'author': 'billing_agent',
+                        'content': {
+                            'role': 'model',
+                            'parts': [{'text': 'Your bill is $42.'}],
+                        },
+                    },
+                ],
+            }],
+        }
+    }
+    parsed_transfer = json.loads(parse_trace(json.dumps(transfer_only)))
+    self.assertEqual(parsed_transfer['tools_called'], [])
+    self.assertEqual(parsed_transfer['retrieval_context'], [])
+    self.assertEqual(parsed_transfer['context'], ['Handle billing questions.'])
+    self.assertEqual(parsed_transfer['input'], 'Help with my bill')
+    self.assertEqual(parsed_transfer['actual_output'], 'Your bill is $42.')
+
+    # 2. Combined AgentData with framework tools, model-chosen
+    #    adk_request_input, and a real tool (execute_sql):
+    #    transfer_to_agent, adk_request_credential, and adk_request_confirmation
+    #    are excluded symmetrically, while adk_request_input and execute_sql
+    #    are preserved with exact input_parameters and output.
+    combined = {
+        'agents': {
+            'root_agent': {
+                'instruction': 'Run SQL safely with approvals.',
+            }
+        },
+        'turns': [{
+            'turn_index': 0,
+            'events': [
+                {
+                    'author': 'user',
+                    'content': {
+                        'role': 'user',
+                        'parts': [{'text': 'Run sensitive query'}],
+                    },
+                },
+                {
+                    'author': 'root_agent',
+                    'content': {
+                        'role': 'model',
+                        'parts': [
+                            {
+                                'function_call': {
+                                    'name': 'transfer_to_agent',
+                                    'args': {'agent_name': 'sql_agent'},
+                                }
+                            },
+                            {
+                                'function_call': {
+                                    'name': 'adk_request_credential',
+                                    'args': {'provider': 'oauth'},
+                                }
+                            },
+                            {
+                                'function_call': {
+                                    'name': 'adk_request_confirmation',
+                                    'args': {'action': 'run_sql'},
+                                }
+                            },
+                            {
+                                'function_call': {
+                                    'name': 'adk_request_input',
+                                    'args': {'prompt': 'Confirm dataset'},
+                                }
+                            },
+                            {
+                                'function_call': {
+                                    'name': 'execute_sql',
+                                    'args': {'sql': 'SELECT 42 AS answer'},
+                                }
+                            },
+                        ],
+                    },
+                },
+                {
+                    'author': 'sql_agent',
+                    'content': {
+                        'role': 'user',
+                        'parts': [
+                            {
+                                'function_response': {
+                                    'name': 'transfer_to_agent',
+                                    'response': {},
+                                }
+                            },
+                            {
+                                'function_response': {
+                                    'name': 'adk_request_credential',
+                                    'response': {'status': 'granted'},
+                                }
+                            },
+                            {
+                                'function_response': {
+                                    'name': 'adk_request_confirmation',
+                                    'response': {'confirmed': True},
+                                }
+                            },
+                            {
+                                'function_response': {
+                                    'name': 'adk_request_input',
+                                    'response': {'text': 'analytics'},
+                                }
+                            },
+                            {
+                                'function_response': {
+                                    'name': 'execute_sql',
+                                    'response': {'rows': [{'answer': 42}]},
+                                }
+                            },
+                        ],
+                    },
+                },
+                {
+                    'author': 'sql_agent',
+                    'content': {
+                        'role': 'model',
+                        'parts': [{'text': 'Answer is 42.'}],
+                    },
+                },
+            ],
+        }],
+    }
+    parsed_combined = json.loads(parse_trace(json.dumps(combined)))
+    self.assertEqual(
+        parsed_combined['tools_called'],
+        [
+            {
+                'name': 'adk_request_input',
+                'description': 'Tool adk_request_input',
+                'input_parameters': {'prompt': 'Confirm dataset'},
+                'output': {'text': 'analytics'},
+            },
+            {
+                'name': 'execute_sql',
+                'description': 'Tool execute_sql',
+                'input_parameters': {'sql': 'SELECT 42 AS answer'},
+                'output': {'rows': [{'answer': 42}]},
+            },
+        ],
+    )
+    self.assertEqual(
+        parsed_combined['retrieval_context'],
+        [
+            'Tool adk_request_input returned: {"text": "analytics"}',
+            'Tool execute_sql returned: {"rows": [{"answer": 42}]}',
+        ],
+    )
+    self.assertNotIn('context', parsed_combined)
+
+    # 3. Multi-turn AgentData with transfer_to_agent on Turn 1 and a real tool
+    #    on Turn 2.
+    multi_turn = {
+        'agents': {
+            'root_agent': {
+                'instruction': 'Route and query data.',
+            }
+        },
+        'turns': [
+            {
+                'turn_index': 0,
+                'events': [
+                    {
+                        'author': 'user',
+                        'content': {
+                            'role': 'user',
+                            'parts': [{'text': 'Route me'}],
+                        },
+                    },
+                    {
+                        'author': 'root_agent',
+                        'content': {
+                            'role': 'model',
+                            'parts': [{
+                                'function_call': {
+                                    'name': 'transfer_to_agent',
+                                    'args': {'agent_name': 'sql_agent'},
+                                }
+                            }],
+                        },
+                    },
+                    {
+                        'author': 'root_agent',
+                        'content': {
+                            'role': 'user',
+                            'parts': [{
+                                'function_response': {
+                                    'name': 'transfer_to_agent',
+                                    'response': {},
+                                }
+                            }],
+                        },
+                    },
+                    {
+                        'author': 'sql_agent',
+                        'content': {
+                            'role': 'model',
+                            'parts': [{'text': 'Connected to SQL specialist.'}],
+                        },
+                    },
+                ],
+            },
+            {
+                'turn_index': 1,
+                'events': [
+                    {
+                        'author': 'user',
+                        'content': {
+                            'role': 'user',
+                            'parts': [{'text': 'Count rows'}],
+                        },
+                    },
+                    {
+                        'author': 'sql_agent',
+                        'content': {
+                            'role': 'model',
+                            'parts': [{
+                                'function_call': {
+                                    'name': 'execute_sql',
+                                    'args': {'sql': 'SELECT COUNT(*) AS n'},
+                                }
+                            }],
+                        },
+                    },
+                    {
+                        'author': 'sql_agent',
+                        'content': {
+                            'role': 'user',
+                            'parts': [{
+                                'function_response': {
+                                    'name': 'execute_sql',
+                                    'response': {'rows': [{'n': 7}]},
+                                }
+                            }],
+                        },
+                    },
+                    {
+                        'author': 'sql_agent',
+                        'content': {
+                            'role': 'model',
+                            'parts': [{'text': 'There are 7 rows.'}],
+                        },
+                    },
+                ],
+            },
+        ],
+    }
+    parsed_multi = json.loads(parse_trace(json.dumps(multi_turn)))
+    self.assertEqual(len(parsed_multi['turns']), 2)
+    self.assertEqual(parsed_multi['turns'][0]['tools_called'], [])
+    self.assertEqual(parsed_multi['turns'][0]['retrieval_context'], [])
+    self.assertEqual(
+        [t['name'] for t in parsed_multi['turns'][1]['tools_called']],
+        ['execute_sql'],
+    )
+    self.assertEqual(
+        parsed_multi['tools_called'],
+        [{
+            'name': 'execute_sql',
+            'description': 'Tool execute_sql',
+            'input_parameters': {'sql': 'SELECT COUNT(*) AS n'},
+            'output': {'rows': [{'n': 7}]},
+        }],
+    )
+    self.assertNotIn('context', parsed_multi)
+
+    # 4. Whitespace-padded framework tool names on the function_call and the
+    #    function_response are still excluded, while a real tool keeps its
+    #    exact input_parameters and output.
+    padded = {
+        'agents': {
+            'root_agent': {
+                'instruction': 'Route and query data.',
+            }
+        },
+        'turns': [{
+            'turn_index': 0,
+            'events': [
+                {
+                    'author': 'user',
+                    'content': {
+                        'role': 'user',
+                        'parts': [{'text': 'Count orders'}],
+                    },
+                },
+                {
+                    'author': 'root_agent',
+                    'content': {
+                        'role': 'model',
+                        'parts': [
+                            {
+                                'function_call': {
+                                    'name': ' transfer_to_agent ',
+                                    'args': {'agent_name': 'sql_agent'},
+                                }
+                            },
+                            {
+                                'function_call': {
+                                    'name': '\tadk_request_confirmation\n',
+                                    'args': {'action': 'run_sql'},
+                                }
+                            },
+                            {
+                                'function_call': {
+                                    'name': 'execute_sql',
+                                    'args': {'sql': 'SELECT COUNT(*) AS n'},
+                                }
+                            },
+                        ],
+                    },
+                },
+                {
+                    'author': 'sql_agent',
+                    'content': {
+                        'role': 'user',
+                        'parts': [
+                            {
+                                'function_response': {
+                                    'name': ' transfer_to_agent ',
+                                    'response': {},
+                                }
+                            },
+                            {
+                                'function_response': {
+                                    'name': '\tadk_request_confirmation\n',
+                                    'response': {'confirmed': True},
+                                }
+                            },
+                            {
+                                'function_response': {
+                                    'name': 'execute_sql',
+                                    'response': {'rows': [{'n': 3}]},
+                                }
+                            },
+                        ],
+                    },
+                },
+                {
+                    'author': 'sql_agent',
+                    'content': {
+                        'role': 'model',
+                        'parts': [{'text': 'There are 3 orders.'}],
+                    },
+                },
+            ],
+        }],
+    }
+    parsed_padded = json.loads(parse_trace(json.dumps(padded)))
+    self.assertEqual(
+        parsed_padded['tools_called'],
+        [{
+            'name': 'execute_sql',
+            'description': 'Tool execute_sql',
+            'input_parameters': {'sql': 'SELECT COUNT(*) AS n'},
+            'output': {'rows': [{'n': 3}]},
+        }],
+    )
+    self.assertEqual(
+        parsed_padded['retrieval_context'],
+        ['Tool execute_sql returned: {"rows": [{"n": 3}]}'],
+    )
+
+    # 5. An orphan transfer_to_agent function_response, whose function_call is
+    #    not in this turn, is still excluded and restores instruction context.
+    orphan_response = {
+        'agents': {
+            'billing_agent': {
+                'instruction': 'Handle billing questions.',
+            }
+        },
+        'turns': [{
+            'turn_index': 0,
+            'events': [
+                {
+                    'author': 'user',
+                    'content': {
+                        'role': 'user',
+                        'parts': [{'text': 'Help with my bill'}],
+                    },
+                },
+                {
+                    'author': 'root_agent',
+                    'content': {
+                        'role': 'user',
+                        'parts': [{
+                            'function_response': {
+                                'name': 'transfer_to_agent',
+                                'response': {'result': None},
+                            }
+                        }],
+                    },
+                },
+                {
+                    'author': 'billing_agent',
+                    'content': {
+                        'role': 'model',
+                        'parts': [{'text': 'Your bill is $42.'}],
+                    },
+                },
+            ],
+        }],
+    }
+    parsed_orphan = json.loads(parse_trace(json.dumps(orphan_response)))
+    self.assertEqual(parsed_orphan['tools_called'], [])
+    self.assertEqual(parsed_orphan['retrieval_context'], [])
+    self.assertEqual(parsed_orphan['context'], ['Handle billing questions.'])
+
+  def test_raw_events_and_agent_data_agree_on_hitl_confirmation(self):
+    ns = _load_udf_module()
+    parse_trace = ns['parse_trace']
+
+    def raw_events(rows):
+      """Builds time-ordered agent_events rows from (event_type, content)."""
+      return [
+          {
+              'timestamp': f'2026-11-24 10:00:{i:02d}+00',
+              'event_type': event_type,
+              'invocation_id': 'inv_hitl',
+              'agent': 'root_agent',
+              'content': content,
+          }
+          for i, (event_type, content) in enumerate(rows)
+      ]
+
+    def agent_data(instruction, events):
+      """Builds a one-turn AgentData trace for root_agent."""
+      return {
+          'agents': {'root_agent': {'instruction': instruction}},
+          'turns': [{'turn_index': 0, 'events': events}],
+      }
+
+    def ad_event(role, part):
+      author = 'user' if role == 'user' else 'root_agent'
+      return {'author': author, 'content': {'role': role, 'parts': [part]}}
+
+    def ad_call(name, args):
+      return ad_event('model', {'function_call': {'name': name, 'args': args}})
+
+    def ad_response(name, response):
+      return ad_event(
+          'user', {'function_response': {'name': name, 'response': response}}
+      )
+
+    def assert_parsers_agree(case, raw_rows, trace):
+      """Parses both inputs and asserts that every test case field matches."""
+      parsed_raw = json.loads(parse_trace(json.dumps(raw_rows)))
+      parsed_trace = json.loads(parse_trace(json.dumps(trace)))
+      keys = (
+          'agent_id',
+          'chatbot_role',
+          'input',
+          'actual_output',
+          'tools_called',
+          'retrieval_context',
+          'context',
+          'turns',
+      )
+      self.assertEqual(
+          {key: parsed_raw.get(key) for key in keys},
+          {key: parsed_trace.get(key) for key in keys},
+          case,
+      )
+      return parsed_raw
+
+    # 1. A declined require_confirmation=True approval with no real tool: the
+    #    HITL_CONFIRMATION_REQUEST row and its _COMPLETED row are not tool
+    #    calls, so tools_called and retrieval_context stay empty and the
+    #    instruction context is restored, exactly as on the AgentData path.
+    instruction = 'Ask before destructive actions.'
+    confirmation_args = {'hint': 'Drop table staging?'}
+    declined_raw = raw_events([
+        ('USER_MESSAGE_RECEIVED', {'text_summary': 'Drop table staging'}),
+        ('AGENT_STARTING', {'text_summary': instruction}),
+        (
+            'HITL_CONFIRMATION_REQUEST',
+            {'tool': 'adk_request_confirmation', 'args': confirmation_args},
+        ),
+        (
+            'HITL_CONFIRMATION_REQUEST_COMPLETED',
+            {
+                'tool': 'adk_request_confirmation',
+                'result': {'confirmed': False},
+            },
+        ),
+        ('AGENT_RESPONSE', {'text_summary': 'Cancelled; nothing was dropped.'}),
+    ])
+    declined_trace = agent_data(
+        instruction,
+        [
+            ad_event('user', {'text': 'Drop table staging'}),
+            ad_call('adk_request_confirmation', confirmation_args),
+            ad_response('adk_request_confirmation', {'confirmed': False}),
+            ad_event('model', {'text': 'Cancelled; nothing was dropped.'}),
+        ],
+    )
+    parsed_declined = assert_parsers_agree(
+        'declined', declined_raw, declined_trace
+    )
+    self.assertEqual(parsed_declined['tools_called'], [])
+    self.assertEqual(parsed_declined['retrieval_context'], [])
+    self.assertEqual(parsed_declined['context'], [instruction])
+
+    # 2. Credential, confirmation, and input HITL rows around a real tool:
+    #    adk_request_credential and adk_request_confirmation are dropped on
+    #    both paths, while the model-chosen adk_request_input and execute_sql
+    #    keep identical entries.
+    mixed_instruction = 'Run SQL safely with approvals.'
+    mixed_raw = raw_events([
+        ('USER_MESSAGE_RECEIVED', {'text_summary': 'Run sensitive query'}),
+        ('AGENT_STARTING', {'text_summary': mixed_instruction}),
+        (
+            'HITL_CREDENTIAL_REQUEST',
+            {'tool': 'adk_request_credential', 'args': {'provider': 'oauth'}},
+        ),
+        (
+            'HITL_CREDENTIAL_REQUEST_COMPLETED',
+            {'tool': 'adk_request_credential', 'result': {'status': 'granted'}},
+        ),
+        (
+            'HITL_CONFIRMATION_REQUEST',
+            {'tool': 'adk_request_confirmation', 'args': {'action': 'run_sql'}},
+        ),
+        (
+            'HITL_CONFIRMATION_REQUEST_COMPLETED',
+            {'tool': 'adk_request_confirmation', 'result': {'confirmed': True}},
+        ),
+        (
+            'HITL_INPUT_REQUEST',
+            {
+                'tool': 'adk_request_input',
+                'args': {'prompt': 'Confirm dataset'},
+            },
+        ),
+        (
+            'HITL_INPUT_REQUEST_COMPLETED',
+            {'tool': 'adk_request_input', 'result': {'text': 'analytics'}},
+        ),
+        (
+            'TOOL_STARTING',
+            {'tool': 'execute_sql', 'args': {'sql': 'SELECT 42 AS answer'}},
+        ),
+        (
+            'TOOL_COMPLETED',
+            {'tool': 'execute_sql', 'result': {'rows': [{'answer': 42}]}},
+        ),
+        ('AGENT_RESPONSE', {'text_summary': 'Answer is 42.'}),
+    ])
+    mixed_trace = agent_data(
+        mixed_instruction,
+        [
+            ad_event('user', {'text': 'Run sensitive query'}),
+            ad_call('adk_request_credential', {'provider': 'oauth'}),
+            ad_response('adk_request_credential', {'status': 'granted'}),
+            ad_call('adk_request_confirmation', {'action': 'run_sql'}),
+            ad_response('adk_request_confirmation', {'confirmed': True}),
+            ad_call('adk_request_input', {'prompt': 'Confirm dataset'}),
+            ad_response('adk_request_input', {'text': 'analytics'}),
+            ad_call('execute_sql', {'sql': 'SELECT 42 AS answer'}),
+            ad_response('execute_sql', {'rows': [{'answer': 42}]}),
+            ad_event('model', {'text': 'Answer is 42.'}),
+        ],
+    )
+    parsed_mixed = assert_parsers_agree('mixed', mixed_raw, mixed_trace)
+    self.assertEqual(
+        parsed_mixed['tools_called'],
+        [
+            {
+                'name': 'adk_request_input',
+                'description': 'Tool adk_request_input',
+                'input_parameters': {'prompt': 'Confirm dataset'},
+                'output': {'text': 'analytics'},
+            },
+            {
+                'name': 'execute_sql',
+                'description': 'Tool execute_sql',
+                'input_parameters': {'sql': 'SELECT 42 AS answer'},
+                'output': {'rows': [{'answer': 42}]},
+            },
+        ],
+    )
+    self.assertEqual(
+        parsed_mixed['retrieval_context'],
+        [
+            'Tool adk_request_input returned: {"text": "analytics"}',
+            'Tool execute_sql returned: {"rows": [{"answer": 42}]}',
+        ],
+    )
+    self.assertNotIn('context', parsed_mixed)
+
 
 if __name__ == '__main__':
   unittest.main()
