@@ -346,8 +346,16 @@ When `test_case_json` is a multi-turn trace produced by `deepeval_parse_trace`
 
 - `'turn_relevancy'`: Evaluates whether each assistant turn stays relevant to
   the preceding conversation context.
-- `'knowledge_retention'`: Checks whether the assistant retains facts and
-  context established in earlier turns without forgetting or re-asking.
+- `'knowledge_retention'`: Checks whether the assistant retains personal
+  user-profile facts (such as name, preferences, or account details) across
+  turns (`deepeval.metrics.KnowledgeRetentionMetric`). *(Note: In
+  `deepeval==3.8.0`, `KnowledgeRetentionMetric`'s built-in extraction prompt
+  targets personal user-profile facts rather than analytical entities, SQL
+  filters, or table names; when zero user-profile facts are extracted across a
+  session, `deepeval_evaluate` returns `NULL` for `score` and `passed` with an
+  `N/A` reason instead of a false `0.0` failure. For cross-turn context
+  retention in technical or analytical Q&A sessions, use
+  `'conversational_geval'` below.)*
 - `'conversation_completeness'`: Evaluates whether all user intentions across
   the multi-turn session were satisfied by the end of the conversation.
 - `'role_adherence'`: Measures whether the assistant adheres to `chatbot_role`
@@ -355,7 +363,8 @@ When `test_case_json` is a multi-turn trace produced by `deepeval_parse_trace`
 - `'conversational_geval:<Name>:<Criteria>'` (or single-pass
   `'conversational_geval:<Name>:steps:<Step 1>;<Step 2>'`): Custom multi-turn
   G-Eval rubric (`deepeval.metrics.ConversationalGEval`) evaluated over the full
-  conversation trajectory.
+  conversation trajectory (recommended for cross-turn entity, filter, and scope
+  retention in analytical or technical Q&A sessions).
 
 ---
 
@@ -563,13 +572,41 @@ SELECT
       'knowledge_retention',
       'conversation_completeness',
       'role_adherence',
-      'conversational_geval:Cross-Turn Context Carryover:Evaluate whether the assistant remembers the project_id discussed in earlier turns when the user asks follow-up questions about a dataset or table without repeating the project_id.'
+      'conversational_geval:Cross-Turn Context Carryover:steps:Identify entities, project IDs, dataset names, or filters established in earlier turns;Verify follow-up assistant turns retain that context without re-asking or losing scope;Penalize any follow-up turn that drops or re-asks previously established context'
     ]
   ) AS multi_turn_results
 FROM parsed_session_traces
 ORDER BY session_id, agent_scope_id;
 EOF
 ```
+
+On the `my_bq_agent` data-exploration session in `agent_events_v2`,
+`knowledge_retention` returns `NULL` (`N/A`) when zero personal user-profile
+facts are extracted, while the single-pass
+`conversational_geval:Cross-Turn Context Carryover` rubric scores cross-turn
+project and dataset context retention directly.
+
+### 3. On-Demand Incremental Multi-Turn Session Evaluation (`MERGE`)
+
+For scheduled or on-demand batch evaluation over a growing BQAA event table,
+Section 4 of [`agent_events_v2_eval_queries.sql`](agent_events_v2_eval_queries.sql)
+provides a production `CREATE TABLE IF NOT EXISTS` + `BEGIN ... MERGE ... END;`
+template (`session_eval_results`) that:
+
+- Prunes BQAA partitions via `scan_floor` (1-day lookback before the latest
+  evaluated timestamp) and bounds multi-turn session history scans via
+  `history_floor` (30-day lookback before `scan_floor`, compatible with
+  `require_partition_filter = TRUE`), isolating shared multi-agent tables by
+  `(agent_scope_id, session_id)` (skipping `NULL` keys) while applying a
+  5-minute settle window so active in-flight sessions finish before scoring.
+- Identifies new, extended, or retryable errored (`Error: ...` capped at
+  `eval_attempts < 3`, reset on new turns or clean scores) candidate
+  `(agent_scope_id, session_id)` pairs first, selects up to `LIMIT 100`
+  multi-turn sessions (`ORDER BY is_error_retry ASC, last_event_at ASC`,
+  prioritizing new/extended sessions ahead of retries), and only then
+  aggregates heavy event payloads (`content`, `content_parts`) so multi-day
+  sessions spanning `scan_floor` retain their turn history without full-table
+  payload scans or persistent failure starvation.
 
 ---
 

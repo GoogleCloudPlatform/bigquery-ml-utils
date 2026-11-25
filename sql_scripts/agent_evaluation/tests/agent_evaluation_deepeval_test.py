@@ -408,6 +408,41 @@ def _extract_agent_scope_coalesce_blocks(sql_text: str) -> list[str]:
   return blocks
 
 
+def _split_top_level_sql_statements(sql_text: str) -> list[str]:
+  """Splits SQL text on semicolons outside string literals and BEGIN..END."""
+  statements: list[str] = []
+  buf: list[str] = []
+  begin_depth = 0
+  pos = 0
+  for match in re.finditer(
+      r"'(?:\\.|''|[^'\\])*'|;|\bBEGIN\b|\bEND\b",
+      sql_text,
+      flags=re.IGNORECASE,
+  ):
+    buf.append(sql_text[pos : match.start()])
+    token = match.group(0)
+    upper = token.upper()
+    if upper == 'BEGIN':
+      begin_depth += 1
+      buf.append(token)
+    elif upper == 'END' and begin_depth > 0:
+      begin_depth -= 1
+      buf.append(token)
+    elif token == ';' and begin_depth == 0:
+      stmt = ''.join(buf).strip()
+      if stmt:
+        statements.append(stmt)
+      buf = []
+    else:
+      buf.append(token)
+    pos = match.end()
+  buf.append(sql_text[pos:])
+  tail = ''.join(buf).strip()
+  if tail:
+    statements.append(tail)
+  return statements
+
+
 def _non_empty(value: str | None) -> str | None:
   """Returns value unless it is None or empty."""
   return None if value in (None, '') else value
@@ -525,6 +560,7 @@ class AgentEvaluationScopeIsolationTest(unittest.TestCase):
       code_text: str,
       label: str,
       *,
+      expected_scoped_events_count: int = 2,
       expected_coalesce_count: int,
       exact_coalesce_count: bool,
       expected_where_count: int,
@@ -532,8 +568,9 @@ class AgentEvaluationScopeIsolationTest(unittest.TestCase):
   ) -> None:
     self.assertEqual(
         len(re.findall(r'\bWITH\s+scoped_events\s+AS\b', code_text)),
-        2,
-        f'{label} must use leading scoped_events CTE in both grouping queries.',
+        expected_scoped_events_count,
+        f'{label} must use leading scoped_events CTE in all'
+        f' {expected_scoped_events_count} grouping queries.',
     )
     coalesce_blocks = _extract_agent_scope_coalesce_blocks(code_text)
     if exact_coalesce_count:
@@ -602,11 +639,12 @@ class AgentEvaluationScopeIsolationTest(unittest.TestCase):
         encoding='utf-8'
     )
     code_sql = _strip_sql_line_comments(raw_sql)
-    statements = [s.strip() for s in code_sql.split(';') if s.strip()]
+    statements = _split_top_level_sql_statements(code_sql)
     self.assertEqual(
         len(statements),
-        4,
-        'Expected 4 SQL statements in agent_events_v2_eval_queries.sql',
+        6,
+        'Expected 6 top-level SQL statements in'
+        ' agent_events_v2_eval_queries.sql',
     )
 
     # Every statement must project agent_scope_id and stay compatible with
@@ -626,9 +664,10 @@ class AgentEvaluationScopeIsolationTest(unittest.TestCase):
         raw_sql,
         code_sql,
         'agent_events_v2_eval_queries.sql',
-        expected_coalesce_count=2,
+        expected_scoped_events_count=3,
+        expected_coalesce_count=3,
         exact_coalesce_count=True,
-        expected_where_count=4,
+        expected_where_count=6,
         exact_where_count=True,
     )
 
@@ -1771,6 +1810,19 @@ class AgentEvaluationDeepevalTest(unittest.TestCase):
     self.assertIn('TO_JSON_STRING(events)', queries_sql)
     self.assertIn('deepeval_parse_trace', queries_sql)
     self.assertIn('deepeval_evaluate', queries_sql)
+    self.assertIn(
+        'conversational_geval:Cross-Turn Context Carryover:steps:', queries_sql
+    )
+    self.assertIn('session_eval_results', queries_sql)
+    self.assertIn(
+        'MERGE `YOUR_PROJECT_ID.YOUR_DATASET_ID.session_eval_results`',
+        queries_sql,
+    )
+    self.assertIn('scan_floor', queries_sql)
+    self.assertIn('history_floor', queries_sql)
+    self.assertIn('selected_sessions AS', queries_sql)
+    self.assertIn('eval_attempts', queries_sql)
+    self.assertIn('ORDER BY is_error_retry ASC, last_event_at ASC', queries_sql)
 
     # 5. Verify same-timestamp BQAA benchmark events:
     #    - AGENT_RESPONSE with response.parts[*].markdown and
@@ -4344,6 +4396,167 @@ exit 0
         ],
     )
     self.assertNotIn('context', parsed_mixed)
+
+  def test_knowledge_retention_empty_verdicts_returns_na_and_preserves_tokens(
+      self,
+  ):
+    ns = _load_udf_module()
+    evaluate_test_case = ns['evaluate_test_case']
+    metrics_mod = sys.modules['deepeval.metrics']
+
+    class EmptyVerdictsKnowledgeRetention(FakeBaseMetric):
+
+      def measure(self, test_case: Any) -> float:
+        super().measure(test_case)
+        self.verdicts = []
+        self.score = 0.0
+        self.reason = 'The score is 0.00 because no knowledge was retained.'
+        return 0.0
+
+    class NonEmptyVerdictsKnowledgeRetention(FakeBaseMetric):
+
+      def measure(self, test_case: Any) -> float:
+        super().measure(test_case)
+        self.verdicts = [types.SimpleNamespace(verdict='no')]
+        self.score = 1.0
+        self.reason = 'The score is 1.00 because all facts were retained.'
+        return 1.0
+
+    turns_json = json.dumps({
+        'turns': [
+            {'role': 'user', 'content': 'Show Q3 revenue by store.'},
+            {'role': 'assistant', 'content': 'Store A made $1.2M.'},
+            {'role': 'user', 'content': 'Break Store A down by category.'},
+            {'role': 'assistant', 'content': 'Grocery: $800K, Bakery: $400K.'},
+        ]
+    })
+
+    with mock.patch.object(
+        metrics_mod,
+        'KnowledgeRetentionMetric',
+        EmptyVerdictsKnowledgeRetention,
+    ):
+      res_na = evaluate_test_case(
+          turns_json, ['knowledge_retention', 'turn_relevancy']
+      )
+      self.assertEqual(len(res_na), 2)
+      self.assertEqual(res_na[0]['metric'], 'knowledge_retention')
+      self.assertIsNone(res_na[0]['score'])
+      self.assertIsNone(res_na[0]['passed'])
+      self.assertEqual(
+          res_na[0]['reason'],
+          'N/A (No user profile facts extracted; use conversational_geval'
+          ' for Q&A)',
+      )
+      self.assertEqual(res_na[0]['judge_input_tokens'], 50)
+      self.assertEqual(res_na[0]['judge_output_tokens'], 20)
+      self.assertEqual(res_na[1]['metric'], 'turn_relevancy')
+      self.assertTrue(res_na[1]['passed'])
+      self.assertEqual(res_na[1]['score'], 0.9)
+
+      # Fallback judge attribution is preserved on N/A reason when primary fails
+      FakeBaseMetric.fail_models = {'gemini-3.8-flash'}
+      with mock.patch.object(ns['time'], 'sleep', autospec=True):
+        res_fb_na = evaluate_test_case(turns_json, ['knowledge_retention'])
+      FakeBaseMetric.fail_models = set()
+      self.assertIsNone(res_fb_na[0]['score'])
+      self.assertIsNone(res_fb_na[0]['passed'])
+      self.assertEqual(
+          res_fb_na[0]['reason'],
+          '[Judge: gemini-3.5-flash] N/A (No user profile facts extracted; use'
+          ' conversational_geval for Q&A)',
+      )
+
+    with mock.patch.object(
+        metrics_mod,
+        'KnowledgeRetentionMetric',
+        NonEmptyVerdictsKnowledgeRetention,
+    ):
+      res_retained = evaluate_test_case(turns_json, ['knowledge_retention'])
+      self.assertEqual(len(res_retained), 1)
+      self.assertEqual(res_retained[0]['score'], 1.0)
+      self.assertTrue(res_retained[0]['passed'])
+
+  def test_safe_gemini_model_wraps_flat_knowledge_dicts(self):
+    ns = _load_udf_module()
+    safe_model_cls = ns['SafeGeminiModel']
+    model = safe_model_cls(
+        model='gemini-3.8-flash', project='123456789012', location='global'
+    )
+
+    class Knowledge:
+
+      @staticmethod
+      def model_json_schema():
+        return {'type': 'object', 'properties': {'data': {'type': 'object'}}}
+
+      @staticmethod
+      def model_validate(obj):
+        if not isinstance(obj, dict) or set(obj.keys()) - {'data'}:
+          raise ValueError(f'Extra inputs not permitted: {obj!r}')
+        if 'data' in obj and obj['data'] is not None:
+          if not isinstance(obj['data'], dict):
+            raise ValueError(f'data must be a dict, got {obj["data"]!r}')
+        return obj
+
+    class OtherVerdictSchema:
+
+      @staticmethod
+      def model_json_schema():
+        return {'type': 'object', 'properties': {'verdict': {'type': 'string'}}}
+
+      @staticmethod
+      def model_validate(obj):
+        return obj
+
+    # 1. Flat few-shot dict from KnowledgeRetentionTemplate.extract_data()
+    self.assertEqual(
+        model._parse_fallback_json(
+            '```json\n{"Full Name": "Emily Chen", "Airline": "Delta"}\n```',
+            Knowledge,
+        ),
+        {'data': {'Full Name': 'Emily Chen', 'Airline': 'Delta'}},
+    )
+    # 2. Flat dict whose user fact happens to use key "data" with a string value
+    self.assertEqual(
+        model._parse_fallback_json('{"data": "sales_v2"}', Knowledge),
+        {'data': {'data': 'sales_v2'}},
+    )
+    # 3. Empty dict stays {} (maps to Knowledge(data=None))
+    self.assertEqual(model._parse_fallback_json('{}', Knowledge), {})
+    # 4. Already-wrapped {"data": {...}} and {"data": null} stay unwrapped
+    self.assertEqual(
+        model._parse_fallback_json(
+            '{"data": {"Full Name": "Emily Chen"}}', Knowledge
+        ),
+        {'data': {'Full Name': 'Emily Chen'}},
+    )
+    self.assertEqual(
+        model._parse_fallback_json('{"data": null}', Knowledge),
+        {'data': None},
+    )
+    # 5. Non-Knowledge schema is never wrapped in {"data": ...}
+    self.assertEqual(
+        model._parse_fallback_json('{"verdict": "no"}', OtherVerdictSchema),
+        {'verdict': 'no'},
+    )
+    # 6. End-to-end generate() and a_generate() with flat Knowledge response
+    with mock.patch.object(
+        FakeGeminiModel,
+        'generate',
+        return_value=('{"Full Name": "Emily Chen"}', 0.0),
+    ):
+      sync_parsed, _ = model.generate('Extract facts', schema=Knowledge)
+      self.assertEqual(sync_parsed, {'data': {'Full Name': 'Emily Chen'}})
+    with mock.patch.object(
+        FakeGeminiModel,
+        'a_generate',
+        new=mock.AsyncMock(return_value=('{"Full Name": "Emily Chen"}', 0.0)),
+    ):
+      async_parsed, _ = asyncio.run(
+          model.a_generate('Extract facts async', schema=Knowledge)
+      )
+      self.assertEqual(async_parsed, {'data': {'Full Name': 'Emily Chen'}})
 
 
 if __name__ == '__main__':

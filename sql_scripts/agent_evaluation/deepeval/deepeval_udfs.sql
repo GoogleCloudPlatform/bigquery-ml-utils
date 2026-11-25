@@ -969,6 +969,21 @@ class SafeGeminiModel(GeminiModel):
             s = s.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
         return json.loads(s)
 
+    def _parse_fallback_json(self, raw_text: str, schema):
+        parsed = self._clean_json(raw_text)
+        if (
+            isinstance(parsed, dict)
+            and parsed
+            and getattr(schema, "__name__", "") == "Knowledge"
+            and not (
+                len(parsed) == 1
+                and "data" in parsed
+                and (parsed["data"] is None or isinstance(parsed["data"], dict))
+            )
+        ):
+            parsed = {"data": parsed}
+        return schema.model_validate(parsed)
+
     def _generate_json_fallback(self, prompt: str, schema):
         schema_json = json.dumps(schema.model_json_schema())
         raw = super().generate(
@@ -977,7 +992,7 @@ class SafeGeminiModel(GeminiModel):
         )
         raw_text = raw[0] if isinstance(raw, tuple) else raw
         try:
-            return schema.model_validate(self._clean_json(raw_text)), 0.0
+            return self._parse_fallback_json(raw_text, schema), 0.0
         except Exception as e:
             raise RuntimeError(f"Fallback JSON validation failed: {e}") from e
 
@@ -999,7 +1014,7 @@ class SafeGeminiModel(GeminiModel):
         )
         raw_text = raw[0] if isinstance(raw, tuple) else raw
         try:
-            return schema.model_validate(self._clean_json(raw_text)), 0.0
+            return self._parse_fallback_json(raw_text, schema), 0.0
         except Exception as e:
             raise RuntimeError(f"Fallback JSON validation failed: {e}") from e
 
@@ -1470,6 +1485,25 @@ def evaluate_test_case(test_case_json: str, metrics: list[str]) -> list[dict]:
                 if attempt == 2:
                     _, metric = _build_metric(m_name, _get_judge_model(fallback_model_id, req_location), parsed_tc)
                 metric.measure(target_case)
+                if (
+                    label == "knowledge_retention"
+                    and isinstance(getattr(metric, "verdicts", None), list)
+                    and not metric.verdicts
+                ):
+                    na_reason = (
+                        "N/A (No user profile facts extracted; use "
+                        "conversational_geval for Q&A)"
+                    )
+                    if attempt == 2:
+                        na_reason = f"[Judge: {fallback_model_id}] {na_reason}"
+                    return idx, {
+                        "metric": label,
+                        "score": None,
+                        "passed": None,
+                        "reason": na_reason,
+                        "judge_input_tokens": usage[0],
+                        "judge_output_tokens": usage[1],
+                    }
                 reason_text = str(metric.reason or "")
                 if attempt == 2:
                     reason_text = f"[Judge: {fallback_model_id}] {reason_text}".strip()
