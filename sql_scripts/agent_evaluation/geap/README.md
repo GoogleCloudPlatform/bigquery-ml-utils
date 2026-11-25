@@ -96,6 +96,51 @@ it also allows calling any model in the project. To remove access, run the
 printed revoke command (`gcloud projects remove-iam-policy-binding` with the
 same arguments).
 
+#### Shared multi-agent tables
+
+`eval_sessions` and `eval_turns` group events by `session_id` (and
+`invocation_id`) from `EVENTS_TABLE` and expose mutable `root_agent`
+(`attributes.root_agent_name` / `agent`). If multiple agents log to the same
+`agent_events` table, `session_id` values can collide across agents and mutable
+`root_agent` display names can overlap or change. Before running `install.sh`
+to deploy `eval_sessions` and `eval_turns`, create a scoped view over
+`agent_events` filtered by immutable agent ID (`YOUR_IMMUTABLE_AGENT_ID`) and
+pass that view as `EVENTS_TABLE`. Copy the base table's `adk_schema_version`
+label onto the view so `install.sh` does not emit a missing-label warning.
+Because the `projects/` branches take precedence, set `YOUR_IMMUTABLE_AGENT_ID`
+to the full `projects/...` resource path (`$.adk.app_name` or
+`$.session_metadata.app_name`) when present (rather than the short
+`data-agent-id`):
+
+```sql
+CREATE OR REPLACE VIEW `my-project.my_dataset.agent_events_scoped`
+OPTIONS (
+  -- Match the adk_schema_version label on your base agent_events table.
+  labels = [('adk_schema_version', '2')]
+) AS
+SELECT *
+FROM `my-project.my_dataset.agent_events`
+WHERE COALESCE(
+  IF(
+    STARTS_WITH(JSON_VALUE(attributes, '$.adk.app_name'), 'projects/'),
+    JSON_VALUE(attributes, '$.adk.app_name'),
+    NULL
+  ),
+  IF(
+    STARTS_WITH(JSON_VALUE(attributes, '$.session_metadata.app_name'), 'projects/'),
+    JSON_VALUE(attributes, '$.session_metadata.app_name'),
+    NULL
+  ),
+  NULLIF(JSON_VALUE(attributes, '$.session_metadata.state."data-agent-id"'), ''),
+  NULLIF(JSON_VALUE(attributes, '$.adk.app_name'), ''),
+  NULLIF(JSON_VALUE(attributes, '$.session_metadata.app_name'), '')
+) = 'YOUR_IMMUTABLE_AGENT_ID';
+```
+
+Passing the pre-filtered view as `EVENTS_TABLE` isolates colliding `session_id`
+values before trace reconstruction while preserving `timestamp` partition
+pruning.
+
 ### Step 2: Check traces (optional)
 
 Before scoring, fill the placeholders in
@@ -112,7 +157,10 @@ judge, so its only cost is scanning the events table. It reports:
 *   the `adk_schema_version` label on the events table.
 
 If many traces aren't ready, sub-agent sessions dominate, or traces are empty,
-upgrade the BQAA plugin or filter on `root_agent` before paying to score.
+upgrade the BQAA plugin, filter on `root_agent` for single-agent sub-agent
+cleanup, or pre-filter `EVENTS_TABLE` by immutable agent identity when multiple
+agents share a table (see [Shared multi-agent tables](#shared-multi-agent-tables)
+in Step 1) before paying to score.
 
 ### Step 3: Sample traces
 
@@ -322,11 +370,14 @@ Every other code needs the input or setup fixed first:
     service account, which needs `roles/aiplatform.user`. Anyone who can call
     the routine and use the connection can spend judge quota in the install
     project.
-*   **Sub-agent sessions:** `eval_sessions` and `eval_turns` exclude nested
-    `AgentTool` sub-agent sessions on events written by a plugin that marks
-    `attributes.adk.parent_session_id`. Older data still includes them; check
-    per-agent counts in `traces/trace_readiness_check.sql` and filter on
-    `root_agent` if needed.
+*   **Sub-agent and shared-table sessions:** `eval_sessions` and `eval_turns`
+    exclude nested `AgentTool` sub-agent sessions on events written by a plugin
+    that marks `attributes.adk.parent_session_id`. Older data still includes
+    them; check per-agent counts in `traces/trace_readiness_check.sql` and
+    filter on `root_agent` if needed. When multiple agents share a single
+    `agent_events` table, pre-filter `EVENTS_TABLE` with a scoped view (see
+    [Shared multi-agent tables](#shared-multi-agent-tables)) instead of relying
+    solely on mutable `root_agent`.
 *   **Turn traces have no earlier context:** `eval_turns` scores turn N without
     turns 1 through N-1. Use `eval_sessions` for multi-turn metrics.
 *   **Data sensitivity:** Explanations and rubric reasoning quote trace content,

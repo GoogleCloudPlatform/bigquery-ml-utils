@@ -189,13 +189,26 @@ quota):
 
 1. **BQAA Event Array (`deepeval_parse_trace(TO_JSON_STRING(events))`)**:
    - Parse rows from any BQAA table (`agent_events` / `agent_events_v2`):
-     - **Single-Turn (`GROUP BY session_id, invocation_id`)**: Builds a
-       single-turn trace (`LLMTestCase`).
-     - **Multi-Turn (`GROUP BY session_id`)**: Automatically groups BQAA events
-       by `invocation_id` in chronological order into a multi-turn trace
-       (`ConversationalTestCase`), while carrying over prior turns' dialogue and
-       tool outputs in top-level `retrieval_context` if evaluated with
-       single-turn metrics.
+     - **Single-Turn (`GROUP BY agent_scope_id, session_id, invocation_id`)**:
+       Builds a single-turn trace (`LLMTestCase`) isolated per agent scope.
+     - **Multi-Turn (`GROUP BY agent_scope_id, session_id`)**: Automatically
+       groups BQAA events by `invocation_id` in chronological order into a
+       multi-turn trace (`ConversationalTestCase`) isolated per agent scope,
+       while carrying over prior turns' dialogue and tool outputs in top-level
+       `retrieval_context` if evaluated with single-turn metrics.
+   - **Shared Multi-Agent Tables (`agent_scope_id`)**:
+     - When multiple agents write to a shared `agent_events` table,
+       `session_id` can collide across agents and `t.agent` holds a mutable
+       display or sub-agent name. Always compute `agent_scope_id` once in a
+       leading `scoped_events` CTE using the immutable-first fallback chain
+       (`projects/...` `$.adk.app_name` or `$.session_metadata.app_name`,
+       `$.session_metadata.state."data-agent-id"`, bare `$.adk.app_name`,
+       bare `$.session_metadata.app_name`, `$.root_agent_name`, `t.agent`),
+       group by `agent_scope_id`, and uncomment `-- WHERE agent_scope_id =
+       'YOUR_AGENT_SCOPE_ID'` when evaluating a single agent. Placing
+       `$.root_agent_name` ahead of `t.agent` keeps `transfer_to_agent`
+       sub-agent handoffs unified inside one trace while staying compatible with
+       17-column tables that do not have a top-level `app_name` column.
    - **Performance Best Practice**:
      - Apply `GROUP BY` (and `ORDER BY ... LIMIT` when sampling) in a CTE
        **before** calling `deepeval_parse_trace`, and project only the 9 BQAA
@@ -206,18 +219,23 @@ quota):
        `ORDER BY ... LIMIT`). If your `BigQueryAgentAnalyticsPlugin` uses
        `payload_column_denylist` to omit `content`, `content_parts`, or
        `attributes` from the table schema, drop those denied columns from the
-       `STRUCT(...)` projection as well.
+       `STRUCT(...)` projection as well (`scoped_events` uses `SELECT t.*`, so
+       BigQuery prunes unreferenced columns automatically). If `attributes` is
+       denied, also replace the `agent_scope_id` `COALESCE` expression in
+       `scoped_events` so it does not reference `t.attributes` (for example,
+       `NULLIF(t.agent, '') AS agent_scope_id`, or include `NULLIF(t.app_name,
+       '')` ahead of `t.agent` if your table schema has a top-level `app_name`
+       column).
    - For multi-agent ADK apps that delegate to sub-agents via `AgentTool`,
-     filter `WHERE t.agent = 'YOUR_ROOT_AGENT'` before `GROUP BY` to drop
-     sub-agent groups directly in SQL (note: row-level `WHERE t.agent` applies
-     to `AgentTool` delegates, not `sub_agents` / `transfer_to_agent` handoffs
-     where the sub-agent emits the final response inside the root session).
-     Alternatively, pass `'YOUR_ROOT_AGENT' AS root_agent` in the wrapper
-     `STRUCT` so `deepeval_parse_trace` strips internal `AgentTool` sub-agent
-     events (while preserving `transfer_to_agent` handoffs) and returns SQL
-     `NULL` for sub-agent-only groups; when relying on `root_agent` in the
-     wrapper `STRUCT`, filter `WHERE parsed_trace IS NOT NULL` before calling
-     `deepeval_evaluate`.
+     pass `'YOUR_ROOT_AGENT' AS root_agent` in the wrapper `STRUCT` so
+     `deepeval_parse_trace` strips internal `AgentTool` sub-agent events (while
+     preserving `transfer_to_agent` handoffs) and returns SQL `NULL` for
+     sub-agent-only groups; when relying on `root_agent` in the wrapper
+     `STRUCT`, filter `WHERE parsed_trace IS NOT NULL` before calling
+     `deepeval_evaluate`. (If your app uses `AgentTool` exclusively without
+     `sub_agents` / `transfer_to_agent` handoffs, you can also combine the
+     `agent_scope_id` filter with `AND t.agent = 'YOUR_ROOT_AGENT'` before
+     `GROUP BY`.)
    - To supply optional reference or parser fields (such as `expected_output`,
      `expected_tools`, `root_agent`, `output_response_field`, or `judge_model`)
      alongside BQAA rows, wrap the event
@@ -242,8 +260,9 @@ quota):
 
 ### Mode A: Single-Turn Evaluation (`LLMTestCase`)
 
-When evaluating a single BQAA invocation (`GROUP BY session_id, invocation_id`)
-or a single-turn `STRUCT`, `deepeval_evaluate` builds a DeepEval `LLMTestCase`.
+When evaluating a single BQAA invocation
+(`GROUP BY agent_scope_id, session_id, invocation_id`) or a single-turn
+`STRUCT`, `deepeval_evaluate` builds a DeepEval `LLMTestCase`.
 
 #### Optional / Ad-Hoc JSON Fields (`test_case_json`)
 | Field | Type | Required | Description |
@@ -257,7 +276,7 @@ or a single-turn `STRUCT`, `deepeval_evaluate` builds a DeepEval `LLMTestCase`.
 | `tools_called` | `ARRAY<STRUCT>` | Automatic from BQAA | Tools invoked by the agent (automatically extracted from `TOOL_STARTING` / `TOOL_COMPLETED` / `TOOL_ERROR` when using BQAA input; used by `task_completion` and `tool_correctness`). |
 | `expected_tools` | `ARRAY<STRUCT>` | Conditional | Expected tool calls (required for `tool_correctness`). |
 | `evaluation_steps` | `ARRAY<STRING>` | Optional | Explicit scoring steps for `geval` / `conversational_geval` (skips Pass 1 step generation and evaluates in a single LLM pass). |
-| `root_agent` | `STRING` | Optional (in `deepeval_parse_trace`) | Filters BQAA events to invocations containing the specified root coordinator agent name (excluding internal `AgentTool` sub-agent events while preserving `transfer_to_agent` handoffs and shared-invocation workflow agents; keep `t.attributes` in the projection so single-turn `GROUP BY session_id, invocation_id` queries retain follow-up turns logged under a transferred sub-agent via `attributes.root_agent_name`; returns `NULL` when no invocation in the group matches). |
+| `root_agent` | `STRING` | Optional (in `deepeval_parse_trace`) | Filters BQAA events to invocations containing the specified root coordinator agent name (excluding internal `AgentTool` sub-agent events while preserving `transfer_to_agent` handoffs and shared-invocation workflow agents; keep `t.attributes` in the projection so single-turn `GROUP BY agent_scope_id, session_id, invocation_id` queries retain follow-up turns logged under a transferred sub-agent via `attributes.root_agent_name`; returns `NULL` when no invocation in the group matches). |
 | `output_response_field` | `STRING` | Optional (in `deepeval_parse_trace`) | Unwraps a structured JSON response field (such as `'response'` when ADK `output_schema` emits `{"response": "...", "usefulness": 0.95}`) and strips JSON-schema output constraints from `chatbot_role` so `role_adherence` does not penalize unwrapped Markdown. Also auto-detected when the trace-extracted agent instruction mentions `output_schema` / `AgentResponse` / `strictly as a JSON object` and `actual_output` is a multi-key JSON object containing a `"response"` string (pass `''` to opt out). |
 | `judge_model` | `STRING` | Optional | Primary Gemini judge model ID (defaults to `'gemini-3.8-flash'`; also supports other Gemini 3.x models such as `'gemini-3.5-flash'` and Gemini 4.x models such as `'gemini-4-hydrogen'`). |
 | `fallback_judge_model` | `STRING` | Optional | Fallback Gemini judge model ID used on final retry (defaults to `'gemini-3.5-flash'`). |
@@ -305,7 +324,7 @@ or a single-turn `STRUCT`, `deepeval_evaluate` builds a DeepEval `LLMTestCase`.
 ### Mode B: Multi-Turn Conversational Evaluation (`ConversationalTestCase`)
 
 When `test_case_json` is a multi-turn trace produced by `deepeval_parse_trace`
-(grouped by `session_id`) or a `STRUCT` with a `turns` array,
+(grouped by `(agent_scope_id, session_id)`) or a `STRUCT` with a `turns` array,
 `deepeval_evaluate` constructs a DeepEval `ConversationalTestCase`.
 
 #### Supported JSON Fields
@@ -373,16 +392,39 @@ sed \
 
 ### 1. Parse Raw BQAA Events (`deepeval_parse_trace`) & Run Single-Turn Evaluation (`deepeval_evaluate`)
 
-Group the BQAA table by `(session_id, invocation_id)` in a CTE, parse the event
-array into a trace table with `deepeval_parse_trace`, and evaluate with
-`deepeval_evaluate`:
+Group the BQAA table by `(agent_scope_id, session_id, invocation_id)` in a CTE,
+parse the event array into a trace table with `deepeval_parse_trace`, and
+evaluate with `deepeval_evaluate`:
 
 ```bash
 bq query --project_id="${PROJECT_ID}" --location="${LOCATION}" --use_legacy_sql=false <<EOF
 -- Materialize parsed invocation traces (runs offline without spending Gemini quota)
 CREATE OR REPLACE TABLE \`${PROJECT_ID}.${DATASET_ID}.parsed_invocation_traces\` AS
-WITH grouped_invocations AS (
+WITH scoped_events AS (
   SELECT
+    t.*,
+    COALESCE(
+      IF(
+        STARTS_WITH(JSON_VALUE(t.attributes, '$.adk.app_name'), 'projects/'),
+        JSON_VALUE(t.attributes, '$.adk.app_name'),
+        NULL
+      ),
+      IF(
+        STARTS_WITH(JSON_VALUE(t.attributes, '$.session_metadata.app_name'), 'projects/'),
+        JSON_VALUE(t.attributes, '$.session_metadata.app_name'),
+        NULL
+      ),
+      NULLIF(JSON_VALUE(t.attributes, '$.session_metadata.state."data-agent-id"'), ''),
+      NULLIF(JSON_VALUE(t.attributes, '$.adk.app_name'), ''),
+      NULLIF(JSON_VALUE(t.attributes, '$.session_metadata.app_name'), ''),
+      NULLIF(JSON_VALUE(t.attributes, '$.root_agent_name'), ''),
+      NULLIF(t.agent, '')
+    ) AS agent_scope_id
+  FROM \`bigquery-public-data.agent_analytic_sample_dataset.agent_events_v2\` AS t
+),
+grouped_invocations AS (
+  SELECT
+    t.agent_scope_id,
     ARRAY_FIRST(ARRAY_AGG(t.agent IGNORE NULLS ORDER BY t.timestamp)) AS agent,
     t.session_id,
     t.invocation_id,
@@ -401,12 +443,13 @@ WITH grouped_invocations AS (
       )
       ORDER BY t.timestamp
     ) AS events
-  FROM \`bigquery-public-data.agent_analytic_sample_dataset.agent_events_v2\` AS t
-  -- Optional for AgentTool multi-agent apps (do not enable for sub_agents / transfer_to_agent handoffs):
-  -- WHERE t.agent = 'YOUR_ROOT_AGENT'
-  GROUP BY t.session_id, t.invocation_id
+  FROM scoped_events AS t
+  -- Optional: isolate a single agent in a shared table:
+  -- WHERE agent_scope_id = 'YOUR_AGENT_SCOPE_ID'
+  GROUP BY t.agent_scope_id, t.session_id, t.invocation_id
 )
 SELECT
+  agent_scope_id,
   agent,
   session_id,
   invocation_id,
@@ -418,6 +461,7 @@ FROM grouped_invocations;
 
 -- Evaluate the parsed invocation traces with DeepEval metrics
 SELECT
+  agent_scope_id,
   agent,
   session_id,
   invocation_id,
@@ -431,6 +475,8 @@ SELECT
     ]
   ) AS eval_results
 FROM \`${PROJECT_ID}.${DATASET_ID}.parsed_invocation_traces\`
+-- Optional: isolate a single agent in a shared trace table:
+-- WHERE agent_scope_id = 'YOUR_AGENT_SCOPE_ID'
 ORDER BY started_at
 LIMIT 10;
 EOF
@@ -438,14 +484,37 @@ EOF
 
 ### 2. Run Multi-Turn Session Evaluation (`deepeval_parse_trace` + `deepeval_evaluate`)
 
-Group the BQAA table by `session_id` and apply `LIMIT` in `grouped_sessions`,
-parse the multi-turn session trace with `deepeval_parse_trace`, and pass the
-parsed trace to `deepeval_evaluate`:
+Group the BQAA table by `(agent_scope_id, session_id)` and apply `LIMIT` in
+`grouped_sessions`, parse the multi-turn session trace with
+`deepeval_parse_trace`, and pass the parsed trace to `deepeval_evaluate`:
 
 ```bash
 bq query --project_id="${PROJECT_ID}" --location="${LOCATION}" --use_legacy_sql=false <<EOF
-WITH grouped_sessions AS (
+WITH scoped_events AS (
   SELECT
+    t.*,
+    COALESCE(
+      IF(
+        STARTS_WITH(JSON_VALUE(t.attributes, '$.adk.app_name'), 'projects/'),
+        JSON_VALUE(t.attributes, '$.adk.app_name'),
+        NULL
+      ),
+      IF(
+        STARTS_WITH(JSON_VALUE(t.attributes, '$.session_metadata.app_name'), 'projects/'),
+        JSON_VALUE(t.attributes, '$.session_metadata.app_name'),
+        NULL
+      ),
+      NULLIF(JSON_VALUE(t.attributes, '$.session_metadata.state."data-agent-id"'), ''),
+      NULLIF(JSON_VALUE(t.attributes, '$.adk.app_name'), ''),
+      NULLIF(JSON_VALUE(t.attributes, '$.session_metadata.app_name'), ''),
+      NULLIF(JSON_VALUE(t.attributes, '$.root_agent_name'), ''),
+      NULLIF(t.agent, '')
+    ) AS agent_scope_id
+  FROM \`bigquery-public-data.agent_analytic_sample_dataset.agent_events_v2\` AS t
+),
+grouped_sessions AS (
+  SELECT
+    t.agent_scope_id,
     ARRAY_FIRST(ARRAY_AGG(t.agent IGNORE NULLS ORDER BY t.timestamp)) AS agent,
     t.session_id,
     COUNT(DISTINCT t.invocation_id) AS num_invocations,
@@ -463,14 +532,17 @@ WITH grouped_sessions AS (
       )
       ORDER BY t.timestamp
     ) AS events
-  FROM \`bigquery-public-data.agent_analytic_sample_dataset.agent_events_v2\` AS t
-  GROUP BY t.session_id
+  FROM scoped_events AS t
+  -- Optional: isolate a single agent in a shared table:
+  -- WHERE agent_scope_id = 'YOUR_AGENT_SCOPE_ID'
+  GROUP BY t.agent_scope_id, t.session_id
   HAVING COUNT(DISTINCT t.invocation_id) > 1
-  ORDER BY t.session_id
+  ORDER BY t.session_id, t.agent_scope_id
   LIMIT 10
 ),
 parsed_session_traces AS (
   SELECT
+    agent_scope_id,
     agent,
     session_id,
     num_invocations,
@@ -480,6 +552,7 @@ parsed_session_traces AS (
   FROM grouped_sessions
 )
 SELECT
+  agent_scope_id,
   agent,
   session_id,
   num_invocations,
@@ -494,7 +567,7 @@ SELECT
     ]
   ) AS multi_turn_results
 FROM parsed_session_traces
-ORDER BY session_id;
+ORDER BY session_id, agent_scope_id;
 EOF
 ```
 

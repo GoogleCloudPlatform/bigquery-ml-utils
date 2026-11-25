@@ -56,16 +56,47 @@ metric (not the tokens consumed by the agent trace being evaluated).
 
 ### Usage on a BQAA Table (`agent_events` / `agent_events_v2`)
 
-> **Performance Tip:** Group, order, and `LIMIT` in a CTE *before* invoking
-> `deepeval_parse_trace` (projecting the 9 required BQAA columns rather than
-> `ARRAY_AGG(t)`).
+> **Performance & Shared-Table Isolation Tip:** Group, order, and `LIMIT` in a
+> CTE *before* invoking `deepeval_parse_trace` (projecting the 9 required BQAA
+> columns rather than `ARRAY_AGG(t)`). When multiple agents share an
+> `agent_events` table, compute and group by the immutable-first
+> `agent_scope_id` expression below so colliding `session_id` values stay
+> isolated across agents while `transfer_to_agent` sub-agent handoffs remain
+> unified inside one trace. If your table omits columns via
+> `payload_column_denylist` (especially `attributes`), see
+> [`deepeval/README.md`](deepeval/README.md) for how to adjust the `STRUCT(...)`
+> projection and `agent_scope_id` expression.
 
-- **Single-Turn Evaluation (`GROUP BY session_id, invocation_id`)**:
+- **Single-Turn Evaluation
+  (`GROUP BY agent_scope_id, session_id, invocation_id`)**:
   ```sql
   -- Step 1: Materialize parsed invocation traces (runs offline without spending Gemini quota)
   CREATE OR REPLACE TABLE `<PROJECT_ID>.<DATASET_ID>.parsed_invocation_traces` AS
-  WITH grouped_invocations AS (
+  WITH scoped_events AS (
     SELECT
+      t.*,
+      COALESCE(
+        IF(
+          STARTS_WITH(JSON_VALUE(t.attributes, '$.adk.app_name'), 'projects/'),
+          JSON_VALUE(t.attributes, '$.adk.app_name'),
+          NULL
+        ),
+        IF(
+          STARTS_WITH(JSON_VALUE(t.attributes, '$.session_metadata.app_name'), 'projects/'),
+          JSON_VALUE(t.attributes, '$.session_metadata.app_name'),
+          NULL
+        ),
+        NULLIF(JSON_VALUE(t.attributes, '$.session_metadata.state."data-agent-id"'), ''),
+        NULLIF(JSON_VALUE(t.attributes, '$.adk.app_name'), ''),
+        NULLIF(JSON_VALUE(t.attributes, '$.session_metadata.app_name'), ''),
+        NULLIF(JSON_VALUE(t.attributes, '$.root_agent_name'), ''),
+        NULLIF(t.agent, '')
+      ) AS agent_scope_id
+    FROM `bigquery-public-data.agent_analytic_sample_dataset.agent_events_v2` AS t
+  ),
+  grouped_invocations AS (
+    SELECT
+      t.agent_scope_id,
       t.session_id,
       t.invocation_id,
       ARRAY_AGG(
@@ -75,12 +106,13 @@ metric (not the tokens consumed by the agent trace being evaluated).
         )
         ORDER BY t.timestamp
       ) AS events
-    FROM `bigquery-public-data.agent_analytic_sample_dataset.agent_events_v2` AS t
-    -- Optional for AgentTool multi-agent apps (do not enable for sub_agents / transfer_to_agent handoffs):
-    -- WHERE t.agent = 'YOUR_ROOT_AGENT'
-    GROUP BY t.session_id, t.invocation_id
+    FROM scoped_events AS t
+    -- Optional: isolate a single agent in a shared table:
+    -- WHERE agent_scope_id = 'YOUR_AGENT_SCOPE_ID'
+    GROUP BY t.agent_scope_id, t.session_id, t.invocation_id
   )
   SELECT
+    agent_scope_id,
     session_id,
     invocation_id,
     `<PROJECT_ID>.<DATASET_ID>.deepeval_parse_trace`(
@@ -90,6 +122,7 @@ metric (not the tokens consumed by the agent trace being evaluated).
 
   -- Step 2: Evaluate parsed invocation traces
   SELECT
+    agent_scope_id,
     session_id,
     invocation_id,
     `<PROJECT_ID>.<DATASET_ID>.deepeval_evaluate`(
@@ -97,12 +130,37 @@ metric (not the tokens consumed by the agent trace being evaluated).
       ['answer_relevancy', 'faithfulness', 'task_completion']
     ) AS eval_results
   FROM `<PROJECT_ID>.<DATASET_ID>.parsed_invocation_traces`
+  -- Optional: isolate a single agent in a shared trace table:
+  -- WHERE agent_scope_id = 'YOUR_AGENT_SCOPE_ID'
   LIMIT 10;
   ```
-- **Multi-Turn Session Evaluation (`GROUP BY session_id`)**:
+- **Multi-Turn Session Evaluation (`GROUP BY agent_scope_id, session_id`)**:
   ```sql
-  WITH grouped_sessions AS (
+  WITH scoped_events AS (
     SELECT
+      t.*,
+      COALESCE(
+        IF(
+          STARTS_WITH(JSON_VALUE(t.attributes, '$.adk.app_name'), 'projects/'),
+          JSON_VALUE(t.attributes, '$.adk.app_name'),
+          NULL
+        ),
+        IF(
+          STARTS_WITH(JSON_VALUE(t.attributes, '$.session_metadata.app_name'), 'projects/'),
+          JSON_VALUE(t.attributes, '$.session_metadata.app_name'),
+          NULL
+        ),
+        NULLIF(JSON_VALUE(t.attributes, '$.session_metadata.state."data-agent-id"'), ''),
+        NULLIF(JSON_VALUE(t.attributes, '$.adk.app_name'), ''),
+        NULLIF(JSON_VALUE(t.attributes, '$.session_metadata.app_name'), ''),
+        NULLIF(JSON_VALUE(t.attributes, '$.root_agent_name'), ''),
+        NULLIF(t.agent, '')
+      ) AS agent_scope_id
+    FROM `bigquery-public-data.agent_analytic_sample_dataset.agent_events_v2` AS t
+  ),
+  grouped_sessions AS (
+    SELECT
+      t.agent_scope_id,
       t.session_id,
       COUNT(DISTINCT t.invocation_id) AS num_invocations,
       ARRAY_AGG(
@@ -112,14 +170,17 @@ metric (not the tokens consumed by the agent trace being evaluated).
         )
         ORDER BY t.timestamp
       ) AS events
-    FROM `bigquery-public-data.agent_analytic_sample_dataset.agent_events_v2` AS t
-    GROUP BY t.session_id
+    FROM scoped_events AS t
+    -- Optional: isolate a single agent in a shared table:
+    -- WHERE agent_scope_id = 'YOUR_AGENT_SCOPE_ID'
+    GROUP BY t.agent_scope_id, t.session_id
     HAVING COUNT(DISTINCT t.invocation_id) > 1
-    ORDER BY t.session_id
+    ORDER BY t.session_id, t.agent_scope_id
     LIMIT 10
   ),
   parsed_session_traces AS (
     SELECT
+      agent_scope_id,
       session_id,
       num_invocations,
       `<PROJECT_ID>.<DATASET_ID>.deepeval_parse_trace`(
@@ -128,6 +189,7 @@ metric (not the tokens consumed by the agent trace being evaluated).
     FROM grouped_sessions
   )
   SELECT
+    agent_scope_id,
     session_id,
     num_invocations,
     `<PROJECT_ID>.<DATASET_ID>.deepeval_evaluate`(

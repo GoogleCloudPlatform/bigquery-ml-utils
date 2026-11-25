@@ -381,6 +381,445 @@ def _load_udf_module(
 _ACTIVE_PATCHERS: list[Any] = []
 
 
+def _strip_sql_line_comments(sql_text: str) -> str:
+  """Removes `--` line comments from SQL text for structural assertions."""
+  return re.sub(r'--[^\n]*', '', sql_text)
+
+
+def _extract_agent_scope_coalesce_blocks(sql_text: str) -> list[str]:
+  """Extracts all `COALESCE(...) AS agent_scope_id` expressions from SQL."""
+  blocks: list[str] = []
+  for match in re.finditer(r'\bCOALESCE\s*\(', sql_text, flags=re.IGNORECASE):
+    depth = 1
+    pos = match.end()
+    while pos < len(sql_text) and depth > 0:
+      ch = sql_text[pos]
+      if ch == '(':
+        depth += 1
+      elif ch == ')':
+        depth -= 1
+      pos += 1
+    if depth == 0:
+      alias_match = re.match(
+          r'\s+AS\s+agent_scope_id\b', sql_text[pos:], flags=re.IGNORECASE
+      )
+      if alias_match:
+        blocks.append(sql_text[match.start() : pos + alias_match.end()])
+  return blocks
+
+
+def _non_empty(value: str | None) -> str | None:
+  """Returns value unless it is None or empty."""
+  return None if value in (None, '') else value
+
+
+def _projects_prefix(value: str | None) -> str | None:
+  """Returns value only when it starts with 'projects/'."""
+  if isinstance(value, str) and value.startswith('projects/'):
+    return value
+  return None
+
+
+class AgentEvaluationScopeIsolationTest(unittest.TestCase):
+  """Tests shared-table multi-agent isolation in DeepEval SQL and READMEs."""
+
+  _EXPECTED_SCOPE_BRANCHES = (
+      (
+          "IF(STARTS_WITH(JSON_VALUE(t.attributes, '$.adk.app_name'),"
+          " 'projects/'), JSON_VALUE(t.attributes, '$.adk.app_name'), NULL)"
+      ),
+      (
+          'IF(STARTS_WITH(JSON_VALUE(t.attributes,'
+          " '$.session_metadata.app_name'), 'projects/'),"
+          " JSON_VALUE(t.attributes, '$.session_metadata.app_name'), NULL)"
+      ),
+      (
+          'NULLIF(JSON_VALUE(t.attributes,'
+          " '$.session_metadata.state.\"data-agent-id\"'), '')"
+      ),
+      "NULLIF(JSON_VALUE(t.attributes, '$.adk.app_name'), '')",
+      "NULLIF(JSON_VALUE(t.attributes, '$.session_metadata.app_name'), '')",
+      "NULLIF(JSON_VALUE(t.attributes, '$.root_agent_name'), '')",
+      "NULLIF(t.agent, '')",
+  )
+
+  _EXPECTED_GEAP_SCOPE_BRANCHES = (
+      (
+          "IF(STARTS_WITH(JSON_VALUE(attributes, '$.adk.app_name'),"
+          " 'projects/'), JSON_VALUE(attributes, '$.adk.app_name'), NULL)"
+      ),
+      (
+          'IF(STARTS_WITH(JSON_VALUE(attributes,'
+          " '$.session_metadata.app_name'), 'projects/'),"
+          " JSON_VALUE(attributes, '$.session_metadata.app_name'), NULL)"
+      ),
+      (
+          'NULLIF(JSON_VALUE(attributes,'
+          " '$.session_metadata.state.\"data-agent-id\"'), '')"
+      ),
+      "NULLIF(JSON_VALUE(attributes, '$.adk.app_name'), '')",
+      "NULLIF(JSON_VALUE(attributes, '$.session_metadata.app_name'), '')",
+  )
+
+  def setUp(self):
+    super().setUp()
+    self.script_dir = _find_script_dir()
+
+  @staticmethod
+  def _normalize_sql_expr(expr: str) -> str:
+    """Collapses whitespace and inner call-paren padding for SQL comparisons."""
+    collapsed = re.sub(r'\s+', ' ', expr).strip()
+    collapsed = re.sub(r'\(\s+', '(', collapsed)
+    return re.sub(r'\s+\)', ')', collapsed)
+
+  def _assert_scope_expr_branches(self, expr: str, label: str) -> None:
+    normalized = self._normalize_sql_expr(expr)
+    expected = (
+        f"COALESCE({', '.join(self._EXPECTED_SCOPE_BRANCHES)}) AS"
+        ' agent_scope_id'
+    )
+    self.assertEqual(
+        normalized,
+        expected,
+        f'{label} agent_scope_id expression drifted from expected COALESCE:\n'
+        f'Actual:   {normalized}\nExpected: {expected}',
+    )
+
+  def _eval_scope_expr_branches(
+      self, expr: str, attributes: dict[str, Any], agent: str | None
+  ) -> str | None:
+    """Evaluates extracted COALESCE branches in exact SQL order on a row."""
+    normalized = self._normalize_sql_expr(expr)
+    adk_app_name = (attributes.get('adk') or {}).get('app_name')
+    session_meta = attributes.get('session_metadata') or {}
+    data_agent_id = (session_meta.get('state') or {}).get('data-agent-id')
+    branch_values: dict[str, str | None] = {
+        self._EXPECTED_SCOPE_BRANCHES[0]: _projects_prefix(adk_app_name),
+        self._EXPECTED_SCOPE_BRANCHES[1]: _projects_prefix(
+            session_meta.get('app_name')
+        ),
+        self._EXPECTED_SCOPE_BRANCHES[2]: _non_empty(data_agent_id),
+        self._EXPECTED_SCOPE_BRANCHES[3]: _non_empty(adk_app_name),
+        self._EXPECTED_SCOPE_BRANCHES[4]: _non_empty(
+            session_meta.get('app_name')
+        ),
+        self._EXPECTED_SCOPE_BRANCHES[5]: _non_empty(
+            attributes.get('root_agent_name')
+        ),
+        self._EXPECTED_SCOPE_BRANCHES[6]: _non_empty(agent),
+    }
+    ordered_branches = sorted(
+        self._EXPECTED_SCOPE_BRANCHES,
+        key=normalized.find,
+    )
+    for branch in ordered_branches:
+      self.assertNotEqual(normalized.find(branch), -1)
+      val = branch_values[branch]
+      if val is not None:
+        return val
+    return None
+
+  def _assert_shared_table_isolation_queries(
+      self,
+      raw_text: str,
+      code_text: str,
+      label: str,
+      *,
+      expected_coalesce_count: int,
+      exact_coalesce_count: bool,
+      expected_where_count: int,
+      exact_where_count: bool,
+  ) -> None:
+    self.assertEqual(
+        len(re.findall(r'\bWITH\s+scoped_events\s+AS\b', code_text)),
+        2,
+        f'{label} must use leading scoped_events CTE in both grouping queries.',
+    )
+    coalesce_blocks = _extract_agent_scope_coalesce_blocks(code_text)
+    if exact_coalesce_count:
+      self.assertEqual(
+          len(coalesce_blocks),
+          expected_coalesce_count,
+          f'{label} must include immutable-first agent_scope_id in both'
+          ' scoped_events CTEs.',
+      )
+    else:
+      self.assertGreaterEqual(
+          len(coalesce_blocks),
+          expected_coalesce_count,
+          f'{label} must include immutable-first agent_scope_id in both'
+          ' single-turn and multi-turn SQL snippets.',
+      )
+    for idx, block in enumerate(coalesce_blocks, start=1):
+      self._assert_scope_expr_branches(block, f'{label} block #{idx}')
+
+    self.assertRegex(
+        code_text,
+        r'GROUP\s+BY\s+t\.agent_scope_id,\s*t\.session_id,'
+        r'\s*t\.invocation_id\b',
+        f'{label} missing single-turn GROUP BY t.agent_scope_id.',
+    )
+    self.assertRegex(
+        code_text,
+        r'GROUP\s+BY\s+t\.agent_scope_id,\s*t\.session_id\b'
+        r'(?!\s*,\s*t\.invocation_id)',
+        f'{label} missing multi-turn GROUP BY t.agent_scope_id.',
+    )
+    self.assertRegex(
+        code_text,
+        r'ORDER\s+BY\s+t\.session_id,\s*t\.agent_scope_id\b',
+        f'{label} must order multi-turn samples by session_id first.',
+    )
+    self.assertIsNone(
+        re.search(r'GROUP\s+BY\s+t\.session_id\b', code_text),
+        f'{label} still contains unscoped GROUP BY t.session_id.',
+    )
+
+    # Commented single-agent WHERE filters must use the 1-line agent_scope_id
+    # predicate rather than mutable t.agent alone.
+    where_count = raw_text.count(
+        "-- WHERE agent_scope_id = 'YOUR_AGENT_SCOPE_ID'"
+    )
+    if exact_where_count:
+      self.assertEqual(
+          where_count,
+          expected_where_count,
+          f'{label} expected {expected_where_count} 1-line commented'
+          ' agent_scope_id WHERE filters.',
+      )
+    else:
+      self.assertGreaterEqual(
+          where_count,
+          expected_where_count,
+          f'{label} missing 1-line commented agent_scope_id WHERE filters.',
+      )
+    self.assertNotIn("-- WHERE t.agent = 'YOUR_ROOT_AGENT'", raw_text)
+
+  def test_eval_queries_sql_uses_scoped_events_cte_and_agent_scope_id(
+      self,
+  ):
+    raw_sql = (self.script_dir / 'agent_events_v2_eval_queries.sql').read_text(
+        encoding='utf-8'
+    )
+    code_sql = _strip_sql_line_comments(raw_sql)
+    statements = [s.strip() for s in code_sql.split(';') if s.strip()]
+    self.assertEqual(
+        len(statements),
+        4,
+        'Expected 4 SQL statements in agent_events_v2_eval_queries.sql',
+    )
+
+    # Every statement must project agent_scope_id and stay compatible with
+    # 17-column tables (no bare t.app_name reference).
+    for idx, stmt in enumerate(statements, start=1):
+      self.assertIn(
+          'agent_scope_id',
+          stmt,
+          f'Statement #{idx} must project agent_scope_id.',
+      )
+      self.assertIsNone(
+          re.search(r'\bt\.app_name\b', stmt),
+          f'Statement #{idx} must not reference bare top-level t.app_name.',
+      )
+
+    self._assert_shared_table_isolation_queries(
+        raw_sql,
+        code_sql,
+        'agent_events_v2_eval_queries.sql',
+        expected_coalesce_count=2,
+        exact_coalesce_count=True,
+        expected_where_count=4,
+        exact_where_count=True,
+    )
+
+  def test_eval_queries_agent_scope_priority_semantics(self):
+    code_sql = _strip_sql_line_comments(
+        (self.script_dir / 'agent_events_v2_eval_queries.sql').read_text(
+            encoding='utf-8'
+        )
+    )
+    coalesce_blocks = _extract_agent_scope_coalesce_blocks(code_sql)
+    self.assertGreaterEqual(len(coalesce_blocks), 1)
+    expr = coalesce_blocks[0]
+
+    # 1. Full projects/ $.adk.app_name wins over short data-agent-id & agent.
+    self.assertEqual(
+        self._eval_scope_expr_branches(
+            expr,
+            {
+                'adk': {
+                    'app_name': 'projects/p1/locations/us/dataAgents/sales_1'
+                },
+                'session_metadata': {
+                    'app_name': 'projects/p1/locations/us/dataAgents/sales_1',
+                    'state': {'data-agent-id': 'sales_1'},
+                },
+                'root_agent_name': 'DataAgent',
+            },
+            'DataAgent',
+        ),
+        'projects/p1/locations/us/dataAgents/sales_1',
+    )
+
+    # 2. Pre-v2.3 / Java/Kotlin ADK row with canonical projects/... in
+    # $.session_metadata.app_name wins over short data-agent-id (both when
+    # $.adk.app_name is absent and when $.adk.app_name is a bare server name).
+    self.assertEqual(
+        self._eval_scope_expr_branches(
+            expr,
+            {
+                'session_metadata': {
+                    'app_name': 'projects/p1/locations/us/dataAgents/sales_1',
+                    'state': {'data-agent-id': 'sales_1'},
+                },
+                'root_agent_name': 'DataAgent',
+            },
+            'DataAgent',
+        ),
+        'projects/p1/locations/us/dataAgents/sales_1',
+    )
+    self.assertEqual(
+        self._eval_scope_expr_branches(
+            expr,
+            {
+                'adk': {'app_name': 'legacy_server'},
+                'session_metadata': {
+                    'app_name': 'projects/p1/locations/us/dataAgents/sales_1',
+                    'state': {'data-agent-id': 'sales_1'},
+                },
+                'root_agent_name': 'DataAgent',
+            },
+            'DataAgent',
+        ),
+        'projects/p1/locations/us/dataAgents/sales_1',
+    )
+
+    # 3. Non-projects/ legacy server app_name yields to data-agent-id.
+    self.assertEqual(
+        self._eval_scope_expr_branches(
+            expr,
+            {
+                'adk': {'app_name': 'legacy_server'},
+                'session_metadata': {
+                    'app_name': 'legacy_server',
+                    'state': {'data-agent-id': 'legacy_agent_42'},
+                },
+                'root_agent_name': 'DataAgent',
+            },
+            'DataAgent',
+        ),
+        'legacy_agent_42',
+    )
+
+    # 3. Bare non-projects/ $.adk.app_name wins when data-agent-id is absent.
+    self.assertEqual(
+        self._eval_scope_expr_branches(
+            expr,
+            {
+                'adk': {'app_name': 'custom_adk_app'},
+                'session_metadata': {'app_name': 'fallback_session_app'},
+                'root_agent_name': 'CustomRoot',
+            },
+            'CustomRoot',
+        ),
+        'custom_adk_app',
+    )
+
+    # 4. Java/Kotlin ADK runner falls back to $.session_metadata.app_name.
+    self.assertEqual(
+        self._eval_scope_expr_branches(
+            expr,
+            {
+                'adk': {'app_name': ''},
+                'session_metadata': {'app_name': 'orders_java_app'},
+                'root_agent_name': 'OrderRoot',
+            },
+            'OrderRoot',
+        ),
+        'orders_java_app',
+    )
+
+    # 5. Pre-v3 transfer_to_agent handoff stays unified via root_agent_name.
+    root_scope = self._eval_scope_expr_branches(
+        expr, {'root_agent_name': 'coordinator'}, 'coordinator'
+    )
+    sub_scope = self._eval_scope_expr_branches(
+        expr, {'root_agent_name': 'coordinator'}, 'billing_sub_agent'
+    )
+    self.assertEqual(root_scope, 'coordinator')
+    self.assertEqual(sub_scope, 'coordinator')
+
+    # 6. Minimal row without attributes falls back to t.agent.
+    self.assertEqual(
+        self._eval_scope_expr_branches(expr, {}, 'standalone_agent'),
+        'standalone_agent',
+    )
+
+    # 7. All-empty / missing attributes and agent yield None.
+    self.assertIsNone(self._eval_scope_expr_branches(expr, {}, None))
+    self.assertIsNone(
+        self._eval_scope_expr_branches(
+            expr,
+            {
+                'adk': {'app_name': ''},
+                'session_metadata': {
+                    'app_name': '',
+                    'state': {'data-agent-id': ''},
+                },
+                'root_agent_name': '',
+            },
+            '',
+        )
+    )
+
+  def test_readmes_document_shared_table_agent_scope_isolation(self):
+    for rel_path in ('README.md', '../README.md'):
+      with self.subTest(rel_path=rel_path):
+        readme_text = (self.script_dir / rel_path).read_text(encoding='utf-8')
+        code_text = _strip_sql_line_comments(readme_text)
+        self._assert_shared_table_isolation_queries(
+            readme_text,
+            code_text,
+            rel_path,
+            expected_coalesce_count=2,
+            exact_coalesce_count=False,
+            expected_where_count=3,
+            exact_where_count=False,
+        )
+
+    geap_readme = (self.script_dir.parent / 'geap' / 'README.md').read_text(
+        encoding='utf-8'
+    )
+    where_match = re.search(
+        r"WHERE\s+(COALESCE\s*\(.*?\))\s*=\s*'YOUR_IMMUTABLE_AGENT_ID'",
+        geap_readme,
+        flags=re.DOTALL,
+    )
+    self.assertIsNotNone(
+        where_match,
+        'geap/README.md missing scoped view WHERE COALESCE(...) ='
+        " 'YOUR_IMMUTABLE_AGENT_ID' snippet.",
+    )
+    normalized_geap_where = self._normalize_sql_expr(where_match.group(1))
+    expected_geap_where = (
+        f"COALESCE({', '.join(self._EXPECTED_GEAP_SCOPE_BRANCHES)})"
+    )
+    self.assertEqual(
+        normalized_geap_where,
+        expected_geap_where,
+        'geap/README.md scoped view must list the 5 immutable branches in'
+        ' exact order without mutable root_agent_name or agent.',
+    )
+    self.assertNotIn('root_agent_name', normalized_geap_where)
+    self.assertNotIn('agent,', normalized_geap_where)
+    self.assertIn('adk_schema_version', geap_readme)
+    self.assertIn('### Step 1: Install routines', geap_readme)
+    self.assertLess(
+        geap_readme.index('#### Shared multi-agent tables'),
+        geap_readme.index('### Step 2: Check traces (optional)'),
+    )
+
+
 class AgentEvaluationDeepevalTest(unittest.TestCase):
 
   def setUp(self):
@@ -1326,8 +1765,9 @@ class AgentEvaluationDeepevalTest(unittest.TestCase):
     queries_sql = (
         self.script_dir / 'agent_events_v2_eval_queries.sql'
     ).read_text(encoding='utf-8')
-    self.assertIn('WITH grouped_invocations AS', queries_sql)
-    self.assertIn('WITH grouped_sessions AS', queries_sql)
+    self.assertIn('WITH scoped_events AS', queries_sql)
+    self.assertIn('grouped_invocations AS', queries_sql)
+    self.assertIn('grouped_sessions AS', queries_sql)
     self.assertIn('TO_JSON_STRING(events)', queries_sql)
     self.assertIn('deepeval_parse_trace', queries_sql)
     self.assertIn('deepeval_evaluate', queries_sql)
